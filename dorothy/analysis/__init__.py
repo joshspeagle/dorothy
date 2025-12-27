@@ -6,6 +6,7 @@ from dorothy.analysis.knn_anomaly import (
     l2_normalize,
 )
 
+
 __all__ = [
     "AnomalyDetector",
     "AnomalyResult",

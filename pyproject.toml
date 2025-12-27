@@ -70,6 +70,11 @@ line-length = 100
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
 ignore = ["E501"]  # Line length handled separately
 
+[tool.ruff.lint.isort]
+force-single-line = false
+lines-after-imports = 2
+known-first-party = ["dorothy"]
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true

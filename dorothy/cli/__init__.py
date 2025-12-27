@@ -2,4 +2,5 @@
 
 from dorothy.cli.main import main
 
+
 __all__ = ["main"]

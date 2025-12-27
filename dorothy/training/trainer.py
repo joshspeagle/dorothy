@@ -46,6 +46,7 @@ from dorothy.inference.evaluator import Evaluator
 from dorothy.losses.heteroscedastic import HeteroscedasticLoss
 from dorothy.models.mlp import MLP
 
+
 if TYPE_CHECKING:
     from dorothy.config.schema import ExperimentConfig
 
