@@ -94,3 +94,6 @@ nul
 *.tmp
 *.temp
 *.bak
+
+# Claude AI files
+.claude/
