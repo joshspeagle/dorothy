@@ -66,7 +66,24 @@ outputs/
 *.csv
 *.h5
 *.hdf5
-data/
+*.npy
+*.pkl
+*.joblib
+
+# Data directory - ignore all data files but keep structure
+# Keep README.md and .gitkeep files
+!data/
+!data/README.md
+!data/raw/
+!data/raw/*/
+!data/raw/*/.gitkeep
+!data/processed/
+!data/processed/*/
+!data/processed/*/.gitkeep
+!data/models/
+!data/models/.gitkeep
+!data/scalers/
+!data/scalers/.gitkeep
 
 # OS generated files
 .DS_Store

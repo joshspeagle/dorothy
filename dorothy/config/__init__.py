@@ -3,9 +3,11 @@
 from dorothy.config.schema import (
     DataConfig,
     ExperimentConfig,
+    LabelSource,
     MaskingConfig,
     ModelConfig,
     SchedulerConfig,
+    SurveyType,
     TrainingConfig,
 )
 
@@ -17,4 +19,6 @@ __all__ = [
     "TrainingConfig",
     "MaskingConfig",
     "SchedulerConfig",
+    "SurveyType",
+    "LabelSource",
 ]

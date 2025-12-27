@@ -1,0 +1,90 @@
+# DOROTHY Super-Catalogue Configuration
+# ======================================
+#
+# This configuration file defines how to build the unified multi-survey
+# super-catalogue. Edit the paths below to match your data locations.
+#
+# By default, paths reference the centralized data/ folder structure.
+# See data/README.md for expected file locations.
+#
+# Usage:
+#   python scripts/build_catalogue.py --config scripts/catalogue_config.yaml
+#   python scripts/build_catalogue.py --config scripts/catalogue_config.yaml --dry-run
+
+# Output configuration
+output:
+  path: "data/super_catalogue.h5"
+  compression: gzip
+  compression_opts: 4  # 1-9, higher = smaller file but slower
+
+# Gaia DR3 cross-matching configuration
+# Labels (APOGEE/GALAH) have Gaia IDs directly in their catalogues:
+#   - APOGEE DR17: GAIAEDR3_SOURCE_ID column (~99.2% coverage)
+#   - GALAH DR4: gaiadr3_source_id column (~100% coverage)
+# Surveys inherit Gaia IDs from their matched label sources.
+gaia:
+  tolerance_arcsec: 0.5  # Cross-match tolerance for survey-to-label matching
+
+# Survey configurations
+# Set enabled: false to skip a survey
+surveys:
+  # DESI spectroscopic data
+  desi:
+    enabled: true
+    data_path: "data/raw/desi/loa_training_cube.fits"
+    gaia_crossmatch_path: "data/raw/desi/desi_gaia_crossmatch.fits"  # Optional
+    snr_threshold: 20.0
+    snr_column: "SN_B"
+    extra_filters:
+      RVS_WARN: 0
+      RR_SPECTYPE: "STAR"
+
+  # BOSS/SDSS spectroscopic data
+  boss:
+    enabled: true
+    data_path: "data/raw/boss/spAll-lite-v6_1_3.fits.gz"
+    spectra_dir: "data/raw/boss/spectra/"  # Directory with individual spectra
+    snr_threshold: 20.0
+    snr_column: "SN_MEDIAN_ALL"
+    extra_filters:
+      CLASS: "STAR"
+
+  # LAMOST Low Resolution Spectroscopy
+  lamost_lrs:
+    enabled: true
+    data_path: "data/raw/lamost_lrs/dr11_v2.0_LRS_stellar.fits"
+    snr_threshold: 20.0
+    snr_column: "snrg"
+    extra_filters:
+      offsets: 0
+
+  # LAMOST Medium Resolution Spectroscopy (dual-arm)
+  lamost_mrs:
+    enabled: true
+    data_path: "data/raw/lamost_mrs/dr11_v2.0_MRS_stellar.fits"
+    snr_threshold: 20.0
+    snr_column: "snr"
+    extra_filters:
+      rv_br_flag: [0, 2, 3, 4]  # NOT 1
+      rv_b_flag: [0, 2, 3, 4]   # NOT 1
+      offsets: 0
+
+# Label source configurations
+labels:
+  # APOGEE DR17 stellar parameters
+  # Includes GAIAEDR3_SOURCE_ID column (EDR3 IDs = DR3 IDs)
+  apogee:
+    enabled: true
+    data_path: "data/raw/apogee/allStar-dr17-synspec_rev1.fits"
+    gaia_id_column: "GAIAEDR3_SOURCE_ID"
+    snr_threshold: 50.0  # Higher than spectra SNR since different meaning
+    apply_star_bad_filter: true  # (ASPCAPFLAG & STAR_BAD) == 0
+
+  # GALAH DR4 stellar parameters
+  # Includes gaiadr3_source_id column
+  galah:
+    enabled: true
+    data_path: "data/raw/galah/galah_dr4_allstar_240705.fits"
+    gaia_id_column: "gaiadr3_source_id"
+    snr_threshold: 30.0  # snr_px_ccd3
+    apply_flag_sp_filter: true  # flag_sp == 0 (IMPORTANT!)

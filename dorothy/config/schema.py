@@ -23,6 +23,15 @@ class SurveyType(str, Enum):
     DESI = "desi"
     BOSS = "boss"
     LAMOST = "lamost"
+    LAMOST_LRS = "lamost_lrs"
+    LAMOST_MRS = "lamost_mrs"
+
+
+class LabelSource(str, Enum):
+    """Supported label sources for the super-catalogue."""
+
+    APOGEE = "apogee"
+    GALAH = "galah"
 
 
 class NormalizationType(str, Enum):
@@ -85,18 +94,34 @@ STELLAR_PARAMETERS = [
 class DataConfig(BaseModel):
     """Configuration for data loading and preprocessing.
 
+    Supports two data sources:
+    1. Legacy FITS files (fits_path) - original per-survey training files
+    2. Super-catalogue (catalogue_path) - unified HDF5 multi-survey catalogue
+
     Attributes:
-        fits_path: Path to the input FITS file containing spectra and labels.
+        fits_path: Path to the input FITS file (legacy mode).
+        catalogue_path: Path to HDF5 super-catalogue (new mode).
         survey: The astronomical survey type (affects wavelength handling).
+        label_source: Which label source to use from catalogue (apogee/galah).
         input_channels: Number of input channels (typically 2: flux + ivar).
         wavelength_bins: Number of wavelength bins in the spectra.
         train_ratio: Fraction of data for training (default 0.7).
         val_ratio: Fraction of data for validation (default 0.2).
-        quality_filter: Whether to apply APOGEE quality flag filtering.
+        quality_filter: Whether to apply quality flag filtering.
+        max_flag_bits: Maximum allowed flag bits for catalogue loading (0=highest quality).
     """
 
-    fits_path: Path = Field(description="Path to input FITS file")
+    fits_path: Path | None = Field(
+        default=None, description="Path to input FITS file (legacy mode)"
+    )
+    catalogue_path: Path | None = Field(
+        default=None, description="Path to HDF5 super-catalogue"
+    )
     survey: SurveyType = Field(default=SurveyType.DESI, description="Survey type")
+    label_source: LabelSource = Field(
+        default=LabelSource.APOGEE,
+        description="Label source for catalogue (apogee/galah)",
+    )
     input_channels: int = Field(
         default=2, ge=1, le=3, description="Number of input channels"
     )
@@ -113,13 +138,34 @@ class DataConfig(BaseModel):
         default=0.2, gt=0.0, lt=1.0, description="Validation data fraction"
     )
     quality_filter: bool = Field(
-        default=True, description="Apply APOGEE quality filtering"
+        default=True, description="Apply quality flag filtering"
+    )
+    max_flag_bits: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum allowed flag bits for catalogue (0=highest quality)",
     )
 
     @property
     def test_ratio(self) -> float:
         """Compute test ratio from train and validation ratios."""
         return 1.0 - self.train_ratio - self.val_ratio
+
+    @property
+    def use_catalogue(self) -> bool:
+        """Whether to use catalogue mode vs legacy FITS mode."""
+        return self.catalogue_path is not None
+
+    @model_validator(mode="after")
+    def validate_data_source(self) -> DataConfig:
+        """Ensure exactly one data source is specified."""
+        if self.fits_path is None and self.catalogue_path is None:
+            raise ValueError("Either fits_path or catalogue_path must be specified")
+        if self.fits_path is not None and self.catalogue_path is not None:
+            raise ValueError(
+                "Cannot specify both fits_path and catalogue_path - choose one"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_ratios(self) -> DataConfig:
