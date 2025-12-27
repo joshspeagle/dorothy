@@ -1,0 +1,79 @@
+# Original notebooks (reference only, not part of package)
+d5martin/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+pip-wheel-metadata/
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.log
+
+# Linting / formatting caches
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Model checkpoints and outputs (large files)
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+outputs/
+
+# Data files (too large for git)
+*.fits
+*.fits.gz
+*.csv
+*.h5
+*.hdf5
+data/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+nul
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

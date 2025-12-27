@@ -1,0 +1,55 @@
+# DOROTHY Example Configuration
+# ==============================
+# This is a minimal configuration for training a stellar parameter model.
+# For full documentation of all options, see dorothy/config/schema.py
+
+name: basic_desi_model
+description: Basic DESI stellar parameter model with default architecture
+
+# Data configuration
+data:
+  fits_path: /path/to/your/spectra.fits  # Required: path to input FITS file
+  survey: desi                            # Survey type: desi, boss, or lamost
+  wavelength_bins: 7650                   # Number of wavelength bins
+  input_channels: 2                       # Number of input channels (flux + ivar)
+  train_ratio: 0.7                        # Training set fraction
+  val_ratio: 0.2                          # Validation set fraction (test = 0.1)
+  quality_filter: true                    # Apply APOGEE quality flag filtering
+
+# Model architecture
+model:
+  hidden_layers: [5000, 2000, 1000, 500, 200, 100]  # Default DOROTHY architecture
+  normalization: batchnorm                          # batchnorm or layernorm
+  activation: gelu                                  # gelu, relu, or silu
+  dropout: 0.0                                      # Dropout probability (0 = disabled)
+  # input_features and output_features are auto-computed from data config
+
+# Training configuration
+training:
+  epochs: 300
+  batch_size: 1024
+  learning_rate: 0.001
+  loss: heteroscedastic                   # Heteroscedastic loss for uncertainty
+  scatter_floor: 0.01                     # Minimum uncertainty floor (s_0)
+  gradient_clip: 10.0                     # Max gradient norm (0 = disabled)
+  early_stopping_patience: 0              # Epochs without improvement (0 = disabled)
+
+  # Learning rate scheduler
+  scheduler:
+    type: cyclic                          # cyclic, reduce_on_plateau, cosine_annealing, none
+    base_lr: 0.000001                     # Minimum LR for cyclic scheduler
+    max_lr: 0.001                         # Maximum LR for cyclic scheduler
+    step_size_up: 250                     # Steps to increase from base_lr to max_lr
+    step_size_down: 650                   # Steps to decrease from max_lr to base_lr
+    gamma: 0.9995                         # Exponential decay factor per cycle
+
+# Optional masking for robustness (disabled by default)
+masking:
+  enabled: false
+  mask_fraction: 0.1                      # Fraction of wavelengths to mask
+  contiguous: false                       # Whether to mask contiguous regions
+
+# Output configuration
+output_dir: ./outputs
+seed: 42
+device: auto                              # auto, cuda, or cpu
