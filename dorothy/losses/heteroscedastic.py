@@ -36,9 +36,10 @@ class HeteroscedasticLoss(nn.Module):
     - output[:, 0, :]: predicted means (mu)
     - output[:, 1, :]: predicted log-scatter (ln_s)
 
-    The target is expected to have 2N values:
-    - First N values: true labels (y)
-    - Last N values: label uncertainties (sigma_label)
+    The target has 3-channel format (batch, 3, n_parameters):
+    - target[:, 0, :]: true labels (y)
+    - target[:, 1, :]: label uncertainties (sigma_label)
+    - target[:, 2, :]: mask (1=valid, 0=masked) - used for loss computation
 
     Attributes:
         scatter_floor: Minimum scatter value (s_0) to prevent division by zero.
@@ -48,7 +49,7 @@ class HeteroscedasticLoss(nn.Module):
     Example:
         >>> loss_fn = HeteroscedasticLoss(scatter_floor=0.01, n_parameters=11)
         >>> output = model(x)  # Shape: (batch, 2, 11)
-        >>> target = labels    # Shape: (batch, 22) - [y, sigma_label]
+        >>> target = labels    # Shape: (batch, 3, 11) - [y, sigma, mask]
         >>> loss = loss_fn(output, target)
     """
 
@@ -102,7 +103,6 @@ class HeteroscedasticLoss(nn.Module):
         self,
         output: torch.Tensor,
         target: torch.Tensor,
-        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Compute the heteroscedastic loss.
@@ -111,12 +111,10 @@ class HeteroscedasticLoss(nn.Module):
             output: Model predictions of shape (batch_size, 2, n_parameters).
                 output[:, 0, :] contains predicted means (mu).
                 output[:, 1, :] contains predicted log-scatter (ln_s).
-            target: Target values of shape (batch_size, 2 * n_parameters).
-                First n_parameters columns are true labels (y).
-                Last n_parameters columns are label uncertainties (sigma_label).
-            mask: Optional mask of shape (batch_size, n_parameters).
-                Values of 1 indicate valid labels, 0 indicates masked labels.
-                When provided, only valid labels contribute to the loss.
+            target: Target values of shape (batch_size, 3, n_parameters).
+                target[:, 0, :] contains true labels (y).
+                target[:, 1, :] contains label uncertainties (sigma_label).
+                target[:, 2, :] contains mask (1=valid, 0=masked).
 
         Returns:
             The computed loss, reduced according to self.reduction.
@@ -124,26 +122,25 @@ class HeteroscedasticLoss(nn.Module):
         Raises:
             ValueError: If output or target shapes don't match expectations.
         """
-        expected_target_size = 2 * self.n_parameters
-
         if output.shape[1:] != (2, self.n_parameters):
             raise ValueError(
                 f"Output shape should be (batch, 2, {self.n_parameters}), "
                 f"got {output.shape}"
             )
-        if target.shape[-1] != expected_target_size:
+        if target.shape[1:] != (3, self.n_parameters):
             raise ValueError(
-                f"Target last dimension should be {expected_target_size}, "
-                f"got {target.shape[-1]}"
+                f"Target shape should be (batch, 3, {self.n_parameters}), "
+                f"got {target.shape}"
             )
 
         # Extract predictions and log-uncertainties from 3D output
         mu = output[:, 0, :]  # (batch, n_params)
         ln_s = output[:, 1, :]  # (batch, n_params)
 
-        # Split target into labels and measurement uncertainties
-        y = target[:, : self.n_parameters]
-        sigma_label = target[:, self.n_parameters :]
+        # Extract labels, uncertainties, and mask from 3-channel target
+        y = target[:, 0, :]  # (batch, n_params)
+        sigma_label = target[:, 1, :]  # (batch, n_params)
+        mask = target[:, 2, :]  # (batch, n_params)
 
         # Compute model's predicted scatter with floor
         # s = sqrt(exp(2 * ln_s) + s_0^2)
@@ -160,9 +157,8 @@ class HeteroscedasticLoss(nn.Module):
         squared_error = (mu - y) ** 2
         loss_per_element = squared_error / total_variance + torch.log(total_variance)
 
-        # Apply mask if provided
-        if mask is not None:
-            loss_per_element = loss_per_element * mask
+        # Apply mask from target channel 2
+        loss_per_element = loss_per_element * mask
 
         # Apply reduction
         if self.reduction == "none":
@@ -170,10 +166,8 @@ class HeteroscedasticLoss(nn.Module):
         elif self.reduction == "sum":
             return loss_per_element.sum()
         else:  # mean
-            if mask is not None:
-                # Average over valid elements only
-                return loss_per_element.sum() / mask.sum().clamp(min=1)
-            return loss_per_element.mean()
+            # Average over valid elements only
+            return loss_per_element.sum() / mask.sum().clamp(min=1)
 
     def get_predicted_scatter(self, output: torch.Tensor) -> torch.Tensor:
         """
@@ -196,7 +190,6 @@ class HeteroscedasticLoss(nn.Module):
         self,
         output: torch.Tensor,
         target: torch.Tensor,
-        mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """
         Compute loss with detailed per-parameter and per-component breakdown.
@@ -207,10 +200,10 @@ class HeteroscedasticLoss(nn.Module):
 
         Args:
             output: Model predictions of shape (batch_size, 2, n_parameters).
-            target: Target values of shape (batch_size, 2 * n_parameters).
-            mask: Optional mask of shape (batch_size, n_parameters).
-                Values of 1 indicate valid labels, 0 indicates masked labels.
-                When provided, only valid labels contribute to the loss.
+            target: Target values of shape (batch_size, 3, n_parameters).
+                target[:, 0, :] contains true labels (y).
+                target[:, 1, :] contains label uncertainties (sigma_label).
+                target[:, 2, :] contains mask (1=valid, 0=masked).
 
         Returns:
             Dictionary containing:
@@ -218,17 +211,21 @@ class HeteroscedasticLoss(nn.Module):
                 - 'mean_component': Per-parameter mean loss, shape (n_parameters,)
                 - 'scatter_component': Per-parameter scatter loss, shape (n_parameters,)
                 - 'residuals': Raw residuals (mu - y), shape (batch, n_parameters)
+                - 'y_pred': Predicted means, shape (batch, n_parameters)
+                - 'pred_scatter': Predicted scatter, shape (batch, n_parameters)
         """
         # Extract predictions and log-uncertainties from 3D output
         mu = output[:, 0, :]  # (batch, n_params)
         ln_s = output[:, 1, :]  # (batch, n_params)
 
-        # Split target into labels and measurement uncertainties
-        y = target[:, : self.n_parameters]
-        sigma_label = target[:, self.n_parameters :]
+        # Extract labels, uncertainties, and mask from 3-channel target
+        y = target[:, 0, :]  # (batch, n_params)
+        sigma_label = target[:, 1, :]  # (batch, n_params)
+        mask = target[:, 2, :]  # (batch, n_params)
 
         # Compute model's predicted scatter with floor
         s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
+        pred_scatter = torch.sqrt(s_squared)
 
         # Total variance
         sigma_label_sq = sigma_label**2
@@ -243,17 +240,12 @@ class HeteroscedasticLoss(nn.Module):
         # Per-element loss
         loss_per_element = mean_component + scatter_component
 
-        # Apply mask if provided
-        if mask is not None:
-            loss_per_element = loss_per_element * mask
-            # Average over batch for each parameter, counting only valid samples
-            valid_counts = mask.sum(dim=0).clamp(min=1)  # (n_params,)
-            mean_component_avg = (mean_component * mask).sum(dim=0) / valid_counts
-            scatter_component_avg = (scatter_component * mask).sum(dim=0) / valid_counts
-        else:
-            # Average over batch to get per-parameter values
-            mean_component_avg = mean_component.mean(dim=0)  # (n_params,)
-            scatter_component_avg = scatter_component.mean(dim=0)  # (n_params,)
+        # Apply mask from target channel 2
+        loss_per_element = loss_per_element * mask
+        # Average over batch for each parameter, counting only valid samples
+        valid_counts = mask.sum(dim=0).clamp(min=1)  # (n_params,)
+        mean_component_avg = (mean_component * mask).sum(dim=0) / valid_counts
+        scatter_component_avg = (scatter_component * mask).sum(dim=0) / valid_counts
 
         # Total loss
         if self.reduction == "none":
@@ -261,16 +253,15 @@ class HeteroscedasticLoss(nn.Module):
         elif self.reduction == "sum":
             total_loss = loss_per_element.sum()
         else:  # mean
-            if mask is not None:
-                total_loss = loss_per_element.sum() / mask.sum().clamp(min=1)
-            else:
-                total_loss = loss_per_element.mean()
+            total_loss = loss_per_element.sum() / mask.sum().clamp(min=1)
 
         return {
             "loss": total_loss,
             "mean_component": mean_component_avg,
             "scatter_component": scatter_component_avg,
             "residuals": residuals,
+            "y_pred": mu,
+            "pred_scatter": pred_scatter,
         }
 
     def extra_repr(self) -> str:

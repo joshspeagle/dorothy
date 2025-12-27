@@ -2,15 +2,20 @@
 Multi-layer perceptron (MLP) architecture for stellar parameter inference.
 
 This module implements the configurable MLP architecture used by DOROTHY models.
-The network takes spectral data (flux and inverse variance) as input and predicts
+The network takes 3-channel spectral data (flux, sigma, mask) as input and predicts
 stellar parameters along with their uncertainties.
 
 Default architecture (DOROTHY standard):
-    Input: (batch, 2, 7650) -> Flatten -> (batch, 15300)
-    Hidden: 15300 -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100
+    Input: (batch, 3, wavelengths) -> Flatten -> (batch, 3*wavelengths)
+    Hidden: 3*wavelengths -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100
     Output: 100 -> 22 -> reshape -> (batch, 2, 11)
 
-The output tensor has shape (batch, 2, n_params) where:
+Input tensor has shape (batch, 3, wavelengths) where:
+    - input[:, 0, :] contains the flux values
+    - input[:, 1, :] contains the sigma (uncertainty) values
+    - input[:, 2, :] contains the mask (1=valid, 0=invalid)
+
+Output tensor has shape (batch, 2, n_params) where:
     - output[:, 0, :] contains the predicted means
     - output[:, 1, :] contains the predicted log-scatter values
 """
@@ -37,13 +42,18 @@ class MLP(nn.Module):
     - Activation function (GELU, ReLU, or SiLU)
     - Dropout probability
 
-    The network flattens 3D input tensors (batch, channels, wavelengths) to 2D
+    The network flattens 3D input tensors (batch, 3, wavelengths) to 2D
     before processing through the hidden layers. The output is reshaped to
     (batch, 2, n_params) where the second dimension separates means and
     log-scatter predictions.
 
+    Input format (3-channel):
+        - Channel 0: flux values
+        - Channel 1: sigma (uncertainty) values
+        - Channel 2: mask (1=valid, 0=invalid)
+
     Attributes:
-        input_features: Number of input features after flattening.
+        input_features: Number of input features after flattening (3 * wavelengths).
         output_features: Number of output features (2 * n_parameters).
         n_parameters: Number of stellar parameters being predicted.
         hidden_layers: List of hidden layer sizes.
@@ -53,7 +63,7 @@ class MLP(nn.Module):
         >>> from dorothy.config import ModelConfig
         >>> config = ModelConfig(hidden_layers=[1000, 500, 100])
         >>> model = MLP.from_config(config)
-        >>> x = torch.randn(32, 2, 7650)  # batch of spectra
+        >>> x = torch.randn(32, 3, 4506)  # batch of 3-channel spectra
         >>> output = model(x)  # shape: (32, 2, 11)
         >>> means = output[:, 0, :]  # predicted means
         >>> log_scatter = output[:, 1, :]  # predicted log-scatter
@@ -162,8 +172,11 @@ class MLP(nn.Module):
         Forward pass through the network.
 
         Args:
-            x: Input tensor of shape (batch_size, channels, wavelength_bins) or
-               (batch_size, input_features). If 3D, the tensor is flattened.
+            x: Input tensor of shape (batch_size, 3, wavelength_bins) where:
+                - x[:, 0, :] contains the flux values
+                - x[:, 1, :] contains the sigma (uncertainty) values
+                - x[:, 2, :] contains the mask (1=valid, 0=invalid)
+               Can also be pre-flattened (batch_size, input_features).
 
         Returns:
             Output tensor of shape (batch_size, 2, n_parameters) where:

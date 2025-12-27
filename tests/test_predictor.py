@@ -359,7 +359,7 @@ class TestPredictorFromConfig:
         """Create a simple experiment config."""
         return ExperimentConfig(
             name="test_experiment",
-            data=DataConfig(fits_path=Path("/fake/path.fits"), wavelength_bins=1000),
+            data=DataConfig(catalogue_path=Path("/fake/catalogue.h5")),
             model=ModelConfig(
                 input_features=1000,
                 output_features=6,
@@ -378,9 +378,7 @@ class TestPredictorFromConfig:
 
             simple_config = ExperimentConfig(
                 name="test_experiment",
-                data=DataConfig(
-                    fits_path=Path("/fake/path.fits"), wavelength_bins=1000
-                ),
+                data=DataConfig(catalogue_path=Path("/fake/catalogue.h5")),
                 model=ModelConfig(
                     input_features=100,
                     output_features=6,

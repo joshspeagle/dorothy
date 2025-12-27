@@ -1,13 +1,13 @@
 """Configuration management for DOROTHY experiments."""
 
 from dorothy.config.schema import (
+    CombinationMode,
     DataConfig,
     ExperimentConfig,
-    LabelSource,
     MaskingConfig,
     ModelConfig,
+    MultiHeadModelConfig,
     SchedulerConfig,
-    SurveyType,
     TrainingConfig,
 )
 
@@ -16,9 +16,9 @@ __all__ = [
     "ExperimentConfig",
     "DataConfig",
     "ModelConfig",
+    "MultiHeadModelConfig",
+    "CombinationMode",
     "TrainingConfig",
     "MaskingConfig",
     "SchedulerConfig",
-    "SurveyType",
-    "LabelSource",
 ]

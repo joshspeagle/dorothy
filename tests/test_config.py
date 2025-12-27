@@ -24,7 +24,6 @@ from dorothy.config.schema import (
     NormalizationType,
     SchedulerConfig,
     SchedulerType,
-    SurveyType,
     TrainingConfig,
 )
 
@@ -34,19 +33,20 @@ class TestDataConfig:
 
     def test_default_values(self):
         """Test that default values match DOROTHY conventions."""
-        config = DataConfig(fits_path=Path("/data/test.fits"))
+        config = DataConfig(catalogue_path=Path("/data/super_catalogue.h5"))
 
-        assert config.survey == SurveyType.DESI
-        assert config.input_channels == 2
-        assert config.wavelength_bins == 7650
+        assert config.surveys == ["boss"]
+        assert config.label_sources == ["apogee"]
         assert config.train_ratio == 0.7
         assert config.val_ratio == 0.2
-        assert config.quality_filter is True
+        assert config.max_flag_bits == 0
+        assert config.smart_deduplicate is True
+        assert config.chi2_threshold == 2.0
 
     def test_test_ratio_computed_correctly(self):
         """Test that test_ratio is computed as 1 - train - val."""
         config = DataConfig(
-            fits_path=Path("/data/test.fits"),
+            catalogue_path=Path("/data/super_catalogue.h5"),
             train_ratio=0.6,
             val_ratio=0.3,
         )
@@ -57,7 +57,7 @@ class TestDataConfig:
         """Test that train + val ratios cannot equal or exceed 1.0."""
         with pytest.raises(ValidationError) as exc_info:
             DataConfig(
-                fits_path=Path("/data/test.fits"),
+                catalogue_path=Path("/data/super_catalogue.h5"),
                 train_ratio=0.7,
                 val_ratio=0.3,  # Sum = 1.0, no room for test
             )
@@ -68,34 +68,66 @@ class TestDataConfig:
         """Test that train + val > 1.0 is rejected."""
         with pytest.raises(ValidationError) as exc_info:
             DataConfig(
-                fits_path=Path("/data/test.fits"),
+                catalogue_path=Path("/data/super_catalogue.h5"),
                 train_ratio=0.8,
                 val_ratio=0.5,
             )
 
         assert "must be less than 1.0" in str(exc_info.value)
 
-    def test_invalid_survey_type_rejected(self):
-        """Test that invalid survey types are rejected."""
+    def test_multiple_surveys(self):
+        """Test multi-survey configuration."""
+        config = DataConfig(
+            catalogue_path=Path("/data/super_catalogue.h5"),
+            surveys=["boss", "lamost_lrs", "desi"],
+        )
+
+        assert config.surveys == ["boss", "lamost_lrs", "desi"]
+        assert config.is_multi_survey is True
+
+    def test_single_survey(self):
+        """Test single survey configuration."""
+        config = DataConfig(
+            catalogue_path=Path("/data/super_catalogue.h5"),
+            surveys=["boss"],
+        )
+
+        assert config.is_multi_survey is False
+
+    def test_multiple_label_sources(self):
+        """Test multi-label source configuration."""
+        config = DataConfig(
+            catalogue_path=Path("/data/super_catalogue.h5"),
+            label_sources=["apogee", "galah"],
+        )
+
+        assert config.label_sources == ["apogee", "galah"]
+        assert config.is_multi_label is True
+
+    def test_single_label_source(self):
+        """Test single label source configuration."""
+        config = DataConfig(
+            catalogue_path=Path("/data/super_catalogue.h5"),
+            label_sources=["apogee"],
+        )
+
+        assert config.is_multi_label is False
+
+    def test_empty_surveys_rejected(self):
+        """Test that empty surveys list is rejected."""
         with pytest.raises(ValidationError):
             DataConfig(
-                fits_path=Path("/data/test.fits"),
-                survey="invalid_survey",
+                catalogue_path=Path("/data/super_catalogue.h5"),
+                surveys=[],
             )
 
-    def test_wavelength_bins_bounds(self):
-        """Test wavelength_bins validation bounds."""
-        # Too small
+    def test_empty_label_sources_rejected(self):
+        """Test that empty label_sources list is rejected."""
         with pytest.raises(ValidationError):
-            DataConfig(fits_path=Path("/data/test.fits"), wavelength_bins=100)
-
-        # Too large
-        with pytest.raises(ValidationError):
-            DataConfig(fits_path=Path("/data/test.fits"), wavelength_bins=50000)
-
-        # Valid BOSS value
-        config = DataConfig(fits_path=Path("/data/test.fits"), wavelength_bins=4506)
-        assert config.wavelength_bins == 4506
+            DataConfig(
+                catalogue_path=Path("/data/super_catalogue.h5"),
+                label_sources=[],
+            )
 
 
 class TestModelConfig:
@@ -265,32 +297,18 @@ class TestExperimentConfig:
         """Test creating a minimal valid experiment configuration."""
         config = ExperimentConfig(
             name="test_experiment",
-            data=DataConfig(fits_path=Path("/data/test.fits")),
+            data=DataConfig(catalogue_path=Path("/data/super_catalogue.h5")),
         )
 
         assert config.name == "test_experiment"
         assert config.seed == 42
         assert config.device == "auto"
 
-    def test_input_features_synced_with_data(self):
-        """Test that model input_features is synced with data config."""
-        config = ExperimentConfig(
-            name="test",
-            data=DataConfig(
-                fits_path=Path("/data/test.fits"),
-                input_channels=2,
-                wavelength_bins=4506,  # BOSS wavelengths
-            ),
-        )
-
-        # Model should have 2 * 4506 = 9012 input features
-        assert config.model.input_features == 9012
-
     def test_output_path_construction(self):
         """Test output path is constructed correctly."""
         config = ExperimentConfig(
             name="my_experiment",
-            data=DataConfig(fits_path=Path("/data/test.fits")),
+            data=DataConfig(catalogue_path=Path("/data/super_catalogue.h5")),
             output_dir=Path("/outputs"),
         )
 
@@ -300,7 +318,7 @@ class TestExperimentConfig:
         """Test checkpoint path construction for epochs and final."""
         config = ExperimentConfig(
             name="my_experiment",
-            data=DataConfig(fits_path=Path("/data/test.fits")),
+            data=DataConfig(catalogue_path=Path("/data/super_catalogue.h5")),
             output_dir=Path("/outputs"),
         )
 
@@ -319,7 +337,7 @@ class TestExperimentConfig:
         with pytest.raises(ValidationError):
             ExperimentConfig(
                 name="",
-                data=DataConfig(fits_path=Path("/data/test.fits")),
+                data=DataConfig(catalogue_path=Path("/data/super_catalogue.h5")),
             )
 
     def test_seed_must_be_non_negative(self):
@@ -327,8 +345,59 @@ class TestExperimentConfig:
         with pytest.raises(ValidationError):
             ExperimentConfig(
                 name="test",
-                data=DataConfig(fits_path=Path("/data/test.fits")),
+                data=DataConfig(catalogue_path=Path("/data/super_catalogue.h5")),
                 seed=-1,
+            )
+
+    def test_multi_survey_config(self):
+        """Test experiment with multiple surveys requires multi_head_model."""
+        from dorothy.config import MultiHeadModelConfig
+
+        config = ExperimentConfig(
+            name="multi_survey_experiment",
+            data=DataConfig(
+                catalogue_path=Path("/data/super_catalogue.h5"),
+                surveys=["boss", "lamost_lrs", "desi"],
+                label_sources=["apogee"],
+            ),
+            multi_head_model=MultiHeadModelConfig(
+                survey_wavelengths={"boss": 4506, "lamost_lrs": 3700, "desi": 7650},
+            ),
+        )
+
+        assert config.data.is_multi_survey is True
+        assert config.data.is_multi_label is False
+        assert config.is_multi_head is True
+        assert config.model is None
+
+    def test_multi_survey_without_multi_head_raises(self):
+        """Test that multi-survey without multi_head_model raises error."""
+        with pytest.raises(ValueError, match="Multi-survey training requires"):
+            ExperimentConfig(
+                name="multi_survey_experiment",
+                data=DataConfig(
+                    catalogue_path=Path("/data/super_catalogue.h5"),
+                    surveys=["boss", "lamost_lrs"],
+                    label_sources=["apogee"],
+                ),
+            )
+
+    def test_both_model_configs_raises(self):
+        """Test that specifying both model configs raises error."""
+        from dorothy.config import MultiHeadModelConfig
+
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            ExperimentConfig(
+                name="conflicting_config",
+                data=DataConfig(
+                    catalogue_path=Path("/data/super_catalogue.h5"),
+                    surveys=["boss"],
+                    label_sources=["apogee"],
+                ),
+                model=ModelConfig(),
+                multi_head_model=MultiHeadModelConfig(
+                    survey_wavelengths={"boss": 4506},
+                ),
             )
 
 

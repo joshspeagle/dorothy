@@ -388,8 +388,11 @@ class TestMLPIntegrationWithLoss:
         loss_fn = HeteroscedasticLoss(n_parameters=11)
 
         x = torch.randn(16, 100)
-        target = torch.randn(16, 22)
-        target[:, 11:] = torch.abs(target[:, 11:]) + 0.01  # Positive errors
+        # Target is now 3-channel: (batch, 3, n_params) = [values, errors, mask]
+        values = torch.randn(16, 11)
+        errors = torch.abs(torch.randn(16, 11)) + 0.01  # Positive errors
+        mask = torch.ones(16, 11)
+        target = torch.stack([values, errors, mask], dim=1)
 
         # Model output shape is (batch, 2, n_params)
         output = model(x)
@@ -411,8 +414,11 @@ class TestMLPIntegrationWithLoss:
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
         x = torch.randn(16, 100)
-        target = torch.randn(16, 22)
-        target[:, 11:] = torch.abs(target[:, 11:]) + 0.01
+        # Target is now 3-channel: (batch, 3, n_params) = [values, errors, mask]
+        values = torch.randn(16, 11)
+        errors = torch.abs(torch.randn(16, 11)) + 0.01
+        mask = torch.ones(16, 11)
+        target = torch.stack([values, errors, mask], dim=1)
 
         # Training step
         model.train()

@@ -6,14 +6,19 @@ These tests verify:
 2. Command-line argument validation
 3. Basic command execution paths
 4. Help text generation
+5. Full training workflow integration tests
 """
 
 import tempfile
 from pathlib import Path
 
+import h5py
+import numpy as np
 import pytest
+import yaml
 
 from dorothy.cli.main import create_parser, main
+from dorothy.data.catalogue_loader import PARAMETER_NAMES
 
 
 class TestCLIParser:
@@ -291,3 +296,434 @@ class TestCLIIntegration:
             assert "Error" in captured.out or "error" in captured.out.lower()
         finally:
             config_path.unlink()
+
+
+class TestCLITrainIntegration:
+    """Full integration tests for the train command with mock HDF5 data."""
+
+    @pytest.fixture
+    def mock_catalogue(self, tmp_path):
+        """Create a complete mock HDF5 super-catalogue for training."""
+        path = tmp_path / "test_catalogue.h5"
+        n_stars = 100
+        n_wave_boss = 100  # Small for fast tests
+
+        with h5py.File(path, "w") as f:
+            # Metadata
+            meta = f.create_group("metadata")
+            meta.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
+            meta.create_dataset("ra", data=np.random.uniform(0, 360, n_stars))
+            meta.create_dataset("dec", data=np.random.uniform(-90, 90, n_stars))
+
+            # Surveys
+            surveys = f.create_group("surveys")
+
+            boss = surveys.create_group("boss")
+            boss.create_dataset(
+                "flux", data=np.random.randn(n_stars, n_wave_boss).astype(np.float32)
+            )
+            boss.create_dataset(
+                "ivar",
+                data=np.abs(np.random.randn(n_stars, n_wave_boss)).astype(np.float32)
+                + 0.1,
+            )
+            boss.create_dataset(
+                "wavelength",
+                data=np.linspace(3600, 10400, n_wave_boss).astype(np.float32),
+            )
+            boss.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            # Labels - APOGEE
+            # Generate realistic stellar parameter values
+            # Params: Teff, logg, [Fe/H], [Mg/Fe], [C/Fe], [Si/Fe], [Ni/Fe], [Al/Fe], [Ca/Fe], [N/Fe], [Mn/Fe]
+            labels = f.create_group("labels")
+            apogee = labels.create_group("apogee")
+            label_values = np.random.randn(n_stars, 11).astype(np.float32)
+            # Teff must be positive (typically 3500-7000 K)
+            label_values[:, 0] = np.random.uniform(4000, 6000, n_stars).astype(
+                np.float32
+            )
+            # logg typically 0-5
+            label_values[:, 1] = np.random.uniform(2, 4.5, n_stars).astype(np.float32)
+            # [Fe/H] typically -2 to 0.5
+            label_values[:, 2] = np.random.uniform(-1, 0.3, n_stars).astype(np.float32)
+            apogee.create_dataset("values", data=label_values)
+            apogee.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01,
+            )
+            apogee.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+
+            # Attributes
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["boss"]
+            f.attrs["creation_date"] = "2024-01-01T00:00:00"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    @pytest.fixture
+    def single_survey_config(self, mock_catalogue, tmp_path):
+        """Create a minimal single-survey training config."""
+        config = {
+            "name": "test_single_survey",
+            "data": {
+                "catalogue_path": str(mock_catalogue),
+                "surveys": ["boss"],
+                "label_sources": ["apogee"],
+                "train_ratio": 0.7,
+                "val_ratio": 0.2,
+            },
+            "model": {
+                "hidden_layers": [32, 16],
+                "normalization": "layernorm",
+                "activation": "gelu",
+            },
+            "training": {
+                "epochs": 2,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+            },
+            "output_dir": str(tmp_path / "outputs"),
+            "seed": 42,
+            "device": "cpu",
+        }
+        config_path = tmp_path / "config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+        return config_path
+
+    def test_train_single_survey_completes(self, single_survey_config, capsys):
+        """Test that single-survey training completes successfully."""
+        result = main(["train", str(single_survey_config)])
+
+        captured = capsys.readouterr()
+        assert "Training complete" in captured.out
+        assert result == 0
+
+    def test_train_creates_checkpoint(self, single_survey_config, tmp_path):
+        """Test that training creates a checkpoint."""
+        result = main(["train", str(single_survey_config)])
+        assert result == 0
+
+        # Check that checkpoint was created
+        outputs_dir = tmp_path / "outputs"
+        assert outputs_dir.exists()
+
+        # Find all checkpoint directories (may be nested)
+        model_files = list(outputs_dir.glob("**/best_model.pth"))
+        assert len(model_files) >= 1, "Should create best_model.pth checkpoint"
+
+
+class TestCLIMultiSurveyIntegration:
+    """Integration tests for multi-survey training."""
+
+    @pytest.fixture
+    def multi_survey_catalogue(self, tmp_path):
+        """Create a mock HDF5 with multiple surveys."""
+        path = tmp_path / "multi_survey_catalogue.h5"
+        n_stars = 100
+        n_wave_boss = 80
+        n_wave_desi = 100
+
+        with h5py.File(path, "w") as f:
+            # Metadata
+            meta = f.create_group("metadata")
+            meta.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
+            meta.create_dataset("ra", data=np.random.uniform(0, 360, n_stars))
+            meta.create_dataset("dec", data=np.random.uniform(-90, 90, n_stars))
+
+            surveys = f.create_group("surveys")
+
+            # BOSS: stars 0-69
+            boss = surveys.create_group("boss")
+            boss_flux = np.zeros((n_stars, n_wave_boss), dtype=np.float32)
+            boss_ivar = np.zeros((n_stars, n_wave_boss), dtype=np.float32)
+            boss_flux[:70] = np.random.randn(70, n_wave_boss).astype(np.float32)
+            boss_ivar[:70] = (
+                np.abs(np.random.randn(70, n_wave_boss)).astype(np.float32) + 0.1
+            )
+            boss.create_dataset("flux", data=boss_flux)
+            boss.create_dataset("ivar", data=boss_ivar)
+            boss.create_dataset(
+                "wavelength", data=np.linspace(3600, 10400, n_wave_boss)
+            )
+            boss.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            # DESI: stars 30-99
+            desi = surveys.create_group("desi")
+            desi_flux = np.zeros((n_stars, n_wave_desi), dtype=np.float32)
+            desi_ivar = np.zeros((n_stars, n_wave_desi), dtype=np.float32)
+            desi_flux[30:] = np.random.randn(70, n_wave_desi).astype(np.float32)
+            desi_ivar[30:] = (
+                np.abs(np.random.randn(70, n_wave_desi)).astype(np.float32) + 0.1
+            )
+            desi.create_dataset("flux", data=desi_flux)
+            desi.create_dataset("ivar", data=desi_ivar)
+            desi.create_dataset("wavelength", data=np.linspace(3600, 9800, n_wave_desi))
+            desi.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            # Labels with realistic values
+            labels = f.create_group("labels")
+            apogee = labels.create_group("apogee")
+            label_values = np.random.randn(n_stars, 11).astype(np.float32)
+            label_values[:, 0] = np.random.uniform(4000, 6000, n_stars).astype(
+                np.float32
+            )  # Teff
+            label_values[:, 1] = np.random.uniform(2, 4.5, n_stars).astype(
+                np.float32
+            )  # logg
+            label_values[:, 2] = np.random.uniform(-1, 0.3, n_stars).astype(
+                np.float32
+            )  # [Fe/H]
+            apogee.create_dataset("values", data=label_values)
+            apogee.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01,
+            )
+            apogee.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["boss", "desi"]
+            f.attrs["creation_date"] = "2024-01-01T00:00:00"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    @pytest.fixture
+    def multi_survey_config(self, multi_survey_catalogue, tmp_path):
+        """Create a multi-survey training config."""
+        config = {
+            "name": "test_multi_survey",
+            "data": {
+                "catalogue_path": str(multi_survey_catalogue),
+                "surveys": ["boss", "desi"],
+                "label_sources": ["apogee"],
+                "train_ratio": 0.7,
+                "val_ratio": 0.2,
+            },
+            # Note: multi_head_model.survey_wavelengths will be auto-populated
+            "multi_head_model": {
+                "latent_dim": 32,
+                "encoder_hidden": [64],
+                "trunk_hidden": [32],
+                "output_hidden": [16],
+                "combination_mode": "concat",
+            },
+            "training": {
+                "epochs": 2,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+            },
+            "output_dir": str(tmp_path / "outputs"),
+            "seed": 42,
+            "device": "cpu",
+        }
+        config_path = tmp_path / "multi_survey_config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+        return config_path
+
+    def test_train_multi_survey_completes(self, multi_survey_config, capsys):
+        """Test that multi-survey training completes."""
+        result = main(["train", str(multi_survey_config)])
+
+        captured = capsys.readouterr()
+        assert "Training complete" in captured.out or result == 0
+        # Check that survey wavelengths were auto-populated
+        assert "Survey wavelengths" in captured.out
+
+    def test_train_auto_populates_wavelengths(self, multi_survey_config, capsys):
+        """Test that CLI auto-populates survey wavelengths from catalogue."""
+        main(["train", str(multi_survey_config)])
+
+        captured = capsys.readouterr()
+        # Should show wavelength counts from catalogue
+        assert "boss" in captured.out.lower()
+        assert "desi" in captured.out.lower()
+
+
+class TestCLIMultiLabelsetIntegration:
+    """Integration tests for multi-labelset training."""
+
+    @pytest.fixture
+    def multi_labelset_catalogue(self, tmp_path):
+        """Create a mock HDF5 with multiple label sources."""
+        path = tmp_path / "multi_labelset_catalogue.h5"
+        n_stars = 100
+        n_wave = 80
+
+        with h5py.File(path, "w") as f:
+            meta = f.create_group("metadata")
+            meta.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
+            meta.create_dataset("ra", data=np.random.uniform(0, 360, n_stars))
+            meta.create_dataset("dec", data=np.random.uniform(-90, 90, n_stars))
+
+            surveys = f.create_group("surveys")
+            boss = surveys.create_group("boss")
+            boss.create_dataset(
+                "flux", data=np.random.randn(n_stars, n_wave).astype(np.float32)
+            )
+            boss.create_dataset(
+                "ivar",
+                data=np.abs(np.random.randn(n_stars, n_wave)).astype(np.float32) + 0.1,
+            )
+            boss.create_dataset("wavelength", data=np.linspace(3600, 10400, n_wave))
+            boss.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            desi = surveys.create_group("desi")
+            desi.create_dataset(
+                "flux", data=np.random.randn(n_stars, n_wave).astype(np.float32)
+            )
+            desi.create_dataset(
+                "ivar",
+                data=np.abs(np.random.randn(n_stars, n_wave)).astype(np.float32) + 0.1,
+            )
+            desi.create_dataset("wavelength", data=np.linspace(3600, 9800, n_wave))
+            desi.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            # Multiple label sources with realistic values
+            labels = f.create_group("labels")
+
+            # APOGEE: all stars
+            apogee = labels.create_group("apogee")
+            apogee_values = np.random.randn(n_stars, 11).astype(np.float32)
+            apogee_values[:, 0] = np.random.uniform(4000, 6000, n_stars).astype(
+                np.float32
+            )  # Teff
+            apogee_values[:, 1] = np.random.uniform(2, 4.5, n_stars).astype(
+                np.float32
+            )  # logg
+            apogee_values[:, 2] = np.random.uniform(-1, 0.3, n_stars).astype(
+                np.float32
+            )  # [Fe/H]
+            apogee.create_dataset("values", data=apogee_values)
+            apogee.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01,
+            )
+            apogee.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+
+            # GALAH: stars 20-99 only
+            galah = labels.create_group("galah")
+            galah_values = np.random.randn(n_stars, 11).astype(np.float32)
+            galah_values[:, 0] = np.random.uniform(4000, 6000, n_stars).astype(
+                np.float32
+            )  # Teff
+            galah_values[:, 1] = np.random.uniform(2, 4.5, n_stars).astype(
+                np.float32
+            )  # logg
+            galah_values[:, 2] = np.random.uniform(-1, 0.3, n_stars).astype(
+                np.float32
+            )  # [Fe/H]
+            galah_values[:20] = np.nan  # No labels for first 20 stars
+            galah.create_dataset("values", data=galah_values)
+            galah.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01,
+            )
+            galah.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["boss", "desi"]
+            f.attrs["creation_date"] = "2024-01-01T00:00:00"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    @pytest.fixture
+    def multi_labelset_config(self, multi_labelset_catalogue, tmp_path):
+        """Create a multi-labelset training config."""
+        config = {
+            "name": "test_multi_labelset",
+            "data": {
+                "catalogue_path": str(multi_labelset_catalogue),
+                "surveys": ["boss", "desi"],
+                "label_sources": ["apogee", "galah"],
+                "train_ratio": 0.7,
+                "val_ratio": 0.2,
+            },
+            "multi_head_model": {
+                "latent_dim": 32,
+                "encoder_hidden": [64],
+                "trunk_hidden": [32],
+                "output_hidden": [16],
+                "combination_mode": "concat",
+            },
+            "training": {
+                "epochs": 2,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+            },
+            "output_dir": str(tmp_path / "outputs"),
+            "seed": 42,
+            "device": "cpu",
+        }
+        config_path = tmp_path / "multi_labelset_config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+        return config_path
+
+    def test_train_multi_labelset_completes(self, multi_labelset_config, capsys):
+        """Test that multi-labelset training completes."""
+        main(["train", str(multi_labelset_config)])
+
+        captured = capsys.readouterr()
+        # Should mention multiple label sources
+        assert "apogee" in captured.out.lower()
+        assert "galah" in captured.out.lower()
+
+    @pytest.fixture
+    def duplicate_labels_config(self, multi_labelset_catalogue, tmp_path):
+        """Create a config with duplicate_labels for testing."""
+        config = {
+            "name": "test_duplicate_labels",
+            "data": {
+                "catalogue_path": str(multi_labelset_catalogue),
+                "surveys": ["boss", "desi"],
+                "label_sources": ["apogee", "fake_galah"],
+                "duplicate_labels": {"fake_galah": "apogee"},
+                "train_ratio": 0.7,
+                "val_ratio": 0.2,
+            },
+            "multi_head_model": {
+                "latent_dim": 32,
+                "encoder_hidden": [64],
+                "trunk_hidden": [32],
+                "output_hidden": [16],
+                "combination_mode": "concat",
+            },
+            "training": {
+                "epochs": 2,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+            },
+            "output_dir": str(tmp_path / "outputs"),
+            "seed": 42,
+            "device": "cpu",
+        }
+        config_path = tmp_path / "duplicate_labels_config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+        return config_path
+
+    def test_train_duplicate_labels(self, duplicate_labels_config, capsys):
+        """Test that duplicate_labels works to copy labels."""
+        main(["train", str(duplicate_labels_config)])
+
+        captured = capsys.readouterr()
+        # Should show duplication message
+        assert "Duplicating labels" in captured.out

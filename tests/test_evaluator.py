@@ -7,6 +7,7 @@ These tests verify:
 3. Special handling for Teff in log space
 4. Z-score calibration metrics
 5. Summary output formatting
+6. Per-survey evaluation breakdown
 """
 
 import numpy as np
@@ -16,7 +17,9 @@ from dorothy.inference.evaluator import (
     EvaluationResult,
     Evaluator,
     ParameterMetrics,
+    SurveyEvaluationResult,
     evaluate_predictions,
+    evaluate_predictions_by_survey,
 )
 
 
@@ -631,3 +634,327 @@ class TestEvaluatorMasking:
         assert result["logg"].n_samples == 1
         # feh should use only first sample
         assert result["feh"].n_samples == 1
+
+
+class TestSurveyEvaluationResult:
+    """Tests for SurveyEvaluationResult dataclass."""
+
+    def test_getitem(self):
+        """Test dictionary-style access by survey name."""
+        metrics = ParameterMetrics(
+            name="teff",
+            n_samples=50,
+            rmse=75.0,
+            bias=-10.0,
+            sd=70.0,
+            mae=50.0,
+            median_offset=-8.0,
+            robust_scatter=65.0,
+        )
+        survey_result = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+            survey_name="boss",
+        )
+        overall = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+        )
+        result = SurveyEvaluationResult(
+            overall=overall,
+            by_survey={"boss": survey_result},
+            survey_names=["boss"],
+            survey_sample_counts={"boss": 50},
+        )
+
+        assert result["boss"] == survey_result
+        assert result["boss"]["teff"].rmse == 75.0
+
+    def test_to_dict(self):
+        """Test conversion to dictionary."""
+        metrics = ParameterMetrics(
+            name="teff",
+            n_samples=50,
+            rmse=75.0,
+            bias=-10.0,
+            sd=70.0,
+            mae=50.0,
+            median_offset=-8.0,
+            robust_scatter=65.0,
+        )
+        survey_result = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+            survey_name="boss",
+        )
+        overall = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+        )
+        result = SurveyEvaluationResult(
+            overall=overall,
+            by_survey={"boss": survey_result},
+            survey_names=["boss"],
+            survey_sample_counts={"boss": 50},
+        )
+
+        d = result.to_dict()
+        assert "overall" in d
+        assert "by_survey" in d
+        assert "boss" in d["by_survey"]
+        assert d["survey_sample_counts"]["boss"] == 50
+
+    def test_summary_text(self):
+        """Test text summary generation."""
+        metrics = ParameterMetrics(
+            name="teff",
+            n_samples=50,
+            rmse=75.0,
+            bias=-10.0,
+            sd=70.0,
+            mae=50.0,
+            median_offset=-8.0,
+            robust_scatter=65.0,
+        )
+        survey_result = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+            survey_name="boss",
+        )
+        overall = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+        )
+        result = SurveyEvaluationResult(
+            overall=overall,
+            by_survey={"boss": survey_result},
+            survey_names=["boss"],
+            survey_sample_counts={"boss": 50},
+        )
+
+        summary = result.summary(format="text", compact=True)
+        assert "boss" in summary
+        assert "50" in summary
+
+    def test_summary_markdown(self):
+        """Test markdown summary generation."""
+        metrics = ParameterMetrics(
+            name="teff",
+            n_samples=50,
+            rmse=75.0,
+            bias=-10.0,
+            sd=70.0,
+            mae=50.0,
+            median_offset=-8.0,
+            robust_scatter=65.0,
+        )
+        survey_result = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+            survey_name="boss",
+        )
+        overall = EvaluationResult(
+            metrics={"teff": metrics},
+            parameter_names=["teff"],
+        )
+        result = SurveyEvaluationResult(
+            overall=overall,
+            by_survey={"boss": survey_result},
+            survey_names=["boss"],
+            survey_sample_counts={"boss": 50},
+        )
+
+        summary = result.summary(format="markdown", compact=True)
+        assert "| boss |" in summary
+        assert "RMSE" in summary
+
+
+class TestEvaluatorBySurvey:
+    """Tests for per-survey evaluation."""
+
+    def test_evaluate_by_survey_with_string_ids(self):
+        """Test evaluation with string survey IDs."""
+        evaluator = Evaluator(parameter_names=["teff", "logg"], teff_in_log=False)
+
+        n_samples = 100
+        y_true = np.column_stack(
+            [
+                np.full(n_samples, 5500.0),
+                np.full(n_samples, 4.0),
+            ]
+        ).astype(np.float32)
+
+        y_pred = y_true.copy()
+        # Add survey-specific bias
+        y_pred[:50, 0] += 50.0  # BOSS: +50K teff bias
+        y_pred[50:, 0] += 100.0  # LAMOST: +100K teff bias
+
+        survey_ids = np.array(["boss"] * 50 + ["lamost"] * 50)
+
+        result = evaluator.evaluate_by_survey(y_pred, y_true, survey_ids)
+
+        assert isinstance(result, SurveyEvaluationResult)
+        assert "boss" in result.by_survey
+        assert "lamost" in result.by_survey
+        assert result.survey_sample_counts["boss"] == 50
+        assert result.survey_sample_counts["lamost"] == 50
+
+        # Check survey-specific metrics
+        assert result["boss"]["teff"].bias == pytest.approx(50.0, abs=0.1)
+        assert result["lamost"]["teff"].bias == pytest.approx(100.0, abs=0.1)
+
+        # Overall should be average
+        assert result.overall["teff"].bias == pytest.approx(75.0, abs=0.1)
+
+    def test_evaluate_by_survey_with_integer_ids(self):
+        """Test evaluation with integer survey IDs."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        n_samples = 60
+        y_true = np.full((n_samples, 1), 5500.0, dtype=np.float32)
+        y_pred = y_true.copy()
+        y_pred[:20] += 10.0
+        y_pred[20:40] += 20.0
+        y_pred[40:] += 30.0
+
+        survey_ids = np.array([0] * 20 + [1] * 20 + [2] * 20)
+        survey_names = ["boss", "lamost", "desi"]
+
+        result = evaluator.evaluate_by_survey(
+            y_pred, y_true, survey_ids, survey_names=survey_names
+        )
+
+        assert result.survey_names == ["boss", "lamost", "desi"]
+        assert result["boss"]["teff"].bias == pytest.approx(10.0, abs=0.1)
+        assert result["lamost"]["teff"].bias == pytest.approx(20.0, abs=0.1)
+        assert result["desi"]["teff"].bias == pytest.approx(30.0, abs=0.1)
+
+    def test_evaluate_by_survey_with_list_ids(self):
+        """Test evaluation with list of survey IDs."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        n_samples = 40
+        y_true = np.full((n_samples, 1), 5500.0, dtype=np.float32)
+        y_pred = y_true.copy()
+        y_pred[:20] += 50.0
+
+        survey_ids = ["boss"] * 20 + ["lamost"] * 20
+
+        result = evaluator.evaluate_by_survey(y_pred, y_true, survey_ids)
+
+        assert result["boss"]["teff"].bias == pytest.approx(50.0, abs=0.1)
+        assert result["lamost"]["teff"].bias == pytest.approx(0.0, abs=0.1)
+
+    def test_evaluate_by_survey_with_uncertainties(self):
+        """Test per-survey evaluation with uncertainty metrics."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        np.random.seed(42)
+        n_samples = 200
+        y_true = np.full((n_samples, 1), 5500.0, dtype=np.float32)
+
+        # Different scatter per survey
+        pred_scatter = np.zeros((n_samples, 1), dtype=np.float32)
+        pred_scatter[:100] = 50.0  # BOSS: lower uncertainty
+        pred_scatter[100:] = 100.0  # LAMOST: higher uncertainty
+
+        # Generate predictions matching the predicted scatter
+        y_pred = y_true.copy()
+        y_pred[:100] += np.random.randn(100, 1).astype(np.float32) * 50
+        y_pred[100:] += np.random.randn(100, 1).astype(np.float32) * 100
+
+        survey_ids = np.array(["boss"] * 100 + ["lamost"] * 100)
+
+        result = evaluator.evaluate_by_survey(
+            y_pred, y_true, survey_ids, pred_scatter=pred_scatter
+        )
+
+        # Check uncertainty percentiles differ
+        assert result["boss"]["teff"].pred_unc_p50 == pytest.approx(50.0, abs=0.1)
+        assert result["lamost"]["teff"].pred_unc_p50 == pytest.approx(100.0, abs=0.1)
+
+    def test_evaluate_by_survey_empty_survey(self):
+        """Test handling of survey with no samples."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        y_true = np.full((50, 1), 5500.0, dtype=np.float32)
+        y_pred = y_true.copy()
+
+        survey_ids = np.array([0] * 50)  # All samples in survey 0
+        survey_names = ["boss", "lamost"]  # lamost has no samples
+
+        result = evaluator.evaluate_by_survey(
+            y_pred, y_true, survey_ids, survey_names=survey_names
+        )
+
+        assert result.survey_sample_counts["boss"] == 50
+        assert result.survey_sample_counts["lamost"] == 0
+        assert np.isnan(result["lamost"]["teff"].rmse)
+
+    def test_evaluate_by_survey_with_mask(self):
+        """Test per-survey evaluation with parameter mask."""
+        evaluator = Evaluator(parameter_names=["teff", "logg"], teff_in_log=False)
+
+        n_samples = 100
+        y_true = np.column_stack(
+            [
+                np.full(n_samples, 5500.0),
+                np.full(n_samples, 4.0),
+            ]
+        ).astype(np.float32)
+        y_pred = y_true.copy()
+        y_pred[:, 0] += 50.0
+
+        survey_ids = np.array(["boss"] * 50 + ["lamost"] * 50)
+
+        # Mask out logg for first 50 samples (boss)
+        mask = np.ones((n_samples, 2), dtype=np.float32)
+        mask[:50, 1] = 0
+
+        result = evaluator.evaluate_by_survey(y_pred, y_true, survey_ids, mask=mask)
+
+        # BOSS should have 0 samples for logg
+        assert result["boss"]["logg"].n_samples == 0
+        # LAMOST should have 50 samples for logg
+        assert result["lamost"]["logg"].n_samples == 50
+
+
+class TestEvaluatePredictionsBySurvey:
+    """Tests for the convenience function."""
+
+    def test_basic_usage(self):
+        """Test basic usage of convenience function."""
+        y_pred = np.array(
+            [[5500, 4.0, -0.1], [5600, 4.2, 0.0], [5400, 3.8, 0.1]],
+            dtype=np.float32,
+        )
+        y_true = np.array(
+            [[5450, 4.1, -0.15], [5650, 4.1, 0.1], [5350, 3.9, 0.05]],
+            dtype=np.float32,
+        )
+        survey_ids = ["boss", "boss", "lamost"]
+
+        result = evaluate_predictions_by_survey(y_pred, y_true, survey_ids)
+
+        assert isinstance(result, SurveyEvaluationResult)
+        assert "boss" in result.by_survey
+        assert "lamost" in result.by_survey
+        assert result.survey_sample_counts["boss"] == 2
+        assert result.survey_sample_counts["lamost"] == 1
+
+    def test_with_custom_params(self):
+        """Test with custom parameter names."""
+        y_pred = np.random.randn(20, 2).astype(np.float32)
+        y_true = np.random.randn(20, 2).astype(np.float32)
+        survey_ids = np.array([0] * 10 + [1] * 10)
+
+        result = evaluate_predictions_by_survey(
+            y_pred,
+            y_true,
+            survey_ids,
+            survey_names=["survey_a", "survey_b"],
+            parameter_names=["param1", "param2"],
+        )
+
+        assert "survey_a" in result.by_survey
+        assert "param1" in result.overall.metrics

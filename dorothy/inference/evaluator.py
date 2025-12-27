@@ -113,10 +113,12 @@ class EvaluationResult:
     Attributes:
         metrics: Dictionary mapping parameter names to their metrics.
         parameter_names: List of parameter names in order.
+        survey_name: Optional name of the survey (for per-survey results).
     """
 
     metrics: dict[str, ParameterMetrics] = field(default_factory=dict)
     parameter_names: list[str] = field(default_factory=list)
+    survey_name: str | None = None
 
     def __getitem__(self, param_name: str) -> ParameterMetrics:
         """Get metrics for a specific parameter."""
@@ -235,6 +237,187 @@ class EvaluationResult:
     def to_dict(self) -> dict[str, dict[str, Any]]:
         """Convert all metrics to a dictionary."""
         return {name: m.to_dict() for name, m in self.metrics.items()}
+
+
+@dataclass
+class SurveyEvaluationResult:
+    """Container for evaluation results broken down by survey.
+
+    Holds both overall metrics and per-survey metrics for multi-survey
+    training scenarios.
+
+    Attributes:
+        overall: Overall metrics across all surveys.
+        by_survey: Dictionary mapping survey names to their EvaluationResult.
+        survey_names: List of survey names in order.
+        survey_sample_counts: Number of samples per survey.
+    """
+
+    overall: EvaluationResult
+    by_survey: dict[str, EvaluationResult] = field(default_factory=dict)
+    survey_names: list[str] = field(default_factory=list)
+    survey_sample_counts: dict[str, int] = field(default_factory=dict)
+
+    def __getitem__(self, survey_name: str) -> EvaluationResult:
+        """Get metrics for a specific survey."""
+        return self.by_survey[survey_name]
+
+    def summary(
+        self, format: str = "text", include_zscore: bool = True, compact: bool = False
+    ) -> str:
+        """Generate a summary of per-survey evaluation results.
+
+        Args:
+            format: Output format ("text" or "markdown").
+            include_zscore: Whether to include z-score metrics if available.
+            compact: If True, show abbreviated per-survey table instead of full details.
+
+        Returns:
+            Formatted summary string.
+        """
+        if format == "markdown":
+            return self._summary_markdown(include_zscore, compact)
+        return self._summary_text(include_zscore, compact)
+
+    def _summary_text(self, include_zscore: bool = True, compact: bool = False) -> str:
+        """Generate plain text summary with per-survey breakdown."""
+        lines = ["Multi-Survey Evaluation Results", "=" * 80]
+
+        # Overall summary
+        lines.append("\nOVERALL:")
+        lines.append("-" * 80)
+        first_param = self.overall.metrics[self.overall.parameter_names[0]]
+        lines.append(f"Total samples: {first_param.n_samples}")
+
+        # Survey sample counts
+        lines.append("\nSamples per survey:")
+        for survey in self.survey_names:
+            count = self.survey_sample_counts.get(survey, 0)
+            lines.append(f"  {survey}: {count:,}")
+
+        # Overall metrics (compact table)
+        lines.append("\nOverall RMSE by parameter:")
+        header = "  " + " ".join(
+            f"{p[:8]:>10}" for p in self.overall.parameter_names[:8]
+        )
+        lines.append(header)
+        values = " ".join(
+            f"{self.overall.metrics[p].rmse:>10.4f}"
+            for p in self.overall.parameter_names[:8]
+        )
+        lines.append("  " + values)
+
+        # Per-survey breakdown
+        lines.append("\n" + "=" * 80)
+        lines.append("PER-SURVEY BREAKDOWN:")
+
+        if compact:
+            # Compact view: one line per survey with key metrics
+            lines.append("-" * 80)
+            header = f"{'Survey':<15} {'N':>8} "
+            header += " ".join(
+                f"{'RMSE_' + p[:4]:>10}" for p in self.overall.parameter_names[:4]
+            )
+            lines.append(header)
+            lines.append("-" * 80)
+
+            for survey in self.survey_names:
+                result = self.by_survey[survey]
+                count = self.survey_sample_counts.get(survey, 0)
+                line = f"{survey:<15} {count:>8} "
+                line += " ".join(
+                    f"{result.metrics[p].rmse:>10.4f}"
+                    for p in self.overall.parameter_names[:4]
+                )
+                lines.append(line)
+        else:
+            # Full view: complete metrics per survey
+            for survey in self.survey_names:
+                lines.append(f"\n--- {survey.upper()} ---")
+                result = self.by_survey[survey]
+                # Add indented version of the survey's summary
+                survey_summary = result._summary_text(include_zscore)
+                for line in survey_summary.split("\n")[2:]:  # Skip header
+                    lines.append("  " + line)
+
+        lines.append("=" * 80)
+        return "\n".join(lines)
+
+    def _summary_markdown(
+        self, include_zscore: bool = True, compact: bool = False
+    ) -> str:
+        """Generate markdown summary with per-survey breakdown."""
+        lines = ["## Multi-Survey Evaluation Results", ""]
+
+        # Survey sample counts
+        lines.append("### Sample Counts")
+        lines.append("| Survey | Samples |")
+        lines.append("|--------|---------|")
+        for survey in self.survey_names:
+            count = self.survey_sample_counts.get(survey, 0)
+            lines.append(f"| {survey} | {count:,} |")
+
+        # Overall RMSE table
+        lines.append("")
+        lines.append("### Overall RMSE")
+        header = "| " + " | ".join(self.overall.parameter_names) + " |"
+        lines.append(header)
+        sep = "|" + "|".join(["---"] * len(self.overall.parameter_names)) + "|"
+        lines.append(sep)
+        values = (
+            "| "
+            + " | ".join(
+                f"{self.overall.metrics[p].rmse:.4f}"
+                for p in self.overall.parameter_names
+            )
+            + " |"
+        )
+        lines.append(values)
+
+        # Per-survey RMSE comparison table
+        lines.append("")
+        lines.append("### RMSE by Survey")
+        header = "| Survey | " + " | ".join(self.overall.parameter_names[:6]) + " |"
+        lines.append(header)
+        sep = (
+            "|--------|"
+            + "|".join(["------"] * min(6, len(self.overall.parameter_names)))
+            + "|"
+        )
+        lines.append(sep)
+
+        for survey in self.survey_names:
+            result = self.by_survey[survey]
+            values = (
+                f"| {survey} | "
+                + " | ".join(
+                    f"{result.metrics[p].rmse:.4f}"
+                    for p in self.overall.parameter_names[:6]
+                )
+                + " |"
+            )
+            lines.append(values)
+
+        if not compact:
+            # Full per-survey details
+            for survey in self.survey_names:
+                lines.append("")
+                lines.append(f"### {survey}")
+                result = self.by_survey[survey]
+                # Add the survey's full markdown summary
+                survey_lines = result._summary_markdown(include_zscore).split("\n")
+                lines.extend(survey_lines[2:])  # Skip header
+
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert all metrics to a dictionary."""
+        return {
+            "overall": self.overall.to_dict(),
+            "by_survey": {name: r.to_dict() for name, r in self.by_survey.items()},
+            "survey_names": self.survey_names,
+            "survey_sample_counts": self.survey_sample_counts,
+        }
 
 
 class Evaluator:
@@ -375,6 +558,136 @@ class Evaluator:
 
         return result
 
+    def evaluate_by_survey(
+        self,
+        y_pred: NDArray[np.float32],
+        y_true: NDArray[np.float32],
+        survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str],
+        survey_names: list[str] | None = None,
+        pred_scatter: NDArray[np.float32] | None = None,
+        label_errors: NDArray[np.float32] | None = None,
+        mask: NDArray[np.float32] | None = None,
+    ) -> SurveyEvaluationResult:
+        """Evaluate predictions with breakdown by survey.
+
+        Computes overall metrics and per-survey metrics for multi-survey
+        training scenarios.
+
+        Args:
+            y_pred: Predicted values of shape (n_samples, n_parameters).
+            y_true: Ground truth values of shape (n_samples, n_parameters).
+            survey_ids: Survey membership for each sample. Can be:
+                - Integer array of survey indices (0, 1, 2, ...)
+                - String array of survey names
+                - List of survey names (one per sample)
+            survey_names: List of survey names corresponding to survey indices.
+                Required if survey_ids is integer array. If survey_ids is strings,
+                this is inferred from unique values.
+            pred_scatter: Predicted scatter (s) from the model.
+            label_errors: Label measurement errors (sigma_label).
+            mask: Optional mask of shape (n_samples, n_parameters).
+
+        Returns:
+            SurveyEvaluationResult with overall and per-survey metrics.
+
+        Raises:
+            ValueError: If input shapes don't match or survey_names not provided
+                when needed.
+
+        Example:
+            >>> evaluator = Evaluator(["teff", "logg", "feh"])
+            >>> survey_ids = np.array(["boss", "lamost", "boss", "lamost"])
+            >>> result = evaluator.evaluate_by_survey(
+            ...     y_pred, y_true, survey_ids,
+            ...     pred_scatter=pred_scatter
+            ... )
+            >>> print(result.summary(compact=True))
+        """
+        # Convert survey_ids to numpy array if needed
+        if isinstance(survey_ids, list):
+            survey_ids = np.array(survey_ids)
+
+        # Determine survey names
+        if survey_ids.dtype.kind in ("U", "S", "O"):  # String types
+            # String array: extract unique names
+            unique_surveys = list(np.unique(survey_ids))
+            if survey_names is None:
+                survey_names = unique_surveys
+            # Convert to integer indices for consistency
+            survey_name_to_idx = {name: i for i, name in enumerate(survey_names)}
+            survey_indices = np.array(
+                [survey_name_to_idx.get(s, -1) for s in survey_ids], dtype=np.int32
+            )
+        else:
+            # Integer array: need survey_names
+            if survey_names is None:
+                # Create default names
+                unique_indices = np.unique(survey_ids)
+                survey_names = [f"survey_{i}" for i in unique_indices]
+            survey_indices = survey_ids.astype(np.int32)
+
+        # Compute overall metrics
+        overall = self.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
+
+        # Compute per-survey metrics
+        by_survey: dict[str, EvaluationResult] = {}
+        survey_sample_counts: dict[str, int] = {}
+
+        for survey_idx, survey_name in enumerate(survey_names):
+            # Create boolean mask for this survey
+            survey_mask = survey_indices == survey_idx
+            n_survey_samples = survey_mask.sum()
+            survey_sample_counts[survey_name] = int(n_survey_samples)
+
+            if n_survey_samples == 0:
+                # No samples for this survey - create empty result
+                empty_result = EvaluationResult(
+                    parameter_names=list(self.parameter_names),
+                    survey_name=survey_name,
+                )
+                for param_name in self.parameter_names:
+                    empty_result.metrics[param_name] = ParameterMetrics(
+                        name=param_name,
+                        n_samples=0,
+                        rmse=float("nan"),
+                        bias=float("nan"),
+                        sd=float("nan"),
+                        mae=float("nan"),
+                        median_offset=float("nan"),
+                        robust_scatter=float("nan"),
+                    )
+                by_survey[survey_name] = empty_result
+                continue
+
+            # Filter arrays for this survey
+            survey_y_pred = y_pred[survey_mask]
+            survey_y_true = y_true[survey_mask]
+            survey_pred_scatter = (
+                pred_scatter[survey_mask] if pred_scatter is not None else None
+            )
+            survey_label_errors = (
+                label_errors[survey_mask] if label_errors is not None else None
+            )
+            survey_param_mask = mask[survey_mask] if mask is not None else None
+
+            # Evaluate this survey
+            survey_result = self.evaluate(
+                survey_y_pred,
+                survey_y_true,
+                survey_pred_scatter,
+                survey_label_errors,
+                mask=survey_param_mask,
+            )
+            survey_result.survey_name = survey_name
+            by_survey[survey_name] = survey_result
+
+        return SurveyEvaluationResult(
+            overall=overall,
+            by_survey=by_survey,
+            survey_names=survey_names,
+            survey_sample_counts=survey_sample_counts,
+        )
+
     def _compute_metrics(
         self,
         name: str,
@@ -498,3 +811,34 @@ def evaluate_predictions(
     """
     evaluator = Evaluator(parameter_names=parameter_names)
     return evaluator.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
+
+
+def evaluate_predictions_by_survey(
+    y_pred: NDArray[np.float32],
+    y_true: NDArray[np.float32],
+    survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str],
+    survey_names: list[str] | None = None,
+    pred_scatter: NDArray[np.float32] | None = None,
+    label_errors: NDArray[np.float32] | None = None,
+    parameter_names: list[str] | None = None,
+    mask: NDArray[np.float32] | None = None,
+) -> SurveyEvaluationResult:
+    """Convenience function to evaluate predictions with per-survey breakdown.
+
+    Args:
+        y_pred: Predicted values.
+        y_true: Ground truth values.
+        survey_ids: Survey membership for each sample (integer indices or strings).
+        survey_names: List of survey names (required if survey_ids is integers).
+        pred_scatter: Predicted scatter (s) from the model.
+        label_errors: Label measurement errors (sigma_label).
+        parameter_names: Optional list of parameter names.
+        mask: Optional mask of shape (n_samples, n_parameters).
+
+    Returns:
+        SurveyEvaluationResult with overall and per-survey metrics.
+    """
+    evaluator = Evaluator(parameter_names=parameter_names)
+    return evaluator.evaluate_by_survey(
+        y_pred, y_true, survey_ids, survey_names, pred_scatter, label_errors, mask=mask
+    )

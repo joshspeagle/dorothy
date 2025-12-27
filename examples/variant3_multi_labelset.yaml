@@ -1,0 +1,57 @@
+# DOROTHY Training Configuration - Variant 3
+# Multi-Survey Input -> Multi-Label Source Output
+# BOSS + DESI spectra -> APOGEE + GALAH labels
+#
+# NOTE: If GALAH labels don't exist in the catalogue, use:
+#   duplicate_labels:
+#     galah: apogee
+# This copies APOGEE labels to create "fake" GALAH labels for testing.
+
+name: variant3_multi_labelset
+
+data:
+  catalogue_path: data/super_catalogue.h5
+  surveys:
+    - boss
+    - desi
+  label_sources:
+    - apogee
+    - galah
+  train_ratio: 0.7
+  val_ratio: 0.2
+  max_flag_bits: 0
+  smart_deduplicate: true
+  # Duplicate APOGEE labels as GALAH for testing (remove when real GALAH data exists)
+  duplicate_labels:
+    galah: apogee
+
+# Multi-head MLP for multi-survey, multi-labelset training
+# survey_wavelengths and label_sources are auto-populated
+multi_head_model:
+  latent_dim: 256
+  encoder_hidden: [1024, 512]
+  trunk_hidden: [512, 256]
+  output_hidden: [64]
+  combination_mode: concat
+  normalization: layernorm
+  activation: gelu
+  dropout: 0.0
+
+training:
+  epochs: 10
+  batch_size: 512
+  learning_rate: 0.001
+  loss: heteroscedastic
+  gradient_clip: 10.0
+  scatter_floor: 0.01
+  save_every: 0
+  scheduler:
+    type: one_cycle
+    max_lr: 0.001
+    pct_start: 0.3
+    div_factor: 25.0
+    final_div_factor: 10000.0
+
+output_dir: outputs
+seed: 42
+device: auto

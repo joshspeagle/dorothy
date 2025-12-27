@@ -1,7 +1,14 @@
 """Data loading, normalization, and preprocessing utilities."""
 
 from dorothy.data.augmentation import DynamicBlockMasking
-from dorothy.data.catalogue_loader import CatalogueData, CatalogueInfo, CatalogueLoader
+from dorothy.data.catalogue_loader import (
+    PARAMETER_NAMES,
+    SURVEY_LABEL_MAP,
+    CatalogueData,
+    CatalogueInfo,
+    CatalogueLoader,
+    MergedCatalogueData,
+)
 from dorothy.data.fits_loader import (
     APOGEE_COLUMN_MAP,
     PARAMETER_BOUNDS,
@@ -12,7 +19,6 @@ from dorothy.data.fits_loader import (
     normalize_spectrum,
     split_data,
 )
-from dorothy.data.gaia_crossmatch import crossmatch_to_gaia_dr3
 from dorothy.data.normalizer import LabelNormalizer, ParameterStats
 
 
@@ -30,8 +36,9 @@ __all__ = [
     "CatalogueLoader",
     "CatalogueData",
     "CatalogueInfo",
-    # Gaia cross-matching
-    "crossmatch_to_gaia_dr3",
+    "MergedCatalogueData",
+    "SURVEY_LABEL_MAP",
+    "PARAMETER_NAMES",
     # Label normalization
     "LabelNormalizer",
     "ParameterStats",

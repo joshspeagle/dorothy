@@ -17,23 +17,6 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class SurveyType(str, Enum):
-    """Supported astronomical survey types."""
-
-    DESI = "desi"
-    BOSS = "boss"
-    LAMOST = "lamost"
-    LAMOST_LRS = "lamost_lrs"
-    LAMOST_MRS = "lamost_mrs"
-
-
-class LabelSource(str, Enum):
-    """Supported label sources for the super-catalogue."""
-
-    APOGEE = "apogee"
-    GALAH = "galah"
-
-
 class NormalizationType(str, Enum):
     """Supported normalization layer types."""
 
@@ -94,42 +77,36 @@ STELLAR_PARAMETERS = [
 class DataConfig(BaseModel):
     """Configuration for data loading and preprocessing.
 
-    Supports two data sources:
-    1. Legacy FITS files (fits_path) - original per-survey training files
-    2. Super-catalogue (catalogue_path) - unified HDF5 multi-survey catalogue
+    Loads data from the super-catalogue HDF5 file which contains multiple
+    surveys with cross-matched labels from APOGEE and/or GALAH.
 
     Attributes:
-        fits_path: Path to the input FITS file (legacy mode).
-        catalogue_path: Path to HDF5 super-catalogue (new mode).
-        survey: The astronomical survey type (affects wavelength handling).
-        label_source: Which label source to use from catalogue (apogee/galah).
-        input_channels: Number of input channels (typically 2: flux + ivar).
-        wavelength_bins: Number of wavelength bins in the spectra.
+        catalogue_path: Path to HDF5 super-catalogue.
+        surveys: List of input surveys to load (e.g., ['boss', 'lamost_lrs']).
+            If a single survey, loads that survey only.
+            If multiple surveys, creates merged dataset with outer join.
+        label_sources: List of label sources to use for training targets.
+            e.g., ['apogee'] for single-source, ['apogee', 'galah'] for multi-target.
         train_ratio: Fraction of data for training (default 0.7).
         val_ratio: Fraction of data for validation (default 0.2).
-        quality_filter: Whether to apply quality flag filtering.
-        max_flag_bits: Maximum allowed flag bits for catalogue loading (0=highest quality).
+        max_flag_bits: Maximum allowed flag bits (0=highest quality).
+        smart_deduplicate: Use consistency-checking deduplication (stack or highest SNR).
+        chi2_threshold: Threshold for reduced chi-squared in smart deduplication.
+        duplicate_labels: Dict mapping target label source to source label source.
+            Used for testing multi-labelset training when some label sources don't exist.
+            e.g., {'galah': 'apogee'} copies APOGEE labels to create "fake" GALAH labels.
     """
 
-    fits_path: Path | None = Field(
-        default=None, description="Path to input FITS file (legacy mode)"
+    catalogue_path: Path = Field(description="Path to HDF5 super-catalogue")
+    surveys: list[str] = Field(
+        default=["boss"],
+        min_length=1,
+        description="List of input surveys to load (e.g., ['boss', 'lamost_lrs'])",
     )
-    catalogue_path: Path | None = Field(
-        default=None, description="Path to HDF5 super-catalogue"
-    )
-    survey: SurveyType = Field(default=SurveyType.DESI, description="Survey type")
-    label_source: LabelSource = Field(
-        default=LabelSource.APOGEE,
-        description="Label source for catalogue (apogee/galah)",
-    )
-    input_channels: int = Field(
-        default=2, ge=1, le=3, description="Number of input channels"
-    )
-    wavelength_bins: int = Field(
-        default=7650,
-        ge=1000,
-        le=20000,
-        description="Number of wavelength bins",
+    label_sources: list[str] = Field(
+        default=["apogee"],
+        min_length=1,
+        description="List of label sources for training targets (e.g., ['apogee', 'galah'])",
     )
     train_ratio: float = Field(
         default=0.7, gt=0.0, lt=1.0, description="Training data fraction"
@@ -137,13 +114,23 @@ class DataConfig(BaseModel):
     val_ratio: float = Field(
         default=0.2, gt=0.0, lt=1.0, description="Validation data fraction"
     )
-    quality_filter: bool = Field(
-        default=True, description="Apply quality flag filtering"
-    )
     max_flag_bits: int = Field(
         default=0,
         ge=0,
-        description="Maximum allowed flag bits for catalogue (0=highest quality)",
+        description="Maximum allowed flag bits (0=highest quality)",
+    )
+    smart_deduplicate: bool = Field(
+        default=True,
+        description="Use consistency-checking deduplication (stack or highest SNR)",
+    )
+    chi2_threshold: float = Field(
+        default=2.0,
+        gt=0,
+        description="Threshold for reduced chi-squared in smart deduplication",
+    )
+    duplicate_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Map target label source to source (e.g., {'galah': 'apogee'})",
     )
 
     @property
@@ -152,20 +139,14 @@ class DataConfig(BaseModel):
         return 1.0 - self.train_ratio - self.val_ratio
 
     @property
-    def use_catalogue(self) -> bool:
-        """Whether to use catalogue mode vs legacy FITS mode."""
-        return self.catalogue_path is not None
+    def is_multi_survey(self) -> bool:
+        """Whether loading from multiple input surveys."""
+        return len(self.surveys) > 1
 
-    @model_validator(mode="after")
-    def validate_data_source(self) -> DataConfig:
-        """Ensure exactly one data source is specified."""
-        if self.fits_path is None and self.catalogue_path is None:
-            raise ValueError("Either fits_path or catalogue_path must be specified")
-        if self.fits_path is not None and self.catalogue_path is not None:
-            raise ValueError(
-                "Cannot specify both fits_path and catalogue_path - choose one"
-            )
-        return self
+    @property
+    def is_multi_label(self) -> bool:
+        """Whether training with multiple label sources."""
+        return len(self.label_sources) > 1
 
     @model_validator(mode="after")
     def validate_ratios(self) -> DataConfig:
@@ -238,6 +219,123 @@ class ModelConfig(BaseModel):
     def n_parameters(self) -> int:
         """Number of stellar parameters being predicted."""
         return self.output_features // 2
+
+
+class CombinationMode(str, Enum):
+    """How to combine multi-survey embeddings."""
+
+    MEAN = "mean"
+    CONCAT = "concat"
+
+
+class MultiHeadModelConfig(BaseModel):
+    """Configuration for multi-head MLP architecture.
+
+    Used when training on multiple surveys with different wavelength grids.
+    Each survey has its own encoder, feeding into a shared trunk.
+    Optionally supports multiple output heads for different label sources.
+
+    Attributes:
+        survey_wavelengths: Dict mapping survey names to wavelength counts.
+        n_parameters: Number of stellar parameters to predict.
+        latent_dim: Output dimension of each survey encoder.
+        encoder_hidden: Hidden layer sizes for encoders.
+        trunk_hidden: Hidden layer sizes for shared trunk.
+        output_hidden: Hidden layer sizes for output head(s).
+        combination_mode: How to combine multi-survey embeddings.
+        label_sources: List of label sources for multi-output heads.
+        normalization: Type of normalization layer.
+        activation: Activation function type.
+        dropout: Dropout probability.
+
+    Example:
+        >>> config = MultiHeadModelConfig(
+        ...     survey_wavelengths={"boss": 4506, "lamost_lrs": 3700},
+        ...     n_parameters=11,
+        ...     latent_dim=256,
+        ...     label_sources=["apogee", "galah"],  # Multi-output heads
+        ... )
+    """
+
+    survey_wavelengths: dict[str, int] = Field(
+        description="Dict mapping survey names to wavelength bin counts",
+    )
+    n_parameters: int = Field(
+        default=11,
+        ge=1,
+        description="Number of stellar parameters to predict",
+    )
+    latent_dim: int = Field(
+        default=256,
+        ge=16,
+        description="Output dimension of each survey encoder",
+    )
+    encoder_hidden: list[int] = Field(
+        default=[1024, 512],
+        min_length=1,
+        description="Hidden layer sizes for survey encoders",
+    )
+    trunk_hidden: list[int] = Field(
+        default=[512, 256],
+        min_length=1,
+        description="Hidden layer sizes for shared trunk",
+    )
+    output_hidden: list[int] = Field(
+        default=[64],
+        min_length=1,
+        description="Hidden layer sizes for output head(s)",
+    )
+    combination_mode: CombinationMode = Field(
+        default=CombinationMode.CONCAT,
+        description="How to combine multi-survey embeddings",
+    )
+    label_sources: list[str] | None = Field(
+        default=None,
+        description="Label sources for multi-output heads (e.g., ['apogee', 'galah']). "
+        "If None, creates single output head.",
+    )
+    normalization: NormalizationType = Field(
+        default=NormalizationType.LAYERNORM,
+        description="Normalization layer type",
+    )
+    activation: ActivationType = Field(
+        default=ActivationType.GELU,
+        description="Activation function",
+    )
+    dropout: float = Field(
+        default=0.0,
+        ge=0.0,
+        lt=1.0,
+        description="Dropout probability",
+    )
+
+    @property
+    def is_multi_label(self) -> bool:
+        """Whether using multiple output heads for different label sources."""
+        return self.label_sources is not None and len(self.label_sources) > 1
+
+    @field_validator("survey_wavelengths")
+    @classmethod
+    def validate_survey_wavelengths(cls, v: dict[str, int]) -> dict[str, int]:
+        """Ensure survey wavelengths are valid."""
+        if not v:
+            raise ValueError("survey_wavelengths cannot be empty")
+        for name, n_wave in v.items():
+            if n_wave <= 0:
+                raise ValueError(
+                    f"Survey '{name}' has invalid wavelength count {n_wave}"
+                )
+        return v
+
+    @property
+    def output_features(self) -> int:
+        """Number of output features (2 * n_parameters)."""
+        return 2 * self.n_parameters
+
+    @property
+    def survey_names(self) -> list[str]:
+        """List of survey names."""
+        return list(self.survey_wavelengths.keys())
 
 
 class SchedulerConfig(BaseModel):
@@ -440,11 +538,15 @@ class ExperimentConfig(BaseModel):
     This is the main configuration class that combines all sub-configurations
     and provides the complete specification for training a model.
 
+    For single-survey training, use the `model` config (standard MLP).
+    For multi-survey training, use `multi_head_model` config (MultiHeadMLP).
+
     Attributes:
         name: Unique name for this experiment.
         description: Human-readable description of the experiment.
         data: Data loading and preprocessing configuration.
-        model: Neural network architecture configuration.
+        model: Standard MLP configuration (for single-survey training).
+        multi_head_model: Multi-head MLP configuration (for multi-survey training).
         training: Training process configuration.
         masking: Optional masking configuration for robustness.
         output_dir: Directory for saving outputs (checkpoints, logs).
@@ -457,8 +559,11 @@ class ExperimentConfig(BaseModel):
         default="", max_length=500, description="Experiment description"
     )
     data: DataConfig = Field(description="Data configuration")
-    model: ModelConfig = Field(
-        default_factory=ModelConfig, description="Model configuration"
+    model: ModelConfig | None = Field(
+        default=None, description="Standard MLP configuration (single-survey)"
+    )
+    multi_head_model: MultiHeadModelConfig | None = Field(
+        default=None, description="Multi-head MLP configuration (multi-survey)"
     )
     training: TrainingConfig = Field(
         default_factory=TrainingConfig,
@@ -474,15 +579,42 @@ class ExperimentConfig(BaseModel):
         default="auto", description="Compute device"
     )
 
+    @property
+    def is_multi_head(self) -> bool:
+        """Whether using multi-head architecture."""
+        return self.multi_head_model is not None
+
     @model_validator(mode="after")
-    def sync_model_input_features(self) -> ExperimentConfig:
-        """Synchronize model input features with data configuration."""
-        expected_features = self.data.input_channels * self.data.wavelength_bins
-        if self.model.input_features != expected_features:
-            # Update the model config to match data config
-            self.model = self.model.model_copy(
-                update={"input_features": expected_features}
+    def validate_model_config(self) -> ExperimentConfig:
+        """Ensure model configuration is consistent with data configuration."""
+        # If neither model is specified, create default based on data config
+        if self.model is None and self.multi_head_model is None:
+            if self.data.is_multi_survey:
+                raise ValueError(
+                    "Multi-survey training requires 'multi_head_model' configuration. "
+                    f"Surveys: {self.data.surveys}"
+                )
+            # Default to standard MLP for single-survey
+            object.__setattr__(self, "model", ModelConfig())
+
+        # Warn if using standard MLP with multi-survey data
+        if self.model is not None and self.data.is_multi_survey:
+            import warnings
+
+            warnings.warn(
+                f"Using standard MLP with multi-survey data ({self.data.surveys}). "
+                "Consider using 'multi_head_model' for better performance.",
+                UserWarning,
+                stacklevel=2,
             )
+
+        # Ensure only one model config is specified
+        if self.model is not None and self.multi_head_model is not None:
+            raise ValueError(
+                "Cannot specify both 'model' and 'multi_head_model'. "
+                "Use 'model' for single-survey or 'multi_head_model' for multi-survey."
+            )
+
         return self
 
     def get_output_path(self) -> Path:
@@ -547,9 +679,9 @@ class ExperimentConfig(BaseModel):
         with open(path) as f:
             data = yaml.safe_load(f)
 
-        # Convert fits_path back to Path
-        if "data" in data and "fits_path" in data["data"]:
-            data["data"]["fits_path"] = Path(data["data"]["fits_path"])
+        # Convert path fields back to Path objects
+        if "data" in data and "catalogue_path" in data["data"]:
+            data["data"]["catalogue_path"] = Path(data["data"]["catalogue_path"])
         if "output_dir" in data:
             data["output_dir"] = Path(data["output_dir"])
 

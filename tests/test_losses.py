@@ -73,8 +73,8 @@ class TestHeteroscedasticLossForward:
         """Test output is scalar with mean reduction."""
         # Output shape is (batch, 2, n_params): [means, log_scatter]
         output = torch.randn(32, 2, 3)
-        target = torch.randn(32, 6)  # 3 labels + 3 errors (use abs for errors)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
+        # Target shape is (batch, 3, n_params): [values, errors, mask]
+        target = make_target_3ch(32, 3)
 
         loss = loss_fn(output, target)
 
@@ -85,8 +85,7 @@ class TestHeteroscedasticLossForward:
         """Test output is scalar with sum reduction."""
         loss_fn = HeteroscedasticLoss(n_parameters=3, reduction="sum")
         output = torch.randn(32, 2, 3)
-        target = torch.randn(32, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
+        target = make_target_3ch(32, 3)
 
         loss = loss_fn(output, target)
 
@@ -98,8 +97,7 @@ class TestHeteroscedasticLossForward:
         loss_fn = HeteroscedasticLoss(n_parameters=3, reduction="none")
         batch_size = 32
         output = torch.randn(batch_size, 2, 3)
-        target = torch.randn(batch_size, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
+        target = make_target_3ch(batch_size, 3)
 
         loss = loss_fn(output, target)
 
@@ -109,7 +107,7 @@ class TestHeteroscedasticLossForward:
         """Test that incorrect output dimension is rejected."""
         # Wrong shape - should be (batch, 2, 3)
         output = torch.randn(32, 2, 4)  # 4 params instead of 3
-        target = torch.randn(32, 6)
+        target = make_target_3ch(32, 3)
 
         with pytest.raises(ValueError, match="Output shape"):
             loss_fn(output, target)
@@ -117,10 +115,22 @@ class TestHeteroscedasticLossForward:
     def test_invalid_target_dimension_rejected(self, loss_fn):
         """Test that incorrect target dimension is rejected."""
         output = torch.randn(32, 2, 3)
-        target = torch.randn(32, 8)  # Wrong size, should be 6
+        # Wrong n_params in target
+        target = make_target_3ch(32, 4)
 
-        with pytest.raises(ValueError, match="Target last dimension"):
+        with pytest.raises(ValueError, match="Target shape"):
             loss_fn(output, target)
+
+
+def make_target_3ch(batch_size, n_params, values=None, errors=None, mask=None):
+    """Helper to create 3-channel target: [values, errors, mask]."""
+    if values is None:
+        values = torch.randn(batch_size, n_params)
+    if errors is None:
+        errors = torch.abs(torch.randn(batch_size, n_params)) + 0.01
+    if mask is None:
+        mask = torch.ones(batch_size, n_params)
+    return torch.stack([values, errors, mask], dim=1)  # (batch, 3, n_params)
 
 
 class TestHeteroscedasticLossMathematics:
@@ -133,7 +143,8 @@ class TestHeteroscedasticLossMathematics:
         # Perfect prediction: mu = y
         # Output shape: (1, 2, 2) = [means=[1,2], log_scatter=[-3,-3]]
         output = torch.tensor([[[1.0, 2.0], [-3.0, -3.0]]])
-        target = torch.tensor([[1.0, 2.0, 0.1, 0.1]])  # y=1,2, sigma=0.1
+        # Target shape: (1, 3, 2) = [values, errors, mask]
+        target = torch.tensor([[[1.0, 2.0], [0.1, 0.1], [1.0, 1.0]]])
 
         loss = loss_fn(output, target)
 
@@ -147,7 +158,8 @@ class TestHeteroscedasticLossMathematics:
 
         # Perfect prediction: (1, 2, 2)
         output_correct = torch.tensor([[[1.0, 2.0], [-2.0, -2.0]]])
-        target = torch.tensor([[1.0, 2.0, 0.1, 0.1]])
+        # Target shape: (1, 3, 2) = [values, errors, mask]
+        target = torch.tensor([[[1.0, 2.0], [0.1, 0.1], [1.0, 1.0]]])
         loss_correct = loss_fn(output_correct, target)
 
         # Wrong prediction (off by 1.0)
@@ -160,7 +172,8 @@ class TestHeteroscedasticLossMathematics:
         """Test that higher model uncertainty reduces loss for wrong predictions."""
         loss_fn = HeteroscedasticLoss(scatter_floor=0.01, n_parameters=1)
 
-        target = torch.tensor([[1.0, 0.1]])  # y=1, sigma=0.1
+        # Target shape: (1, 3, 1) = [values, errors, mask]
+        target = torch.tensor([[[1.0], [0.1], [1.0]]])  # y=1, sigma=0.1, mask=1
 
         # Wrong prediction with low uncertainty: (1, 2, 1)
         output_confident = torch.tensor([[[2.0], [-2.0]]])  # mu=2, ln_s=-2 (s~0.13)
@@ -180,7 +193,8 @@ class TestHeteroscedasticLossMathematics:
         # Very small log-scatter that would cause issues without floor
         # Output shape: (1, 2, 1)
         output = torch.tensor([[[1.0], [-100.0]]])  # ln_s=-100 -> exp(-200) ≈ 0
-        target = torch.tensor([[1.0, 0.001]])  # Small label error too
+        # Target shape: (1, 3, 1) = [values, errors, mask]
+        target = torch.tensor([[[1.0], [0.001], [1.0]]])  # Small label error too
 
         loss = loss_fn(output, target)
 
@@ -199,7 +213,8 @@ class TestHeteroscedasticLossMathematics:
 
         # Output shape: (1, 2, 1)
         output = torch.tensor([[[mu], [ln_s]]])
-        target = torch.tensor([[y, sigma_label]])
+        # Target shape: (1, 3, 1) = [values, errors, mask]
+        target = torch.tensor([[[y], [sigma_label], [1.0]]])
 
         loss = loss_fn(output, target)
 
@@ -220,8 +235,8 @@ class TestHeteroscedasticLossGradients:
 
         # Output shape: (batch, 2, n_params)
         output = torch.randn(16, 2, 3, requires_grad=True)
-        target = torch.randn(16, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
+        # Target shape: (batch, 3, n_params) = [values, errors, mask]
+        target = make_target_3ch(16, 3)
 
         loss = loss_fn(output, target)
         loss.backward()
@@ -241,7 +256,8 @@ class TestHeteroscedasticLossGradients:
         # Stack along dim 1 to get (1, 2, 1)
         output = torch.cat([mu, ln_s], dim=1)
 
-        target = torch.tensor([[1.0, 0.1]])  # True value is 1.0
+        # Target shape: (1, 3, 1) = [values, errors, mask]
+        target = torch.tensor([[[1.0], [0.1], [1.0]]])  # True value is 1.0
 
         loss = loss_fn(output, target)
         loss.backward()
@@ -308,55 +324,47 @@ class TestHeteroscedasticLossRepr:
 
 
 class TestHeteroscedasticLossMasking:
-    """Tests for mask parameter in HeteroscedasticLoss."""
+    """Tests for mask handling in HeteroscedasticLoss (mask embedded in target channel 2)."""
 
     @pytest.fixture
     def loss_fn(self):
         """Create a loss function for testing."""
         return HeteroscedasticLoss(scatter_floor=0.01, n_parameters=3)
 
-    def test_forward_without_mask_unchanged(self, loss_fn):
-        """Test that forward without mask works as before."""
-        # Output shape: (batch, 2, n_params)
+    def test_forward_with_all_ones_mask(self, loss_fn):
+        """Test that all-ones mask computes loss for all elements."""
         output = torch.randn(16, 2, 3)
-        target = torch.randn(16, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
+        # Target with all-ones mask
+        target = make_target_3ch(16, 3)
 
-        loss_no_mask = loss_fn(output, target)
-        loss_none_mask = loss_fn(output, target, mask=None)
+        loss = loss_fn(output, target)
 
-        assert torch.allclose(loss_no_mask, loss_none_mask)
-
-    def test_forward_with_all_ones_mask_unchanged(self, loss_fn):
-        """Test that all-ones mask gives same result as no mask."""
-        output = torch.randn(16, 2, 3)
-        target = torch.randn(16, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
-        mask = torch.ones(16, 3)
-
-        loss_no_mask = loss_fn(output, target)
-        loss_with_mask = loss_fn(output, target, mask=mask)
-
-        assert torch.allclose(loss_no_mask, loss_with_mask)
+        assert loss.item() > 0
+        assert torch.isfinite(loss)
 
     def test_forward_mask_excludes_samples(self, loss_fn):
         """Test that masked samples don't contribute to loss."""
         # Output shape: (batch, 2, n_params)
         output = torch.zeros(4, 2, 3)
-        target = torch.zeros(4, 6)
-        target[:, 3:] = 0.1  # Small positive errors
+
+        # Create target with values, errors, mask
+        values = torch.zeros(4, 3)
+        errors = torch.ones(4, 3) * 0.1
+        mask = torch.ones(4, 3)
 
         # Make first sample have high loss (means channel)
         output[0, 0, :] = 10.0  # Large prediction error
 
-        # Without mask, loss is high due to first sample
-        loss_no_mask = loss_fn(output, target)
+        # Without masking first sample, loss is high
+        target_no_mask = torch.stack([values, errors, mask], dim=1)
+        loss_no_mask = loss_fn(output, target_no_mask)
 
         # Mask out first sample entirely
-        mask = torch.ones(4, 3)
-        mask[0, :] = 0
+        mask_with_exclusion = mask.clone()
+        mask_with_exclusion[0, :] = 0
+        target_masked = torch.stack([values, errors, mask_with_exclusion], dim=1)
 
-        loss_masked = loss_fn(output, target, mask=mask)
+        loss_masked = loss_fn(output, target_masked)
 
         # Masked loss should be lower (no contribution from bad sample)
         assert loss_masked < loss_no_mask
@@ -364,22 +372,26 @@ class TestHeteroscedasticLossMasking:
     def test_forward_mask_per_parameter(self, loss_fn):
         """Test that masking works per parameter."""
         output = torch.zeros(4, 2, 3)
-        target = torch.zeros(4, 6)
-        target[:, 3:] = 0.1
+
+        values = torch.zeros(4, 3)
+        errors = torch.ones(4, 3) * 0.1
+        mask = torch.ones(4, 3)
 
         # Make first parameter of first sample have high loss
         output[0, 0, 0] = 10.0  # First sample, means channel, first param
 
         # Mask only the first parameter of first sample
-        mask = torch.ones(4, 3)
-        mask[0, 0] = 0
+        mask_partial = mask.clone()
+        mask_partial[0, 0] = 0
+        target = torch.stack([values, errors, mask_partial], dim=1)
 
-        loss = loss_fn(output, target, mask=mask)
+        loss = loss_fn(output, target)
 
-        # Compare with loss where that value is corrected
+        # Compare with loss where that value is corrected (not masked)
         output_corrected = output.clone()
         output_corrected[0, 0, 0] = 0.0
-        loss_corrected = loss_fn(output_corrected, target)
+        target_full_mask = torch.stack([values, errors, mask], dim=1)
+        loss_corrected = loss_fn(output_corrected, target_full_mask)
 
         # Should be very close since we masked out the bad element
         assert torch.allclose(loss, loss_corrected, rtol=1e-4)
@@ -387,23 +399,27 @@ class TestHeteroscedasticLossMasking:
     def test_forward_all_masked_returns_zero(self, loss_fn):
         """Test that fully masked batch returns zero loss."""
         output = torch.randn(4, 2, 3)
-        target = torch.randn(4, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
-        mask = torch.zeros(4, 3)
 
-        loss = loss_fn(output, target, mask=mask)
+        values = torch.randn(4, 3)
+        errors = torch.abs(torch.randn(4, 3)) + 0.01
+        mask = torch.zeros(4, 3)  # All masked
+        target = torch.stack([values, errors, mask], dim=1)
+
+        loss = loss_fn(output, target)
 
         assert loss.item() == 0.0
 
     def test_forward_detailed_with_mask(self, loss_fn):
         """Test forward_detailed with mask returns correct components."""
         output = torch.randn(8, 2, 3)
-        target = torch.randn(8, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
+
+        values = torch.randn(8, 3)
+        errors = torch.abs(torch.randn(8, 3)) + 0.01
         mask = torch.ones(8, 3)
         mask[:4, 0] = 0  # Mask half of first parameter
+        target = torch.stack([values, errors, mask], dim=1)
 
-        result = loss_fn.forward_detailed(output, target, mask=mask)
+        result = loss_fn.forward_detailed(output, target)
 
         assert "loss" in result
         assert "mean_component" in result
@@ -415,8 +431,9 @@ class TestHeteroscedasticLossMasking:
     def test_forward_detailed_mask_affects_components(self, loss_fn):
         """Test that mask properly affects per-parameter component averages."""
         output = torch.zeros(4, 2, 3)
-        target = torch.zeros(4, 6)
-        target[:, 3:] = 0.1
+
+        values = torch.zeros(4, 3)
+        errors = torch.ones(4, 3) * 0.1
 
         # Add large error only to masked samples (first 2 samples, first param)
         output[:2, 0, 0] = 10.0
@@ -424,8 +441,9 @@ class TestHeteroscedasticLossMasking:
         # Mask out those samples for first parameter
         mask = torch.ones(4, 3)
         mask[:2, 0] = 0
+        target = torch.stack([values, errors, mask], dim=1)
 
-        result = loss_fn.forward_detailed(output, target, mask=mask)
+        result = loss_fn.forward_detailed(output, target)
 
         # Mean component for first param should be ~0 (masked samples excluded)
         # Other params should have normal values
@@ -435,14 +453,15 @@ class TestHeteroscedasticLossMasking:
         """Test that reduction='none' with mask zeros out masked elements."""
         loss_fn = HeteroscedasticLoss(n_parameters=3, reduction="none")
         output = torch.randn(4, 2, 3)
-        target = torch.randn(4, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
 
+        values = torch.randn(4, 3)
+        errors = torch.abs(torch.randn(4, 3)) + 0.01
         mask = torch.zeros(4, 3)
         mask[0, 0] = 1
         mask[1, 1] = 1
+        target = torch.stack([values, errors, mask], dim=1)
 
-        loss = loss_fn(output, target, mask=mask)
+        loss = loss_fn(output, target)
 
         # Only (0,0) and (1,1) should be non-zero
         assert loss[0, 0] != 0
@@ -454,16 +473,19 @@ class TestHeteroscedasticLossMasking:
         """Test that reduction='sum' with mask only sums valid elements."""
         loss_fn = HeteroscedasticLoss(n_parameters=2, reduction="sum")
         output = torch.zeros(4, 2, 2)
-        target = torch.zeros(4, 4)
-        target[:, 2:] = 0.1
 
-        mask = torch.ones(4, 2)
+        values = torch.zeros(4, 2)
+        errors = torch.ones(4, 2) * 0.1
+        mask_all = torch.ones(4, 2)
 
-        loss_all = loss_fn(output, target, mask=mask)
+        target_all = torch.stack([values, errors, mask_all], dim=1)
+        loss_all = loss_fn(output, target_all)
 
         # Mask out half
-        mask[:2, :] = 0
-        loss_half = loss_fn(output, target, mask=mask)
+        mask_half = mask_all.clone()
+        mask_half[:2, :] = 0
+        target_half = torch.stack([values, errors, mask_half], dim=1)
+        loss_half = loss_fn(output, target_half)
 
         # Sum should be half (since all elements have same loss)
         assert torch.allclose(loss_half, loss_all / 2, rtol=1e-4)
@@ -471,13 +493,14 @@ class TestHeteroscedasticLossMasking:
     def test_gradients_with_mask(self, loss_fn):
         """Test that gradients flow correctly with mask."""
         output = torch.randn(8, 2, 3, requires_grad=True)
-        target = torch.randn(8, 6)
-        target[:, 3:] = torch.abs(target[:, 3:]) + 0.01
 
+        values = torch.randn(8, 3)
+        errors = torch.abs(torch.randn(8, 3)) + 0.01
         mask = torch.ones(8, 3)
         mask[:4, :] = 0  # Mask first half
+        target = torch.stack([values, errors, mask], dim=1)
 
-        loss = loss_fn(output, target, mask=mask)
+        loss = loss_fn(output, target)
         loss.backward()
 
         assert output.grad is not None

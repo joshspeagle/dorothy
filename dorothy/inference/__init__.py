@@ -4,7 +4,9 @@ from dorothy.inference.evaluator import (
     EvaluationResult,
     Evaluator,
     ParameterMetrics,
+    SurveyEvaluationResult,
     evaluate_predictions,
+    evaluate_predictions_by_survey,
 )
 from dorothy.inference.predictor import (
     PredictionResult,
@@ -19,6 +21,8 @@ __all__ = [
     "predict_from_fits",
     "Evaluator",
     "EvaluationResult",
+    "SurveyEvaluationResult",
     "ParameterMetrics",
     "evaluate_predictions",
+    "evaluate_predictions_by_survey",
 ]

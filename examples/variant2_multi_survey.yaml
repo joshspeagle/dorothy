@@ -1,0 +1,48 @@
+# DOROTHY Training Configuration - Variant 2
+# Multi-Survey Input -> Single Label Source Output
+# BOSS + DESI spectra -> APOGEE labels
+
+name: variant2_multi_survey
+
+data:
+  catalogue_path: data/super_catalogue.h5
+  surveys:
+    - boss
+    - desi
+  label_sources:
+    - apogee
+  train_ratio: 0.7
+  val_ratio: 0.2
+  max_flag_bits: 0
+  smart_deduplicate: true
+
+# Multi-head MLP for multi-survey training
+# survey_wavelengths is auto-populated from the catalogue
+multi_head_model:
+  latent_dim: 256
+  encoder_hidden: [1024, 512]
+  trunk_hidden: [512, 256]
+  output_hidden: [64]
+  combination_mode: concat
+  normalization: layernorm
+  activation: gelu
+  dropout: 0.0
+
+training:
+  epochs: 10
+  batch_size: 512
+  learning_rate: 0.001
+  loss: heteroscedastic
+  gradient_clip: 10.0
+  scatter_floor: 0.01
+  save_every: 0
+  scheduler:
+    type: one_cycle
+    max_lr: 0.001
+    pct_start: 0.3
+    div_factor: 25.0
+    final_div_factor: 10000.0
+
+output_dir: outputs
+seed: 42
+device: auto

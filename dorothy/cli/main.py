@@ -135,7 +135,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     import yaml
 
     from dorothy.config.schema import ExperimentConfig
-    from dorothy.data import FITSLoader, split_data
+    from dorothy.data import CatalogueLoader
     from dorothy.training import Trainer
 
     # Load configuration
@@ -152,9 +152,11 @@ def cmd_train(args: argparse.Namespace) -> int:
         print(f"Error: Invalid YAML in configuration: {e}")
         return 1
 
-    # Handle Path conversion for fits_path
-    if "data" in config_dict and "fits_path" in config_dict["data"]:
-        config_dict["data"]["fits_path"] = Path(config_dict["data"]["fits_path"])
+    # Handle Path conversion for catalogue_path
+    if "data" in config_dict and "catalogue_path" in config_dict["data"]:
+        config_dict["data"]["catalogue_path"] = Path(
+            config_dict["data"]["catalogue_path"]
+        )
 
     # Override device if specified
     if args.device != "auto":
@@ -163,6 +165,40 @@ def cmd_train(args: argparse.Namespace) -> int:
     # Override output directory if specified
     if args.output_dir is not None:
         config_dict["output_dir"] = args.output_dir
+
+    # Auto-populate multi_head_model.survey_wavelengths for multi-survey training
+    data_config = config_dict.get("data", {})
+    surveys = data_config.get("surveys", [])
+    label_sources = data_config.get("label_sources", ["apogee"])
+
+    if len(surveys) > 1:
+        # Multi-survey training requires multi_head_model with survey_wavelengths
+        catalogue_path = data_config.get("catalogue_path")
+        if catalogue_path is None:
+            print("Error: catalogue_path is required for multi-survey training")
+            return 1
+
+        # Get wavelength counts from catalogue
+        print("Querying catalogue for survey wavelengths...")
+        loader = CatalogueLoader(catalogue_path)
+        try:
+            survey_wavelengths = loader.get_survey_wavelength_counts(surveys)
+        except Exception as e:
+            print(f"Error: Could not get survey wavelengths: {e}")
+            return 1
+
+        print(f"  Survey wavelengths: {survey_wavelengths}")
+
+        # Create or update multi_head_model config
+        if "multi_head_model" not in config_dict:
+            config_dict["multi_head_model"] = {}
+
+        # Always set survey_wavelengths from catalogue (authoritative source)
+        config_dict["multi_head_model"]["survey_wavelengths"] = survey_wavelengths
+
+        # Set label_sources for multi-label training
+        if len(label_sources) > 1:
+            config_dict["multi_head_model"]["label_sources"] = label_sources
 
     # Create config object
     try:
@@ -174,45 +210,315 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"Experiment: {config.name}")
     print(f"Device: {config.device}")
     print(f"Output: {config.get_output_path()}")
+    print(f"Surveys: {config.data.surveys}")
+    print(f"Label sources: {config.data.label_sources}")
 
-    # Load data
-    print(f"\nLoading data from {config.data.fits_path}")
-    loader = FITSLoader.from_config(config.data)
-    data = loader.load()
+    # Load data from super-catalogue
+    print(f"\nLoading data from {config.data.catalogue_path}")
+    loader = CatalogueLoader(config.data.catalogue_path)
 
-    print(f"  Total spectra: {data.n_samples}")
-    print(f"  Good quality: {data.quality_mask.sum()}")
-    print(f"  Wavelength bins: {data.n_wavelengths}")
+    import numpy as np
 
-    # Split data
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_data(
-        data,
-        train_ratio=config.data.train_ratio,
-        val_ratio=config.data.val_ratio,
-        seed=config.seed,
-    )
+    if config.data.is_multi_survey:
+        # Determine if multi-labelset training
+        is_multi_label = config.data.is_multi_label
 
-    print(f"\n  Training samples: {X_train.shape[0]}")
-    print(f"  Validation samples: {X_val.shape[0]}")
-    print(f"  Test samples: {X_test.shape[0]}")
+        if is_multi_label:
+            # Multi-labelset mode: load labels from multiple sources
+            # Determine which label sources to actually load from catalogue
+            # (excluding duplicated ones that will be copied from source)
+            duplicate_labels = config.data.duplicate_labels or {}
+            sources_to_load = [
+                s for s in config.data.label_sources if s not in duplicate_labels
+            ]
 
-    # Create trainer and train
-    print("\nInitializing trainer...")
-    trainer = Trainer(config)
+            X_dict, y_dict, has_data_dict, has_labels_dict = (
+                loader.load_merged_for_training(
+                    surveys=config.data.surveys,
+                    smart_deduplicate=config.data.smart_deduplicate,
+                    chi2_threshold=config.data.chi2_threshold,
+                    label_source=sources_to_load[0],
+                    max_flag_bits=config.data.max_flag_bits,
+                    label_sources=sources_to_load,
+                )
+            )
 
-    print(f"  Model parameters: {trainer.model.count_parameters():,}")
+            # Handle duplicate_labels: copy labels from source to target
+            if duplicate_labels:
+                print(f"  Duplicating labels: {duplicate_labels}")
+                for target, source in duplicate_labels.items():
+                    if source not in y_dict:
+                        print(
+                            f"Error: Cannot duplicate from '{source}' - not in loaded sources"
+                        )
+                        return 1
+                    y_dict[target] = y_dict[source].copy()
+                    has_labels_dict[target] = has_labels_dict[source].copy()
 
-    print("\nStarting training...")
-    history = trainer.fit(X_train, y_train, X_val, y_val)
+            print(f"  Surveys loaded: {list(X_dict.keys())}")
+            for survey_name, X_survey in X_dict.items():
+                n_with_data = has_data_dict[survey_name].sum()
+                print(
+                    f"    {survey_name}: {X_survey.shape[2]} wavelengths, "
+                    f"{n_with_data:,} stars"
+                )
 
-    print("\nTraining complete!")
-    print(f"  Best validation loss: {history.best_val_loss:.6f}")
-    print(f"  Best epoch: {history.best_epoch + 1}")
+            print(f"  Label sources: {config.data.label_sources}")
+            first_source = config.data.label_sources[0]
+            n_total = y_dict[first_source].shape[0]
+            print(f"  Total unique stars: {n_total:,}")
 
-    # Save checkpoint
-    print("\nSaving checkpoint...")
-    checkpoint_path = trainer.save_checkpoint()
-    print(f"  Saved to: {checkpoint_path}")
+            for source in config.data.label_sources:
+                n_with_labels = has_labels_dict[source].sum()
+                print(f"    {source}: {n_with_labels:,} stars")
+
+            # Filter to samples with at least one survey AND at least one label source
+            has_any_survey = np.zeros(n_total, dtype=bool)
+            for survey_name in X_dict:
+                has_any_survey |= has_data_dict[survey_name]
+
+            has_any_labels = np.zeros(n_total, dtype=bool)
+            for source in config.data.label_sources:
+                has_any_labels |= has_labels_dict[source]
+
+            valid_samples = has_any_survey & has_any_labels
+            print(
+                f"  Valid samples (at least one survey + one label source): "
+                f"{valid_samples.sum():,}"
+            )
+
+            # Filter all arrays
+            X_dict = {survey: arr[valid_samples] for survey, arr in X_dict.items()}
+            y_dict = {source: arr[valid_samples] for source, arr in y_dict.items()}
+            has_data_dict = {
+                survey: arr[valid_samples] for survey, arr in has_data_dict.items()
+            }
+            has_labels_dict = {
+                source: arr[valid_samples] for source, arr in has_labels_dict.items()
+            }
+
+            # Split data
+            n_samples = valid_samples.sum()
+            indices = np.random.RandomState(config.seed).permutation(n_samples)
+
+            n_train = int(n_samples * config.data.train_ratio)
+            n_val = int(n_samples * config.data.val_ratio)
+
+            train_idx = indices[:n_train]
+            val_idx = indices[n_train : n_train + n_val]
+            test_idx = indices[n_train + n_val :]
+
+            X_train = {survey: arr[train_idx] for survey, arr in X_dict.items()}
+            X_val = {survey: arr[val_idx] for survey, arr in X_dict.items()}
+            y_train = {source: arr[train_idx] for source, arr in y_dict.items()}
+            y_val = {source: arr[val_idx] for source, arr in y_dict.items()}
+            has_data_train = {
+                survey: arr[train_idx] for survey, arr in has_data_dict.items()
+            }
+            has_data_val = {
+                survey: arr[val_idx] for survey, arr in has_data_dict.items()
+            }
+            has_labels_train = {
+                source: arr[train_idx] for source, arr in has_labels_dict.items()
+            }
+            has_labels_val = {
+                source: arr[val_idx] for source, arr in has_labels_dict.items()
+            }
+
+            print(f"\n  Training samples: {len(train_idx):,}")
+            print(f"  Validation samples: {len(val_idx):,}")
+            print(f"  Test samples: {len(test_idx):,}")
+
+            # Create trainer (uses MultiHeadMLP with multi-label support)
+            print("\nInitializing trainer...")
+            trainer = Trainer(config)
+
+            print(f"  Model parameters: {trainer.model.count_parameters():,}")
+            print("  Architecture: MultiHeadMLP (multi-labelset)")
+            print(
+                f"  Combination mode: {config.multi_head_model.combination_mode.value}"
+            )
+            print(f"  Output heads: {config.multi_head_model.label_sources}")
+
+            # Train with multi-survey + multi-labelset data
+            print("\nStarting multi-labelset training...")
+            history = trainer.fit_multi_labelset(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                has_data_train,
+                has_data_val,
+                has_labels_train,
+                has_labels_val,
+            )
+
+        else:
+            # Single-label mode: use existing multi-survey code
+            X_dict, y, has_data_dict, _ = loader.load_merged_for_training(
+                surveys=config.data.surveys,
+                smart_deduplicate=config.data.smart_deduplicate,
+                chi2_threshold=config.data.chi2_threshold,
+                label_source=config.data.label_sources[0],
+                max_flag_bits=config.data.max_flag_bits,
+            )
+
+            print(f"  Surveys loaded: {list(X_dict.keys())}")
+            for survey_name, X_survey in X_dict.items():
+                n_with_data = has_data_dict[survey_name].sum()
+                print(
+                    f"    {survey_name}: {X_survey.shape[2]} wavelengths, "
+                    f"{n_with_data:,} stars"
+                )
+            print(f"  Total unique stars: {y.shape[0]:,}")
+            print(f"  Parameters: {y.shape[2]}")
+
+            # Filter to samples with at least one survey having data AND all valid labels
+            has_any_survey = np.zeros(y.shape[0], dtype=bool)
+            for survey_name in X_dict:
+                has_any_survey |= has_data_dict[survey_name]
+
+            label_mask = y[:, 2, :]  # (N, n_params)
+            valid_labels = label_mask.all(axis=1)
+
+            valid_samples = has_any_survey & valid_labels
+            print(
+                f"  Valid samples (at least one survey + all labels): "
+                f"{valid_samples.sum():,}"
+            )
+
+            # Filter all arrays
+            X_dict = {survey: arr[valid_samples] for survey, arr in X_dict.items()}
+            y = y[valid_samples]
+            has_data_dict = {
+                survey: arr[valid_samples] for survey, arr in has_data_dict.items()
+            }
+
+            # Split data
+            n_samples = y.shape[0]
+            indices = np.random.RandomState(config.seed).permutation(n_samples)
+
+            n_train = int(n_samples * config.data.train_ratio)
+            n_val = int(n_samples * config.data.val_ratio)
+
+            train_idx = indices[:n_train]
+            val_idx = indices[n_train : n_train + n_val]
+            test_idx = indices[n_train + n_val :]
+
+            X_train = {survey: arr[train_idx] for survey, arr in X_dict.items()}
+            X_val = {survey: arr[val_idx] for survey, arr in X_dict.items()}
+            y_train, y_val = y[train_idx], y[val_idx]
+            has_data_train = {
+                survey: arr[train_idx] for survey, arr in has_data_dict.items()
+            }
+            has_data_val = {
+                survey: arr[val_idx] for survey, arr in has_data_dict.items()
+            }
+
+            print(f"\n  Training samples: {len(train_idx):,}")
+            print(f"  Validation samples: {len(val_idx):,}")
+            print(f"  Test samples: {len(test_idx):,}")
+
+            # Create trainer and train (uses MultiHeadMLP via config.is_multi_head)
+            print("\nInitializing trainer...")
+            trainer = Trainer(config)
+
+            print(f"  Model parameters: {trainer.model.count_parameters():,}")
+            print("  Architecture: MultiHeadMLP")
+            print(
+                f"  Combination mode: {config.multi_head_model.combination_mode.value}"
+            )
+
+            # Train with multi-survey data
+            print("\nStarting multi-survey training...")
+            history = trainer.fit_multi_survey(
+                X_train, y_train, X_val, y_val, has_data_train, has_data_val
+            )
+
+        print("\nTraining complete!")
+        print(f"  Best validation loss: {history.best_val_loss:.6f}")
+        print(f"  Best epoch: {history.best_epoch + 1}")
+
+        # Save checkpoint
+        print("\nSaving checkpoint...")
+        checkpoint_path = trainer.save_checkpoint()
+        print(f"  Saved to: {checkpoint_path}")
+
+    else:
+        # Single survey: use load_for_training
+        # Returns 3-channel format: X=(N, 3, wavelengths), y=(N, 3, n_params)
+        survey = config.data.surveys[0]
+        X, y = loader.load_for_training(
+            survey=survey,
+            max_flag_bits=config.data.max_flag_bits,
+        )
+
+        print(f"  Survey: {survey}")
+        print(f"  Spectra: {X.shape[0]:,}")
+        print(f"  Wavelength bins: {X.shape[2]}")
+        print(f"  Parameters: {y.shape[2]}")
+
+        # Filter to samples with all valid labels
+        # Mask is in channel 2 of y: y[:, 2, :] is (N, n_params)
+        mask = y[:, 2, :]  # (N, n_params)
+        valid_samples = mask.all(axis=1)
+        print(f"  Valid samples (all labels): {valid_samples.sum():,}")
+
+        X = X[valid_samples]
+        y = y[valid_samples]
+
+        # Split data
+        n_samples = X.shape[0]
+        indices = np.random.RandomState(config.seed).permutation(n_samples)
+
+        n_train = int(n_samples * config.data.train_ratio)
+        n_val = int(n_samples * config.data.val_ratio)
+
+        train_idx = indices[:n_train]
+        val_idx = indices[n_train : n_train + n_val]
+        test_idx = indices[n_train + n_val :]
+
+        X_train, y_train = X[train_idx], y[train_idx]
+        X_val, y_val = X[val_idx], y[val_idx]
+
+        print(f"\n  Training samples: {X_train.shape[0]:,}")
+        print(f"  Validation samples: {X_val.shape[0]:,}")
+        print(f"  Test samples: {len(test_idx):,}")
+
+        # X is already 3-channel: (N, 3, wavelengths) -> flattened to (N, 3*wavelengths)
+        # for MLP input
+        input_features = X_train.shape[1] * X_train.shape[2]  # 3 * wavelengths
+
+        # Update model input features based on actual data shape
+        # Only needed for standard MLP (multi-head gets wavelengths from survey_wavelengths)
+        if config.model is not None:
+            config.model = config.model.model_copy(
+                update={"input_features": input_features}
+            )
+
+        # Create trainer and train
+        print("\nInitializing trainer...")
+        trainer = Trainer(config)
+
+        print(f"  Model parameters: {trainer.model.count_parameters():,}")
+        if config.model is not None:
+            print(f"  Input features: {config.model.input_features}")
+        else:
+            print("  Architecture: MultiHeadMLP")
+
+        # Pass 3-channel data directly to trainer
+        # X: (N, 3, wavelengths), y: (N, 3, n_params)
+        print("\nStarting training...")
+        history = trainer.fit(X_train, y_train, X_val, y_val)
+
+        print("\nTraining complete!")
+        print(f"  Best validation loss: {history.best_val_loss:.6f}")
+        print(f"  Best epoch: {history.best_epoch + 1}")
+
+        # Save checkpoint
+        print("\nSaving checkpoint...")
+        checkpoint_path = trainer.save_checkpoint()
+        print(f"  Saved to: {checkpoint_path}")
 
     return 0
 
