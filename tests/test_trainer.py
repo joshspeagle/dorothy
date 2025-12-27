@@ -21,12 +21,13 @@ from dorothy.config.schema import (
     DataConfig,
     ExperimentConfig,
     LossType,
+    MaskingConfig,
     ModelConfig,
     SchedulerConfig,
     SchedulerType,
     TrainingConfig,
 )
-from dorothy.training.trainer import Trainer, TrainingHistory
+from dorothy.training.trainer import EVALUATOR_METRIC_NAMES, Trainer, TrainingHistory
 
 
 @pytest.fixture
@@ -336,7 +337,8 @@ class TestTrainerPredictions:
 
         predictions = trainer.predict(X[80:])
 
-        assert predictions.shape == (20, 6)
+        # Model output shape is (batch, 2, n_params)
+        assert predictions.shape == (20, 2, 3)
 
     def test_predict_with_numpy(self, simple_config, training_data):
         """Test predictions with numpy input."""
@@ -398,6 +400,123 @@ class TestTrainingHistory:
         finally:
             path.unlink()
 
+    def test_val_metrics_initialization(self):
+        """Test that val_metrics can be initialized."""
+        history = TrainingHistory(
+            val_metrics={name: [] for name in EVALUATOR_METRIC_NAMES},
+        )
+
+        assert len(history.val_metrics) == len(EVALUATOR_METRIC_NAMES)
+        for name in EVALUATOR_METRIC_NAMES:
+            assert name in history.val_metrics
+            assert history.val_metrics[name] == []
+
+    def test_get_metrics_array(self):
+        """Test get_metrics_array returns proper numpy arrays."""
+        n_epochs = 3
+        n_params = 2
+
+        # Create sample metric arrays
+        val_metrics = {
+            name: [np.random.rand(n_params).astype(np.float32) for _ in range(n_epochs)]
+            for name in EVALUATOR_METRIC_NAMES
+        }
+
+        history = TrainingHistory(val_metrics=val_metrics)
+        arrays = history.get_metrics_array()
+
+        assert len(arrays) == len(EVALUATOR_METRIC_NAMES)
+        for name in EVALUATOR_METRIC_NAMES:
+            assert name in arrays
+            assert arrays[name].shape == (n_epochs, n_params)
+
+
+class TestTrainerValMetrics:
+    """Tests for Evaluator metrics tracking during training."""
+
+    def test_val_metrics_tracked_during_training(self, simple_config, training_data):
+        """Test that Evaluator metrics are tracked during training."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        n_params = simple_config.model.n_parameters
+
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        # Check all metrics are tracked
+        assert len(history.val_metrics) == len(EVALUATOR_METRIC_NAMES)
+
+        # Check each metric has correct shape
+        n_epochs = simple_config.training.epochs
+        for metric_name in EVALUATOR_METRIC_NAMES:
+            assert metric_name in history.val_metrics
+            assert len(history.val_metrics[metric_name]) == n_epochs
+
+            # Each epoch should have n_params values
+            for epoch_metrics in history.val_metrics[metric_name]:
+                assert len(epoch_metrics) == n_params
+
+    def test_val_metrics_have_valid_values(self, simple_config, training_data):
+        """Test that tracked metrics have valid (finite) values."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        # Core metrics (always present) should be finite
+        core_metrics = ["rmse", "bias", "sd", "mae", "median_offset", "robust_scatter"]
+        for metric_name in core_metrics:
+            arrays = np.array(history.val_metrics[metric_name])
+            assert np.all(np.isfinite(arrays)), f"{metric_name} has non-finite values"
+
+        # RMSE and MAE should be non-negative
+        for metric_name in ["rmse", "mae", "robust_scatter"]:
+            arrays = np.array(history.val_metrics[metric_name])
+            assert np.all(arrays >= 0), f"{metric_name} has negative values"
+
+    def test_val_metrics_zscore_calibration(self, simple_config, training_data):
+        """Test that z-score metrics are computed."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        # Z-score metrics should be present (since we use heteroscedastic loss)
+        z_metrics = ["z_median", "z_robust_scatter"]
+        for metric_name in z_metrics:
+            assert metric_name in history.val_metrics
+            arrays = np.array(history.val_metrics[metric_name])
+            assert np.all(np.isfinite(arrays)), f"{metric_name} has non-finite values"
+
+    def test_val_metrics_saved_with_history(self, simple_config, training_data):
+        """Test that val_metrics are saved when saving history."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
+            path = Path(f.name)
+
+        try:
+            history.save(path)
+
+            import pickle
+
+            with open(path, "rb") as f:
+                loaded = pickle.load(f)
+
+            assert "val_metrics" in loaded
+            assert len(loaded["val_metrics"]) == len(EVALUATOR_METRIC_NAMES)
+
+            # Verify data integrity
+            for metric_name in EVALUATOR_METRIC_NAMES:
+                assert metric_name in loaded["val_metrics"]
+                original = history.val_metrics[metric_name]
+                saved = loaded["val_metrics"][metric_name]
+                assert len(original) == len(saved)
+        finally:
+            path.unlink()
+
 
 class TestTrainerGradientClipping:
     """Tests for gradient clipping."""
@@ -424,3 +543,252 @@ class TestTrainerGradientClipping:
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
         assert len(history.train_losses) == 5
+
+
+class TestTrainerMasking:
+    """Tests for Trainer with label masking."""
+
+    def test_fit_with_label_mask(self, simple_config, training_data):
+        """Test training with label masking."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        n_params = simple_config.model.n_parameters
+
+        # Create mask where 90% of labels are valid
+        rng = np.random.default_rng(42)
+        y_train_mask = rng.random((80, n_params)) > 0.1
+        y_val_mask = rng.random((20, n_params)) > 0.1
+
+        # Convert to float
+        y_train_mask = y_train_mask.astype(np.float32)
+        y_val_mask = y_val_mask.astype(np.float32)
+
+        history = trainer.fit(
+            X[:80],
+            y[:80],
+            X[80:],
+            y[80:],
+            y_train_mask=y_train_mask,
+            y_val_mask=y_val_mask,
+        )
+
+        # Training should complete
+        assert len(history.train_losses) == 5
+        assert all(np.isfinite(history.train_losses))
+
+    def test_fit_with_torch_tensor_mask(self, simple_config, training_data):
+        """Test training with mask as torch tensor."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        n_params = simple_config.model.n_parameters
+
+        # Create mask as torch tensor
+        y_train_mask = torch.ones(80, n_params)
+        y_val_mask = torch.ones(20, n_params)
+
+        history = trainer.fit(
+            X[:80],
+            y[:80],
+            X[80:],
+            y[80:],
+            y_train_mask=y_train_mask,
+            y_val_mask=y_val_mask,
+        )
+
+        assert len(history.train_losses) == 5
+
+    def test_fit_with_partial_mask(self, simple_config, training_data):
+        """Test training with only train mask, no val mask."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        n_params = simple_config.model.n_parameters
+
+        y_train_mask = np.ones((80, n_params), dtype=np.float32)
+
+        history = trainer.fit(
+            X[:80],
+            y[:80],
+            X[80:],
+            y[80:],
+            y_train_mask=y_train_mask,
+        )
+
+        assert len(history.train_losses) == 5
+
+
+class TestTrainerAugmentation:
+    """Tests for Trainer with augmentation."""
+
+    @pytest.fixture
+    def augmentation_config(self):
+        """Config for testing with 3-channel input and augmentation."""
+        from dorothy.config import DataConfig, ExperimentConfig
+
+        return ExperimentConfig(
+            name="augmentation_test",
+            data=DataConfig(
+                fits_path=Path("/fake/path.fits"),
+                input_channels=3,
+                wavelength_bins=1000,
+            ),
+            training=TrainingConfig(
+                epochs=3,
+                batch_size=16,
+            ),
+            model=ModelConfig(
+                hidden_layers=[64, 32],
+                output_features=6,
+            ),
+            masking=MaskingConfig(
+                enabled=True,
+                min_fraction=0.1,
+                max_fraction=0.3,
+                min_block_size=5,
+            ),
+        )
+
+    @pytest.fixture
+    def three_channel_data(self, augmentation_config):
+        """Create 3-channel training data [flux | error | mask]."""
+        rng = np.random.default_rng(42)
+        n_samples = 100
+        n_wavelengths = augmentation_config.data.wavelength_bins
+        n_params = augmentation_config.model.n_parameters
+
+        # Create 3-channel input: [flux, error, mask]
+        X = np.zeros((n_samples, 3, n_wavelengths), dtype=np.float32)
+        X[:, 0, :] = rng.standard_normal((n_samples, n_wavelengths))  # Flux
+        X[:, 1, :] = (
+            np.abs(rng.standard_normal((n_samples, n_wavelengths))) * 0.1
+        )  # Error
+        X[:, 2, :] = 1.0  # All valid initially
+
+        # Create labels [params | errors]
+        # First param (teff) must be positive for log-space normalization
+        labels = rng.standard_normal((n_samples, n_params)).astype(np.float32)
+        labels[:, 0] = np.abs(labels[:, 0]) * 1000 + 4000  # Teff in range ~3000-6000K
+        errors = np.abs(rng.standard_normal((n_samples, n_params)) * 0.1).astype(
+            np.float32
+        )
+        y = np.concatenate([labels, errors], axis=1)
+
+        return X, y
+
+    def test_fit_with_augmentation_from_config(
+        self, augmentation_config, three_channel_data
+    ):
+        """Test training with augmentation created from config."""
+        trainer = Trainer(augmentation_config)
+        X, y = three_channel_data
+
+        # Augmentation should be created from config
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        assert trainer._augmentation is not None
+        assert len(history.train_losses) == 3
+
+    def test_fit_with_explicit_augmentation(
+        self, augmentation_config, three_channel_data
+    ):
+        """Test training with explicitly provided augmentation."""
+        from dorothy.data.augmentation import DynamicBlockMasking
+
+        # Disable config-based augmentation
+        augmentation_config.masking.enabled = False
+
+        trainer = Trainer(augmentation_config)
+        X, y = three_channel_data
+
+        # Provide explicit augmentation
+        aug = DynamicBlockMasking(min_fraction=0.2, max_fraction=0.4)
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:], augmentation=aug)
+
+        assert trainer._augmentation is aug
+        assert len(history.train_losses) == 3
+
+    def test_augmentation_applied_to_training_only(
+        self, augmentation_config, three_channel_data
+    ):
+        """Test that augmentation is applied during training but not validation."""
+        trainer = Trainer(augmentation_config)
+        X, y = three_channel_data
+
+        # Track whether augmentation is called during training vs validation
+        # We can verify by checking that training runs without errors
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        # Both train and val losses should be finite
+        assert all(np.isfinite(history.train_losses))
+        assert all(np.isfinite(history.val_losses))
+
+
+class TestTrainerMaskingAndAugmentation:
+    """Tests for Trainer with both label masking and augmentation."""
+
+    @pytest.fixture
+    def full_masking_config(self):
+        """Config for testing with both label masks and augmentation."""
+        from dorothy.config import DataConfig, ExperimentConfig
+
+        return ExperimentConfig(
+            name="full_masking_test",
+            data=DataConfig(
+                fits_path=Path("/fake/path.fits"),
+                input_channels=3,
+                wavelength_bins=1000,
+            ),
+            training=TrainingConfig(
+                epochs=3,
+                batch_size=16,
+            ),
+            model=ModelConfig(
+                hidden_layers=[64, 32],
+                output_features=6,
+            ),
+            masking=MaskingConfig(
+                enabled=True,
+                min_fraction=0.1,
+                max_fraction=0.3,
+            ),
+        )
+
+    def test_fit_with_both_masks_and_augmentation(self, full_masking_config):
+        """Test training with both label masks and spectral augmentation."""
+        trainer = Trainer(full_masking_config)
+        rng = np.random.default_rng(42)
+
+        n_samples = 100
+        n_wavelengths = full_masking_config.data.wavelength_bins
+        n_params = full_masking_config.model.n_parameters
+
+        # Create 3-channel input
+        X = np.zeros((n_samples, 3, n_wavelengths), dtype=np.float32)
+        X[:, 0, :] = rng.standard_normal((n_samples, n_wavelengths))
+        X[:, 1, :] = np.abs(rng.standard_normal((n_samples, n_wavelengths))) * 0.1
+        X[:, 2, :] = 1.0
+
+        # Create labels (first param teff must be positive for log-space)
+        labels = rng.standard_normal((n_samples, n_params)).astype(np.float32)
+        labels[:, 0] = np.abs(labels[:, 0]) * 1000 + 4000  # Teff in range ~3000-6000K
+        errors = np.abs(rng.standard_normal((n_samples, n_params)) * 0.1).astype(
+            np.float32
+        )
+        y = np.concatenate([labels, errors], axis=1)
+
+        # Create label masks (90% valid)
+        y_train_mask = (rng.random((80, n_params)) > 0.1).astype(np.float32)
+        y_val_mask = (rng.random((20, n_params)) > 0.1).astype(np.float32)
+
+        history = trainer.fit(
+            X[:80],
+            y[:80],
+            X[80:],
+            y[80:],
+            y_train_mask=y_train_mask,
+            y_val_mask=y_val_mask,
+        )
+
+        assert trainer._augmentation is not None
+        assert len(history.train_losses) == 3
+        assert all(np.isfinite(history.train_losses))
+        assert all(np.isfinite(history.val_losses))

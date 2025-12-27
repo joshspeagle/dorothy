@@ -19,11 +19,11 @@ data:
 # Compact model architecture for faster training
 model:
   hidden_layers: [2048, 1024, 512, 256, 128]
-  normalization: batchnorm
+  normalization: layernorm
   activation: gelu
   dropout: 0.1                            # Light dropout for regularization
 
-# Training with cosine annealing scheduler
+# Training with one_cycle scheduler (default) - alternatives: cosine_annealing, cyclic
 training:
   epochs: 500
   batch_size: 2048
@@ -34,19 +34,27 @@ training:
   early_stopping_patience: 50             # Stop if no improvement for 50 epochs
   save_every: 50                          # Save checkpoint every 50 epochs
 
-  scheduler:
-    type: cosine_annealing
-    base_lr: 0.00001
-    max_lr: 0.001
+  # Optimizer (default: AdamW)
+  optimizer:
+    type: adamw
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
 
-# Enable masking for robustness to missing data
+  scheduler:
+    type: one_cycle                       # one_cycle (default), cyclic, cosine_annealing, reduce_on_plateau, none
+    max_lr: 0.001
+    pct_start: 0.3
+    div_factor: 25.0
+    final_div_factor: 10000.0
+
+# Enable dynamic block masking for robustness to missing data
 masking:
   enabled: true
-  mask_fraction: 0.15                     # Mask 15% of wavelengths
-  mask_value: 0.0
-  contiguous: true                        # Use contiguous regions
-  min_region_size: 20                     # Minimum masked region size
-  max_region_size: 150                    # Maximum masked region size
+  min_fraction: 0.1                       # Minimum fraction of wavelengths to mask
+  max_fraction: 0.3                       # Maximum fraction of wavelengths to mask
+  min_block_size: 20                      # Minimum size of each masked block
+  max_block_size: 200                     # Maximum size of each masked block
+  # fraction_choices: [0.1, 0.2, 0.3]    # Optional: specific fractions to choose from
 
 output_dir: ./outputs/robust_experiments
 seed: 42

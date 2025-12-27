@@ -8,7 +8,11 @@ stellar parameters along with their uncertainties.
 Default architecture (DOROTHY standard):
     Input: (batch, 2, 7650) -> Flatten -> (batch, 15300)
     Hidden: 15300 -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100
-    Output: 100 -> 22 (11 parameters + 11 uncertainties)
+    Output: 100 -> 22 -> reshape -> (batch, 2, 11)
+
+The output tensor has shape (batch, 2, n_params) where:
+    - output[:, 0, :] contains the predicted means
+    - output[:, 1, :] contains the predicted log-scatter values
 """
 
 from __future__ import annotations
@@ -33,11 +37,14 @@ class MLP(nn.Module):
     - Dropout probability
 
     The network flattens 3D input tensors (batch, channels, wavelengths) to 2D
-    before processing through the hidden layers.
+    before processing through the hidden layers. The output is reshaped to
+    (batch, 2, n_params) where the second dimension separates means and
+    log-scatter predictions.
 
     Attributes:
         input_features: Number of input features after flattening.
         output_features: Number of output features (2 * n_parameters).
+        n_parameters: Number of stellar parameters being predicted.
         hidden_layers: List of hidden layer sizes.
         layers: The sequential container of all network layers.
 
@@ -46,7 +53,9 @@ class MLP(nn.Module):
         >>> config = ModelConfig(hidden_layers=[1000, 500, 100])
         >>> model = MLP.from_config(config)
         >>> x = torch.randn(32, 2, 7650)  # batch of spectra
-        >>> output = model(x)  # shape: (32, 22)
+        >>> output = model(x)  # shape: (32, 2, 11)
+        >>> means = output[:, 0, :]  # predicted means
+        >>> log_scatter = output[:, 1, :]  # predicted log-scatter
     """
 
     def __init__(
@@ -54,7 +63,7 @@ class MLP(nn.Module):
         input_features: int = 15300,
         output_features: int = 22,
         hidden_layers: list[int] | None = None,
-        normalization: str = "batchnorm",
+        normalization: str = "layernorm",
         activation: str = "gelu",
         dropout: float = 0.0,
     ) -> None:
@@ -69,8 +78,8 @@ class MLP(nn.Module):
             hidden_layers: List of hidden layer sizes. Default is the DOROTHY
                 standard: [5000, 2000, 1000, 500, 200, 100].
             normalization: Type of normalization layer. One of:
-                - "batchnorm": Batch normalization (default, best for large batches)
-                - "layernorm": Layer normalization (better for small batches)
+                - "layernorm": Layer normalization (default, better for small batches)
+                - "batchnorm": Batch normalization (best for large batches)
             activation: Activation function type. One of:
                 - "gelu": Gaussian Error Linear Unit (default)
                 - "relu": Rectified Linear Unit
@@ -91,6 +100,7 @@ class MLP(nn.Module):
 
         self.input_features = input_features
         self.output_features = output_features
+        self.n_parameters = output_features // 2
         self.hidden_layers = hidden_layers
 
         # Select activation function
@@ -155,10 +165,14 @@ class MLP(nn.Module):
                (batch_size, input_features). If 3D, the tensor is flattened.
 
         Returns:
-            Output tensor of shape (batch_size, output_features) containing
-            predicted parameters and their uncertainties.
+            Output tensor of shape (batch_size, 2, n_parameters) where:
+                - output[:, 0, :] contains the predicted means
+                - output[:, 1, :] contains the predicted log-scatter values
         """
-        return self.layers(x)
+        flat_output = self.layers(x)  # (batch, 2 * n_params)
+        batch_size = flat_output.shape[0]
+        # Reshape to (batch, 2, n_params)
+        return flat_output.view(batch_size, 2, self.n_parameters)
 
     def get_embeddings(self, x: torch.Tensor, layer_index: int = -2) -> torch.Tensor:
         """

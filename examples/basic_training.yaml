@@ -19,7 +19,7 @@ data:
 # Model architecture
 model:
   hidden_layers: [5000, 2000, 1000, 500, 200, 100]  # Default DOROTHY architecture
-  normalization: batchnorm                          # batchnorm or layernorm
+  normalization: layernorm                          # layernorm or batchnorm
   activation: gelu                                  # gelu, relu, or silu
   dropout: 0.0                                      # Dropout probability (0 = disabled)
   # input_features and output_features are auto-computed from data config
@@ -34,20 +34,26 @@ training:
   gradient_clip: 10.0                     # Max gradient norm (0 = disabled)
   early_stopping_patience: 0              # Epochs without improvement (0 = disabled)
 
+  # Optimizer (default: AdamW)
+  optimizer:
+    type: adamw                           # adamw, adam, or sgd
+    weight_decay: 0.01                    # L2 regularization
+    betas: [0.9, 0.999]                   # Adam/AdamW momentum parameters
+
   # Learning rate scheduler
   scheduler:
-    type: cyclic                          # cyclic, reduce_on_plateau, cosine_annealing, none
-    base_lr: 0.000001                     # Minimum LR for cyclic scheduler
-    max_lr: 0.001                         # Maximum LR for cyclic scheduler
-    step_size_up: 250                     # Steps to increase from base_lr to max_lr
-    step_size_down: 650                   # Steps to decrease from max_lr to base_lr
-    gamma: 0.9995                         # Exponential decay factor per cycle
+    type: one_cycle                       # one_cycle, cyclic, reduce_on_plateau, cosine_annealing, none
+    max_lr: 0.001                         # Maximum LR for one_cycle scheduler
+    pct_start: 0.3                        # Fraction of cycle spent increasing LR
+    div_factor: 25.0                      # Initial LR = max_lr / div_factor
+    final_div_factor: 10000.0             # Final LR = initial_lr / final_div_factor
 
-# Optional masking for robustness (disabled by default)
+# Optional dynamic block masking for robustness (disabled by default)
 masking:
   enabled: false
-  mask_fraction: 0.1                      # Fraction of wavelengths to mask
-  contiguous: false                       # Whether to mask contiguous regions
+  min_fraction: 0.1                       # Minimum fraction of wavelengths to mask
+  max_fraction: 0.3                       # Maximum fraction of wavelengths to mask
+  min_block_size: 5                       # Minimum size of each masked block
 
 # Output configuration
 output_dir: ./outputs

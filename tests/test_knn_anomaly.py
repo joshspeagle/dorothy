@@ -229,14 +229,21 @@ class TestAnomalyDetectorDetect:
     ):
         """Test that detector finds obvious anomalies."""
         detector = AnomalyDetector(simple_predictor)
-        detector.fit(training_data, k=5, percentile=99.0)
+        # Use 90th percentile for a more robust threshold with random embeddings
+        detector.fit(training_data, k=5, percentile=90.0)
 
         result = detector.detect(test_data_with_anomalies)
 
-        # The anomalous points (last 20) should have higher detection rate
-        # Most of the extreme outliers should be detected
-        # (at least some, given the large distance from training data)
-        assert result.is_anomaly[80:].sum() > 0
+        # The anomalous points (last 20) should have higher detection rate than
+        # normal points (first 80). With a 90th percentile threshold, we expect
+        # ~10% of normal data to be flagged as anomalies.
+        normal_anomaly_rate = result.is_anomaly[:80].mean()
+        outlier_anomaly_rate = result.is_anomaly[80:].mean()
+
+        # Outliers should be detected at a higher rate than normal data
+        # Even with random embeddings, extreme outliers (5σ + offset) should
+        # generally have larger k-NN distances than normal data (0.5σ)
+        assert outlier_anomaly_rate > normal_anomaly_rate
 
 
 class TestAnomalyDetectorTrainingDistances:

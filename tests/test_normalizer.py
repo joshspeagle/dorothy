@@ -408,3 +408,150 @@ class TestLabelNormalizerGetParamsDict:
 
         assert "log_median" in params["teff"]
         assert "log_IQR" in params["teff"]
+
+
+class TestLabelNormalizerMasking:
+    """Tests for mask-aware normalization."""
+
+    def test_fit_without_mask_unchanged(self):
+        """Test that fit without mask works as before."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
+
+        normalizer.fit(y)
+        normalizer_with_none = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer_with_none.fit(y, mask=None)
+
+        assert (
+            normalizer.stats["feh"].median == normalizer_with_none.stats["feh"].median
+        )
+        assert normalizer.stats["logg"].iqr == normalizer_with_none.stats["logg"].iqr
+
+    def test_fit_with_all_ones_mask(self):
+        """Test that all-ones mask gives same result as no mask."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
+        mask = np.ones_like(y)
+
+        normalizer.fit(y, mask=mask)
+
+        # Should match no-mask stats
+        normalizer_no_mask = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer_no_mask.fit(y)
+
+        assert normalizer.stats["feh"].median == normalizer_no_mask.stats["feh"].median
+
+    def test_fit_mask_excludes_samples(self):
+        """Test that masked samples don't contribute to stats."""
+        normalizer = LabelNormalizer(parameters=["feh"])
+
+        # First sample is an outlier that would affect stats
+        y = np.array([[100.0], [0.0], [0.1], [0.2]])  # 100 is outlier
+        mask = np.array([[0], [1], [1], [1]])  # Mask out the outlier
+
+        normalizer.fit(y, mask=mask)
+
+        # Stats should be computed from [0.0, 0.1, 0.2] only
+        expected_median = 0.1
+        assert normalizer.stats["feh"].median == pytest.approx(expected_median)
+
+    def test_fit_mask_per_parameter(self):
+        """Test that mask works independently per parameter."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+
+        y = np.array(
+            [
+                [100.0, 2.0],  # feh outlier
+                [0.0, 100.0],  # logg outlier
+                [0.1, 3.0],
+                [0.2, 4.0],
+            ]
+        )
+        mask = np.array(
+            [
+                [0, 1],  # Mask feh outlier
+                [1, 0],  # Mask logg outlier
+                [1, 1],
+                [1, 1],
+            ]
+        )
+
+        normalizer.fit(y, mask=mask)
+
+        # feh computed from [0.0, 0.1, 0.2]
+        assert normalizer.stats["feh"].median == pytest.approx(0.1)
+        # logg computed from [2.0, 3.0, 4.0]
+        assert normalizer.stats["logg"].median == pytest.approx(3.0)
+
+    def test_fit_all_masked_raises(self):
+        """Test that fully masked parameter raises error."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        y = np.random.randn(10, 2)
+        mask = np.ones_like(y)
+        mask[:, 0] = 0  # Mask all feh values
+
+        with pytest.raises(ValueError, match="All values masked"):
+            normalizer.fit(y, mask=mask)
+
+    def test_fit_mask_shape_mismatch_raises(self):
+        """Test that mask shape mismatch raises error."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        y = np.random.randn(10, 2)
+        mask = np.ones((5, 2))  # Wrong shape
+
+        with pytest.raises(ValueError, match="mask shape"):
+            normalizer.fit(y, mask=mask)
+
+    def test_transform_with_mask_shape_validation(self):
+        """Test that transform validates mask shape."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
+        normalizer.fit(y)
+
+        y_new = np.random.randn(5, 2)
+        mask = np.ones((3, 2))  # Wrong shape
+
+        with pytest.raises(ValueError, match="mask shape"):
+            normalizer.transform(y_new, mask=mask)
+
+    def test_transform_with_mask_works(self):
+        """Test that transform with mask parameter works."""
+        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
+        normalizer.fit(y)
+
+        mask = np.ones_like(y)
+        y_norm = normalizer.transform(y, mask=mask)
+
+        # Result should be same as without mask
+        y_norm_no_mask = normalizer.transform(y)
+        assert np.allclose(y_norm, y_norm_no_mask)
+
+    def test_fit_with_mask_and_teff(self):
+        """Test mask-aware fitting with log-space Teff."""
+        normalizer = LabelNormalizer(parameters=["teff", "logg"])
+
+        y = np.array(
+            [
+                [10000.0, 2.0],  # Outlier teff
+                [4000.0, 3.0],
+                [5000.0, 4.0],
+                [6000.0, 5.0],
+            ]
+        )
+        mask = np.array(
+            [
+                [0, 1],  # Mask teff outlier
+                [1, 1],
+                [1, 1],
+                [1, 1],
+            ]
+        )
+
+        normalizer.fit(y, mask=mask)
+
+        # Teff stats should be from [4000, 5000, 6000] in log space
+        expected_log_median = np.median(np.log10([4000, 5000, 6000]))
+        assert normalizer.stats["teff"].log_median == pytest.approx(
+            expected_log_median, rel=0.01
+        )

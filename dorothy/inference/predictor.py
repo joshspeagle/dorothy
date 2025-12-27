@@ -39,7 +39,9 @@ class PredictionResult:
     Attributes:
         predictions: Predicted stellar parameters of shape (n_samples, n_params).
         uncertainties: Predicted uncertainties of shape (n_samples, n_params).
-        raw_output: Raw model output of shape (n_samples, 2 * n_params).
+        raw_output: Raw model output of shape (n_samples, 2, n_params) where
+            raw_output[:, 0, :] contains predicted means and
+            raw_output[:, 1, :] contains predicted log-scatter.
         parameter_names: List of parameter names in order.
         is_normalized: Whether predictions are in normalized space.
     """
@@ -126,7 +128,7 @@ class Predictor:
         if parameter_names is None:
             from dorothy.config.schema import STELLAR_PARAMETERS
 
-            n_params = model.output_features // 2
+            n_params = model.n_parameters
             parameter_names = list(STELLAR_PARAMETERS[:n_params])
         self.parameter_names = parameter_names
 
@@ -271,12 +273,13 @@ class Predictor:
 
         X = X.to(self.device)
         n_samples = X.shape[0]
-        n_params = self.model.output_features // 2
+        n_params = self.model.n_parameters
 
         # Preallocate output arrays
+        # Model output shape is (batch, 2, n_params)
         predictions = np.zeros((n_samples, n_params), dtype=np.float32)
         uncertainties = np.zeros((n_samples, n_params), dtype=np.float32)
-        raw_output = np.zeros((n_samples, 2 * n_params), dtype=np.float32)
+        raw_output = np.zeros((n_samples, 2, n_params), dtype=np.float32)
 
         # Process in batches
         self.model.eval()
@@ -286,13 +289,13 @@ class Predictor:
                 X_batch = X[start:end]
 
                 output = self.model(X_batch)
-                output_np = output.cpu().numpy()
+                output_np = output.cpu().numpy()  # (batch, 2, n_params)
 
                 raw_output[start:end] = output_np
-                predictions[start:end] = output_np[:, :n_params]
+                predictions[start:end] = output_np[:, 0, :]  # means
 
                 # Extract uncertainties from log-scatter
-                ln_s = output_np[:, n_params:]
+                ln_s = output_np[:, 1, :]
                 s = np.sqrt(np.exp(2 * ln_s) + self.scatter_floor**2)
                 uncertainties[start:end] = s
 

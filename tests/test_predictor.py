@@ -72,7 +72,7 @@ class TestPredictionResult:
         """Test that properties return correct values."""
         predictions = np.random.randn(20, 3).astype(np.float32)
         uncertainties = np.abs(np.random.randn(20, 3)).astype(np.float32)
-        raw_output = np.random.randn(20, 6).astype(np.float32)
+        raw_output = np.random.randn(20, 2, 3).astype(np.float32)
 
         result = PredictionResult(
             predictions=predictions,
@@ -90,7 +90,7 @@ class TestPredictionResult:
         uncertainties = np.array(
             [[100, 0.1, 0.05], [150, 0.15, 0.08]], dtype=np.float32
         )
-        raw_output = np.zeros((2, 6), dtype=np.float32)
+        raw_output = np.zeros((2, 2, 3), dtype=np.float32)
 
         result = PredictionResult(
             predictions=predictions,
@@ -155,7 +155,7 @@ class TestPredictorPredict:
 
         assert result.predictions.shape == (50, 3)
         assert result.uncertainties.shape == (50, 3)
-        assert result.raw_output.shape == (50, 6)
+        assert result.raw_output.shape == (50, 2, 3)
 
     def test_predict_with_torch_tensor(self, simple_model):
         """Test prediction with torch tensor input."""

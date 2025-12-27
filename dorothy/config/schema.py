@@ -48,10 +48,19 @@ class LossType(str, Enum):
     PENALTY = "penalty"
 
 
+class OptimizerType(str, Enum):
+    """Supported optimizer types."""
+
+    ADAM = "adam"
+    ADAMW = "adamw"
+    SGD = "sgd"
+
+
 class SchedulerType(str, Enum):
     """Supported learning rate scheduler types."""
 
     NONE = "none"
+    ONE_CYCLE = "one_cycle"
     CYCLIC = "cyclic"
     REDUCE_ON_PLATEAU = "reduce_on_plateau"
     COSINE_ANNEALING = "cosine_annealing"
@@ -144,7 +153,7 @@ class ModelConfig(BaseModel):
         description="Hidden layer sizes",
     )
     normalization: NormalizationType = Field(
-        default=NormalizationType.BATCHNORM,
+        default=NormalizationType.LAYERNORM,
         description="Normalization layer type",
     )
     activation: ActivationType = Field(
@@ -191,16 +200,20 @@ class SchedulerConfig(BaseModel):
     Attributes:
         type: The scheduler type to use.
         base_lr: Minimum learning rate (for cyclic schedulers).
-        max_lr: Maximum learning rate (for cyclic schedulers).
-        step_size_up: Steps to increase from base_lr to max_lr.
-        step_size_down: Steps to decrease from max_lr to base_lr.
-        gamma: Multiplicative factor for exp_range mode.
+        max_lr: Maximum learning rate (for cyclic/one_cycle schedulers).
+        step_size_up: Steps to increase from base_lr to max_lr (cyclic).
+        step_size_down: Steps to decrease from max_lr to base_lr (cyclic).
+        gamma: Multiplicative factor for exp_range mode (cyclic).
         patience: Epochs to wait before reducing LR (for ReduceOnPlateau).
         factor: Factor to reduce LR by (for ReduceOnPlateau).
+        pct_start: Fraction of cycle spent increasing LR (one_cycle).
+        div_factor: Initial LR = max_lr / div_factor (one_cycle).
+        final_div_factor: Final LR = initial_lr / final_div_factor (one_cycle).
+        anneal_strategy: Annealing strategy for one_cycle ('cos' or 'linear').
     """
 
     type: SchedulerType = Field(
-        default=SchedulerType.CYCLIC, description="Scheduler type"
+        default=SchedulerType.ONE_CYCLE, description="Scheduler type"
     )
     base_lr: float = Field(default=1e-6, gt=0, description="Base learning rate")
     max_lr: float = Field(default=1e-3, gt=0, description="Maximum learning rate")
@@ -213,6 +226,19 @@ class SchedulerConfig(BaseModel):
     )
     patience: int = Field(default=10, ge=1, description="Patience for ReduceOnPlateau")
     factor: float = Field(default=0.5, gt=0, lt=1.0, description="LR reduction factor")
+    # OneCycleLR parameters
+    pct_start: float = Field(
+        default=0.3, gt=0, lt=1.0, description="Fraction of cycle spent increasing LR"
+    )
+    div_factor: float = Field(
+        default=25.0, ge=1.0, description="Initial LR = max_lr / div_factor"
+    )
+    final_div_factor: float = Field(
+        default=1e4, ge=1.0, description="Final LR = initial_lr / final_div_factor"
+    )
+    anneal_strategy: Literal["cos", "linear"] = Field(
+        default="cos", description="Annealing strategy for one_cycle"
+    )
 
     @model_validator(mode="after")
     def validate_lr_range(self) -> SchedulerConfig:
@@ -224,6 +250,35 @@ class SchedulerConfig(BaseModel):
         return self
 
 
+class OptimizerConfig(BaseModel):
+    """Configuration for optimizers.
+
+    Attributes:
+        type: The optimizer type to use.
+        weight_decay: L2 regularization coefficient.
+        betas: Coefficients for computing running averages (Adam/AdamW).
+        momentum: Momentum factor (SGD only).
+        nesterov: Whether to use Nesterov momentum (SGD only).
+    """
+
+    type: OptimizerType = Field(
+        default=OptimizerType.ADAMW, description="Optimizer type"
+    )
+    weight_decay: float = Field(
+        default=0.01, ge=0, description="Weight decay (L2 regularization)"
+    )
+    betas: tuple[float, float] = Field(
+        default=(0.9, 0.999),
+        description="Coefficients for running averages (Adam/AdamW)",
+    )
+    momentum: float = Field(
+        default=0.9, ge=0, le=1.0, description="Momentum factor (SGD only)"
+    )
+    nesterov: bool = Field(
+        default=False, description="Use Nesterov momentum (SGD only)"
+    )
+
+
 class TrainingConfig(BaseModel):
     """Configuration for the training process.
 
@@ -232,6 +287,7 @@ class TrainingConfig(BaseModel):
         batch_size: Training batch size.
         learning_rate: Initial learning rate for optimizer.
         loss: Loss function type.
+        optimizer: Optimizer configuration.
         scheduler: Learning rate scheduler configuration.
         gradient_clip: Maximum gradient norm for clipping (0 = no clipping).
         save_every: Save checkpoint every N epochs (0 = only save final).
@@ -246,6 +302,9 @@ class TrainingConfig(BaseModel):
     )
     loss: LossType = Field(
         default=LossType.HETEROSCEDASTIC, description="Loss function"
+    )
+    optimizer: OptimizerConfig = Field(
+        default_factory=OptimizerConfig, description="Optimizer configuration"
     )
     scheduler: SchedulerConfig = Field(
         default_factory=SchedulerConfig, description="LR scheduler"
@@ -268,43 +327,63 @@ class TrainingConfig(BaseModel):
 
 
 class MaskingConfig(BaseModel):
-    """Configuration for dynamic masking experiments.
+    """Configuration for dynamic block masking augmentation.
 
-    Masking can be used to improve model robustness by randomly zeroing
-    portions of the input spectra during training.
+    Masking is a training-time augmentation that randomly masks contiguous
+    blocks of the input spectrum to improve model robustness to missing data.
+    This simulates real-world scenarios where portions of spectra may be
+    unavailable due to bad pixels, cosmic rays, or atmospheric absorption.
+
+    The augmentation works on 3-channel input [flux | error | mask] and updates
+    the mask channel by combining the original mask with random block masks.
 
     Attributes:
-        enabled: Whether to apply masking during training.
-        mask_fraction: Fraction of wavelength bins to mask (0.0 to 1.0).
-        mask_value: Value to use for masked bins (typically 0.0).
-        contiguous: Whether masks should be contiguous regions.
-        min_region_size: Minimum size of contiguous masked regions.
-        max_region_size: Maximum size of contiguous masked regions.
+        enabled: Whether to apply block masking during training.
+        min_fraction: Minimum fraction of wavelengths to mask (0.0 to 1.0).
+        max_fraction: Maximum fraction of wavelengths to mask (0.0 to 1.0).
+        fraction_choices: Optional list of specific fractions to choose from.
+            If provided, min_fraction and max_fraction are ignored.
+        min_block_size: Minimum size of each masked block.
+        max_block_size: Maximum size of each masked block. If None, defaults
+            to n_wavelengths // 2 at runtime.
     """
 
-    enabled: bool = Field(default=False, description="Enable masking")
-    mask_fraction: float = Field(
+    enabled: bool = Field(
+        default=False, description="Enable block masking augmentation"
+    )
+    min_fraction: float = Field(
         default=0.1,
         ge=0.0,
-        le=0.5,
-        description="Fraction of bins to mask",
+        le=1.0,
+        description="Minimum fraction of wavelengths to mask",
     )
-    mask_value: float = Field(default=0.0, description="Value for masked bins")
-    contiguous: bool = Field(default=False, description="Use contiguous mask regions")
-    min_region_size: int = Field(
-        default=10, ge=1, description="Min contiguous region size"
+    max_fraction: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Maximum fraction of wavelengths to mask",
     )
-    max_region_size: int = Field(
-        default=100, ge=1, description="Max contiguous region size"
+    fraction_choices: list[float] | None = Field(
+        default=None,
+        description="Optional list of specific fractions to choose from",
+    )
+    min_block_size: int = Field(
+        default=5, ge=1, description="Minimum size of each masked block"
+    )
+    max_block_size: int | None = Field(
+        default=None, ge=1, description="Maximum size of each masked block"
     )
 
     @model_validator(mode="after")
-    def validate_region_sizes(self) -> MaskingConfig:
-        """Ensure min_region_size <= max_region_size."""
-        if self.min_region_size > self.max_region_size:
+    def validate_fractions(self) -> MaskingConfig:
+        """Validate fraction parameters."""
+        if self.fraction_choices is not None:
+            if not all(0 <= f <= 1 for f in self.fraction_choices):
+                raise ValueError("All fraction_choices must be between 0 and 1")
+        elif self.min_fraction > self.max_fraction:
             raise ValueError(
-                f"min_region_size ({self.min_region_size}) must be <= "
-                f"max_region_size ({self.max_region_size})"
+                f"min_fraction ({self.min_fraction}) must be <= "
+                f"max_fraction ({self.max_fraction})"
             )
         return self
 

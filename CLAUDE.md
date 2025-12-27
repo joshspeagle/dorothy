@@ -10,7 +10,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 |--------|-------|
 | Package Version | 0.1.0 |
 | Python | >=3.10 |
-| Tests | 233 passing |
+| Tests | 264 passing |
 | Refactoring Stage | Phase 3 (Analysis & Integration) - Complete |
 
 ## Current Progress
@@ -38,6 +38,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 | Module | Path | Tests | Description |
 |--------|------|-------|-------------|
 | k-NN Anomaly Detection | `dorothy/analysis/knn_anomaly.py` | 21 | Embedding-based anomaly detection |
+| Evaluator | `dorothy/inference/evaluator.py` | 25 | Comprehensive metrics (RMSE, MAE, z-scores, etc.) |
 | Integration Tests | `tests/test_integration.py` | 13 | End-to-end workflow tests |
 | Example Configs | `examples/*.yaml` | - | Example YAML configurations |
 
@@ -47,8 +48,6 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 |--------|------|--------|
 | Saliency Maps | `dorothy/analysis/saliency.py` | Not started |
 | Survey-specific Loaders | `dorothy/data/surveys/` | Not started |
-
-Note: `dorothy/inference/evaluator.py` exists as a placeholder.
 
 ## Package Structure
 
@@ -84,7 +83,7 @@ dorothy/
 │   ├── inference/
 │   │   ├── __init__.py
 │   │   ├── predictor.py        # Model loading and prediction
-│   │   └── evaluator.py        # Metrics evaluation (placeholder)
+│   │   └── evaluator.py        # Comprehensive metrics evaluation
 │   │
 │   ├── analysis/
 │   │   ├── __init__.py
@@ -161,8 +160,8 @@ Output: 11 stellar parameters + 11 uncertainties
 
 ```python
 s = sqrt(exp(2 * ln_s) + s_0²)           # Model scatter with floor
-loss = (μ - y)² / (σ_label² + s²)        # Weighted squared error
-     + log(σ_label² + s²)                # Log-variance penalty
+loss = (μ - y)² / (σ_label² + s²)        # Mean component (weighted squared error)
+     + log(σ_label² + s²)                # Scatter component (log-variance penalty)
 ```
 
 Where:
@@ -171,6 +170,8 @@ Where:
 - `y`: true label
 - `σ_label`: measurement uncertainty
 - `s_0`: scatter floor (default 0.01)
+
+The `forward_detailed()` method returns per-parameter loss breakdown (mean_component and scatter_component).
 
 ### Normalization
 
@@ -218,6 +219,8 @@ config = ExperimentConfig(
 3. **BatchNorm requires batch_size > 1** during training
 4. **Model outputs are normalized** - use LabelNormalizer.inverse_transform()
 5. **Uncertainty predictions are log-scale** - apply exp() via loss.get_predicted_scatter()
+6. **Evaluator metrics**: Mean-based (RMSE, Bias, SD) and quantile-based (MAE, median_offset, robust_scatter)
+7. **Z-score calibration**: Uses total_variance = σ_label² + s² + s_0², should be ~N(0,1) if well-calibrated
 
 ## Reference Files (d5martin/)
 

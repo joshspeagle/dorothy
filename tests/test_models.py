@@ -87,7 +87,11 @@ class TestMLPForward:
 
         output = model(x)
 
-        assert output.shape == (batch_size, 22)
+        # Output shape is (batch, 2, n_params) where n_params = 11
+        assert output.shape == (batch_size, 2, 11)
+        # Check that means and log_scatter can be extracted
+        assert output[:, 0, :].shape == (batch_size, 11)
+        assert output[:, 1, :].shape == (batch_size, 11)
 
     def test_forward_2d_input(self, model):
         """Test forward pass with already-flattened 2D input."""
@@ -96,20 +100,22 @@ class TestMLPForward:
 
         output = model(x)
 
-        assert output.shape == (batch_size, 22)
+        # Output shape is (batch, 2, n_params) where n_params = 11
+        assert output.shape == (batch_size, 2, 11)
 
     def test_forward_single_sample(self, model):
         """Test forward pass with single sample.
 
-        Note: BatchNorm requires batch_size > 1 during training, so we use eval mode.
+        Note: LayerNorm works fine with batch_size=1, unlike BatchNorm.
         """
-        model.eval()  # Required for batch_size=1 with BatchNorm
+        model.eval()
         x = torch.randn(1, 2, 50)
 
         with torch.no_grad():
             output = model(x)
 
-        assert output.shape == (1, 22)
+        # Output shape is (batch, 2, n_params) where n_params = 11
+        assert output.shape == (1, 2, 11)
 
     def test_output_dtype_matches_input(self, model):
         """Test that output dtype matches input dtype."""
@@ -385,9 +391,11 @@ class TestMLPIntegrationWithLoss:
         target = torch.randn(16, 22)
         target[:, 11:] = torch.abs(target[:, 11:]) + 0.01  # Positive errors
 
+        # Model output shape is (batch, 2, n_params)
         output = model(x)
-        loss = loss_fn(output, target)
+        assert output.shape == (16, 2, 11)
 
+        loss = loss_fn(output, target)
         assert torch.isfinite(loss)
 
     def test_training_step(self):
@@ -409,7 +417,7 @@ class TestMLPIntegrationWithLoss:
         # Training step
         model.train()
         optimizer.zero_grad()
-        output = model(x)
+        output = model(x)  # Shape: (16, 2, 11)
         loss = loss_fn(output, target)
         loss.backward()
         optimizer.step()

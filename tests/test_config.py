@@ -106,7 +106,7 @@ class TestModelConfig:
         config = ModelConfig()
 
         assert config.hidden_layers == [5000, 2000, 1000, 500, 200, 100]
-        assert config.normalization == NormalizationType.BATCHNORM
+        assert config.normalization == NormalizationType.LAYERNORM
         assert config.activation == ActivationType.GELU
         assert config.dropout == 0.0
         assert config.input_features == 15300  # 2 * 7650
@@ -157,16 +157,16 @@ class TestModelConfig:
 class TestSchedulerConfig:
     """Tests for SchedulerConfig validation."""
 
-    def test_default_cyclic_scheduler(self):
-        """Test default cyclic scheduler matches training notebook."""
+    def test_default_one_cycle_scheduler(self):
+        """Test default one_cycle scheduler configuration."""
         config = SchedulerConfig()
 
-        assert config.type == SchedulerType.CYCLIC
-        assert config.base_lr == 1e-6
+        assert config.type == SchedulerType.ONE_CYCLE
         assert config.max_lr == 1e-3
-        assert config.step_size_up == 250
-        assert config.step_size_down == 650
-        assert config.gamma == 0.9995
+        assert config.pct_start == 0.3
+        assert config.div_factor == 25.0
+        assert config.final_div_factor == 1e4
+        assert config.anneal_strategy == "cos"
 
     def test_base_lr_cannot_exceed_max_lr(self):
         """Test that base_lr must be <= max_lr."""
@@ -218,31 +218,44 @@ class TestMaskingConfig:
         config = MaskingConfig()
         assert config.enabled is False
 
-    def test_region_size_validation(self):
-        """Test that min_region_size <= max_region_size."""
+    def test_block_size_validation(self):
+        """Test that min_block_size is valid."""
         # Valid configuration
-        config = MaskingConfig(min_region_size=10, max_region_size=100)
-        assert config.min_region_size <= config.max_region_size
+        config = MaskingConfig(min_block_size=10, max_block_size=100)
+        assert config.min_block_size == 10
+        assert config.max_block_size == 100
+
+        # Invalid: min_block_size < 1
+        with pytest.raises(ValidationError):
+            MaskingConfig(min_block_size=0)
+
+    def test_fraction_validation(self):
+        """Test min_fraction <= max_fraction."""
+        # Valid fraction range
+        config = MaskingConfig(min_fraction=0.2, max_fraction=0.5)
+        assert config.min_fraction == 0.2
+        assert config.max_fraction == 0.5
 
         # Invalid: min > max
         with pytest.raises(ValidationError) as exc_info:
-            MaskingConfig(min_region_size=100, max_region_size=10)
+            MaskingConfig(min_fraction=0.6, max_fraction=0.4)
 
         assert "must be <=" in str(exc_info.value)
 
-    def test_mask_fraction_bounds(self):
-        """Test mask fraction is bounded [0.0, 0.5]."""
-        # Valid fraction
-        config = MaskingConfig(mask_fraction=0.3)
-        assert config.mask_fraction == 0.3
+        # Valid: full range allowed
+        config = MaskingConfig(min_fraction=0.0, max_fraction=1.0)
+        assert config.min_fraction == 0.0
+        assert config.max_fraction == 1.0
 
-        # Negative rejected
-        with pytest.raises(ValidationError):
-            MaskingConfig(mask_fraction=-0.1)
+    def test_fraction_choices_validation(self):
+        """Test fraction_choices validation."""
+        # Valid fraction choices
+        config = MaskingConfig(fraction_choices=[0.1, 0.3, 0.5])
+        assert config.fraction_choices == [0.1, 0.3, 0.5]
 
-        # Too high rejected (> 0.5 would mask too much)
+        # Invalid: fraction choice > 1
         with pytest.raises(ValidationError):
-            MaskingConfig(mask_fraction=0.8)
+            MaskingConfig(fraction_choices=[0.1, 1.5])
 
 
 class TestExperimentConfig:

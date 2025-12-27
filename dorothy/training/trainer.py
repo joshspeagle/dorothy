@@ -27,10 +27,22 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    CyclicLR,
+    OneCycleLR,
+    ReduceLROnPlateau,
+)
 
-from dorothy.config.schema import STELLAR_PARAMETERS, LossType, SchedulerType
+from dorothy.config.schema import (
+    STELLAR_PARAMETERS,
+    LossType,
+    OptimizerType,
+    SchedulerType,
+)
+from dorothy.data.augmentation import DynamicBlockMasking
 from dorothy.data.normalizer import LabelNormalizer
+from dorothy.inference.evaluator import Evaluator
 from dorothy.losses.heteroscedastic import HeteroscedasticLoss
 from dorothy.models.mlp import MLP
 
@@ -50,6 +62,22 @@ def _has_tqdm() -> bool:
         return False
 
 
+# Metric names tracked by the Evaluator (in order)
+EVALUATOR_METRIC_NAMES = [
+    "rmse",
+    "bias",
+    "sd",
+    "mae",
+    "median_offset",
+    "robust_scatter",
+    "z_median",
+    "z_robust_scatter",
+    "pred_unc_p16",
+    "pred_unc_p50",
+    "pred_unc_p84",
+]
+
+
 @dataclass
 class TrainingHistory:
     """
@@ -64,9 +92,12 @@ class TrainingHistory:
         total_time: Total training time in seconds.
         parameter_names: Names of stellar parameters being tracked.
         val_loss_breakdown: Per-epoch loss breakdown with keys:
-            - 'mean_component': (n_epochs, n_params) mean loss per param
-            - 'scatter_component': (n_epochs, n_params) scatter loss per param
-            - 'per_param_loss': (n_epochs, n_params) total loss per param
+            - 'mean_component': (n_epochs, n_params) weighted squared error per param
+            - 'scatter_component': (n_epochs, n_params) log-variance penalty per param
+        val_metrics: Per-epoch Evaluator metrics as dict of lists of arrays.
+            Keys are metric names (rmse, bias, sd, mae, median_offset, robust_scatter,
+            z_median, z_robust_scatter, pred_unc_p16, pred_unc_p50, pred_unc_p84).
+            Each value is a list of arrays with shape (n_params,) per epoch.
     """
 
     train_losses: list[float] = field(default_factory=list)
@@ -80,6 +111,9 @@ class TrainingHistory:
     parameter_names: list[str] = field(default_factory=list)
     val_loss_breakdown: dict[str, list[np.ndarray]] = field(default_factory=dict)
 
+    # Evaluator metrics per epoch (k metrics x p parameters)
+    val_metrics: dict[str, list[np.ndarray]] = field(default_factory=dict)
+
     def save(self, path: str | Path) -> None:
         """Save training history to a pickle file."""
         data = {
@@ -87,6 +121,7 @@ class TrainingHistory:
             "history_val": self.val_losses,
             "parameter_names": self.parameter_names,
             "val_loss_breakdown": self.val_loss_breakdown,
+            "val_metrics": self.val_metrics,
         }
         with open(path, "wb") as f:
             pickle.dump(data, f)
@@ -100,12 +135,21 @@ class TrainingHistory:
         """Get loss breakdown as numpy arrays.
 
         Returns:
-            Dictionary with keys 'mean_component', 'scatter_component', 'per_param_loss',
+            Dictionary with keys 'mean_component' and 'scatter_component',
             each with shape (n_epochs, n_params).
         """
         return {
             key: np.array(values) for key, values in self.val_loss_breakdown.items()
         }
+
+    def get_metrics_array(self) -> dict[str, np.ndarray]:
+        """Get Evaluator metrics as numpy arrays.
+
+        Returns:
+            Dictionary with metric names as keys (rmse, bias, sd, mae, etc.),
+            each with shape (n_epochs, n_params).
+        """
+        return {key: np.array(values) for key, values in self.val_metrics.items()}
 
 
 class Trainer:
@@ -174,7 +218,9 @@ class Trainer:
         self.optimizer = self._create_optimizer()
 
         # Scheduler will be created when we know the number of batches
-        self.scheduler: CyclicLR | ReduceLROnPlateau | CosineAnnealingLR | None = None
+        self.scheduler: (
+            OneCycleLR | CyclicLR | ReduceLROnPlateau | CosineAnnealingLR | None
+        ) = None
 
         # Best model weights
         self._best_weights: dict | None = None
@@ -194,6 +240,9 @@ class Trainer:
 
         # Normalizer will be fitted during training
         self.normalizer: LabelNormalizer | None = None
+
+        # Augmentation will be created during fit() if configured
+        self._augmentation: DynamicBlockMasking | None = None
 
     def _resolve_device(self, device: str) -> torch.device:
         """Resolve the device string to a torch.device."""
@@ -229,22 +278,62 @@ class Trainer:
                 f"Loss type {training_config.loss} not yet implemented"
             )
 
-    def _create_optimizer(self) -> torch.optim.Adam:
+    def _create_optimizer(self) -> torch.optim.Optimizer:
         """Create the optimizer from configuration."""
-        return torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.config.training.learning_rate,
-        )
+        training_config = self.config.training
+        optimizer_config = training_config.optimizer
+
+        if optimizer_config.type == OptimizerType.ADAMW:
+            return torch.optim.AdamW(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                betas=optimizer_config.betas,
+                weight_decay=optimizer_config.weight_decay,
+            )
+
+        elif optimizer_config.type == OptimizerType.ADAM:
+            return torch.optim.Adam(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                betas=optimizer_config.betas,
+                weight_decay=optimizer_config.weight_decay,
+            )
+
+        elif optimizer_config.type == OptimizerType.SGD:
+            return torch.optim.SGD(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                momentum=optimizer_config.momentum,
+                weight_decay=optimizer_config.weight_decay,
+                nesterov=optimizer_config.nesterov,
+            )
+
+        else:
+            raise NotImplementedError(
+                f"Optimizer {optimizer_config.type} not yet implemented"
+            )
 
     def _create_scheduler(
         self, steps_per_epoch: int
-    ) -> CyclicLR | ReduceLROnPlateau | CosineAnnealingLR | None:
+    ) -> OneCycleLR | CyclicLR | ReduceLROnPlateau | CosineAnnealingLR | None:
         """Create the learning rate scheduler from configuration."""
         scheduler_config = self.config.training.scheduler
         training_config = self.config.training
 
         if scheduler_config.type == SchedulerType.NONE:
             return None
+
+        elif scheduler_config.type == SchedulerType.ONE_CYCLE:
+            total_steps = training_config.epochs * steps_per_epoch
+            return OneCycleLR(
+                optimizer=self.optimizer,
+                max_lr=scheduler_config.max_lr,
+                total_steps=total_steps,
+                pct_start=scheduler_config.pct_start,
+                div_factor=scheduler_config.div_factor,
+                final_div_factor=scheduler_config.final_div_factor,
+                anneal_strategy=scheduler_config.anneal_strategy,
+            )
 
         elif scheduler_config.type == SchedulerType.CYCLIC:
             return CyclicLR(
@@ -283,20 +372,31 @@ class Trainer:
         y_train: np.ndarray | torch.Tensor,
         X_val: np.ndarray | torch.Tensor,
         y_val: np.ndarray | torch.Tensor,
+        y_train_mask: np.ndarray | torch.Tensor | None = None,
+        y_val_mask: np.ndarray | torch.Tensor | None = None,
         normalize_labels: bool = True,
+        augmentation: DynamicBlockMasking | None = None,
     ) -> TrainingHistory:
         """
         Train the model.
 
         Args:
-            X_train: Training features of shape (n_samples, ...).
+            X_train: Training features of shape (n_samples, n_channels, n_wavelengths)
+                or (n_samples, n_features). When using masking augmentation, should be
+                3-channel format [flux | error | mask].
             y_train: Training labels of shape (n_samples, 2*n_params) where
                 first n_params columns are labels and last n_params are errors.
             X_val: Validation features.
             y_val: Validation labels (same format as y_train).
+            y_train_mask: Optional mask for training labels of shape (n_samples, n_params).
+                Values of 1 indicate valid labels, 0 indicates masked/missing.
+            y_val_mask: Optional mask for validation labels of shape (n_samples, n_params).
             normalize_labels: Whether to fit and apply label normalization.
                 If True, creates a LabelNormalizer, fits on training labels,
                 and transforms both train and validation labels to normalized space.
+            augmentation: Optional DynamicBlockMasking augmentation to apply during
+                training. If None but config.masking.enabled is True, creates one
+                from config.
 
         Returns:
             TrainingHistory with loss curves and metrics.
@@ -304,6 +404,22 @@ class Trainer:
         # Convert to numpy for normalization if needed
         y_train_np = y_train.numpy() if isinstance(y_train, torch.Tensor) else y_train
         y_val_np = y_val.numpy() if isinstance(y_val, torch.Tensor) else y_val
+
+        # Convert masks to numpy if needed
+        y_train_mask_np = None
+        y_val_mask_np = None
+        if y_train_mask is not None:
+            y_train_mask_np = (
+                y_train_mask.numpy()
+                if isinstance(y_train_mask, torch.Tensor)
+                else y_train_mask
+            )
+        if y_val_mask is not None:
+            y_val_mask_np = (
+                y_val_mask.numpy()
+                if isinstance(y_val_mask, torch.Tensor)
+                else y_val_mask
+            )
 
         n_params = self.config.model.n_parameters
 
@@ -315,9 +431,9 @@ class Trainer:
             val_labels = y_val_np[:, :n_params]
             val_errors = y_val_np[:, n_params:]
 
-            # Create and fit normalizer
+            # Create and fit normalizer (mask-aware if mask provided)
             self.normalizer = LabelNormalizer(parameters=self.parameter_names)
-            self.normalizer.fit(train_labels)
+            self.normalizer.fit(train_labels, mask=y_train_mask_np)
             logger.info(f"Fitted label normalizer on {len(train_labels)} samples")
 
             # Transform labels and errors
@@ -332,15 +448,39 @@ class Trainer:
             y_train_np = np.concatenate([train_labels_norm, train_errors_norm], axis=1)
             y_val_np = np.concatenate([val_labels_norm, val_errors_norm], axis=1)
 
+        # Create augmentation from config if not provided
+        if augmentation is None and self.config.masking.enabled:
+            augmentation = DynamicBlockMasking(
+                min_fraction=self.config.masking.min_fraction,
+                max_fraction=self.config.masking.max_fraction,
+                fraction_choices=self.config.masking.fraction_choices,
+                min_block_size=self.config.masking.min_block_size,
+                max_block_size=self.config.masking.max_block_size,
+            )
+            logger.info(f"Created augmentation from config: {augmentation}")
+
+        # Store augmentation for use in training
+        self._augmentation = augmentation
+
         # Convert to tensors
         X_train = self._to_tensor(X_train)
         y_train = self._to_tensor(y_train_np)
         X_val = self._to_tensor(X_val)
         y_val = self._to_tensor(y_val_np)
 
+        # Convert masks to tensors
+        y_train_mask_tensor = None
+        y_val_mask_tensor = None
+        if y_train_mask_np is not None:
+            y_train_mask_tensor = self._to_tensor(y_train_mask_np)
+        if y_val_mask_np is not None:
+            y_val_mask_tensor = self._to_tensor(y_val_mask_np)
+
         # Move validation data to device
         X_val = X_val.to(self.device)
         y_val = y_val.to(self.device)
+        if y_val_mask_tensor is not None:
+            y_val_mask_tensor = y_val_mask_tensor.to(self.device)
 
         # Training parameters
         training_config = self.config.training
@@ -359,14 +499,23 @@ class Trainer:
             val_loss_breakdown={
                 "mean_component": [],
                 "scatter_component": [],
-                "per_param_loss": [],
             },
+            val_metrics={name: [] for name in EVALUATOR_METRIC_NAMES},
+        )
+
+        # Create Evaluator for validation metrics
+        self._evaluator = Evaluator(
+            parameter_names=self.parameter_names,
+            teff_in_log=False,  # Don't add extra log_teff param during training
+            scatter_floor=self.config.training.scatter_floor,
         )
         patience_counter = 0
         rng = np.random.default_rng(self.config.seed)
 
         start_time = time.time()
         logger.info(f"Starting training for {n_epochs} epochs")
+        if self._augmentation is not None:
+            logger.info("Dynamic block masking augmentation enabled for training")
 
         # Set up progress bar if tqdm is available
         epoch_iter = range(n_epochs)
@@ -377,14 +526,19 @@ class Trainer:
             epoch_iter = tqdm(epoch_iter, desc="Training", unit="epoch")
 
         for epoch in epoch_iter:
-            # Training phase
+            # Training phase (with augmentation applied per-batch)
             epoch_train_loss = self._train_epoch(
-                X_train, y_train, batch_size, rng, training_config.gradient_clip
+                X_train,
+                y_train,
+                batch_size,
+                rng,
+                training_config.gradient_clip,
+                y_mask=y_train_mask_tensor,
             )
             self.history.train_losses.append(epoch_train_loss)
 
-            # Validation phase with detailed metrics
-            val_details = self._validate_detailed(X_val, y_val)
+            # Validation phase with detailed metrics (no augmentation)
+            val_details = self._validate_detailed(X_val, y_val, mask=y_val_mask_tensor)
             val_loss = val_details["loss"]
             self.history.val_losses.append(val_loss)
 
@@ -395,9 +549,33 @@ class Trainer:
             self.history.val_loss_breakdown["scatter_component"].append(
                 val_details["scatter_component"]
             )
-            self.history.val_loss_breakdown["per_param_loss"].append(
-                val_details["per_param_loss"]
+
+            # Compute and store Evaluator metrics
+            y_true = y_val[:, :n_params].cpu().numpy()
+            label_errors = y_val[:, n_params:].cpu().numpy()
+            val_mask_np = (
+                y_val_mask_tensor.cpu().numpy()
+                if y_val_mask_tensor is not None
+                else None
             )
+            eval_result = self._evaluator.evaluate(
+                y_pred=val_details["y_pred"],
+                y_true=y_true,
+                pred_scatter=val_details["pred_scatter"],
+                label_errors=label_errors,
+                mask=val_mask_np,
+            )
+
+            # Store each metric as an array of shape (n_params,)
+            for metric_name in EVALUATOR_METRIC_NAMES:
+                metric_values = np.array(
+                    [
+                        getattr(eval_result.metrics[p], metric_name)
+                        for p in self.parameter_names
+                    ],
+                    dtype=np.float32,
+                )
+                self.history.val_metrics[metric_name].append(metric_values)
 
             # Track best model
             if val_loss < self.history.best_val_loss:
@@ -461,8 +639,22 @@ class Trainer:
         batch_size: int,
         rng: np.random.Generator,
         gradient_clip: float,
+        y_mask: torch.Tensor | None = None,
     ) -> float:
-        """Run one training epoch."""
+        """Run one training epoch.
+
+        Args:
+            X: Training features tensor.
+            y: Training labels tensor.
+            batch_size: Batch size for training.
+            rng: Random number generator for shuffling.
+            gradient_clip: Maximum gradient norm for clipping.
+            y_mask: Optional mask for labels of shape (n_samples, n_params).
+                Values of 1 indicate valid labels, 0 indicates masked.
+
+        Returns:
+            Average training loss for the epoch.
+        """
         self.model.train()
         n_samples = len(X)
 
@@ -470,6 +662,7 @@ class Trainer:
         indices = rng.permutation(n_samples)
         X_shuffled = X[indices]
         y_shuffled = y[indices]
+        y_mask_shuffled = y_mask[indices] if y_mask is not None else None
 
         total_loss = 0.0
         n_batches = 0
@@ -478,11 +671,25 @@ class Trainer:
             end = min(start + batch_size, n_samples)
             X_batch = X_shuffled[start:end].to(self.device)
             y_batch = y_shuffled[start:end].to(self.device)
+            mask_batch = (
+                y_mask_shuffled[start:end].to(self.device)
+                if y_mask_shuffled is not None
+                else None
+            )
+
+            # Apply augmentation if available (training only)
+            if self._augmentation is not None:
+                X_batch = self._augmentation(X_batch)
 
             # Forward pass
             self.optimizer.zero_grad()
             output = self.model(X_batch)
-            loss = self.loss_fn(output, y_batch)
+
+            # Compute loss with optional mask
+            if isinstance(self.loss_fn, HeteroscedasticLoss) and mask_batch is not None:
+                loss = self.loss_fn(output, y_batch, mask=mask_batch)
+            else:
+                loss = self.loss_fn(output, y_batch)
 
             # Backward pass
             loss.backward()
@@ -505,25 +712,43 @@ class Trainer:
 
         return total_loss / n_batches
 
-    def _validate(self, X_val: torch.Tensor, y_val: torch.Tensor) -> float:
+    def _validate(
+        self,
+        X_val: torch.Tensor,
+        y_val: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> float:
         """Run validation and return average loss."""
         self.model.eval()
         with torch.no_grad():
             output = self.model(X_val)
-            loss = self.loss_fn(output, y_val)
+            if isinstance(self.loss_fn, HeteroscedasticLoss) and mask is not None:
+                loss = self.loss_fn(output, y_val, mask=mask)
+            else:
+                loss = self.loss_fn(output, y_val)
         return loss.item()
 
     def _validate_detailed(
-        self, X_val: torch.Tensor, y_val: torch.Tensor
+        self,
+        X_val: torch.Tensor,
+        y_val: torch.Tensor,
+        mask: torch.Tensor | None = None,
     ) -> dict[str, np.ndarray | float]:
         """Run validation with detailed per-parameter loss breakdown.
+
+        Args:
+            X_val: Validation features tensor.
+            y_val: Validation labels tensor.
+            mask: Optional mask for labels of shape (n_samples, n_params).
+                Values of 1 indicate valid labels, 0 indicates masked.
 
         Returns:
             Dictionary containing:
                 - 'loss': Total validation loss (scalar)
                 - 'mean_component': Per-parameter mean loss component
                 - 'scatter_component': Per-parameter scatter loss component
-                - 'per_param_loss': Per-parameter total loss
+                - 'y_pred': Predicted means, shape (n_samples, n_params)
+                - 'pred_scatter': Predicted scatter, shape (n_samples, n_params)
         """
         self.model.eval()
         n_params = self.config.model.n_parameters
@@ -533,23 +758,33 @@ class Trainer:
 
             # Get detailed loss breakdown
             if isinstance(self.loss_fn, HeteroscedasticLoss):
-                detailed = self.loss_fn.forward_detailed(output, y_val)
+                detailed = self.loss_fn.forward_detailed(output, y_val, mask=mask)
                 loss = detailed["loss"].item()
                 mean_component = detailed["mean_component"].cpu().numpy()
                 scatter_component = detailed["scatter_component"].cpu().numpy()
-                per_param_loss = detailed["per_param_loss"].cpu().numpy()
+
+                # Extract predictions and scatter for Evaluator
+                # Output shape is (batch, 2, n_params): [means, log_scatter]
+                y_pred = output[:, 0, :].cpu().numpy()
+                pred_scatter = self.loss_fn.get_predicted_scatter(output).cpu().numpy()
             else:
                 # Fallback for non-heteroscedastic losses
-                loss = self.loss_fn(output, y_val).item()
+                if mask is not None:
+                    loss = self.loss_fn(output, y_val).item()
+                else:
+                    loss = self.loss_fn(output, y_val).item()
                 mean_component = np.zeros(n_params)
                 scatter_component = np.zeros(n_params)
-                per_param_loss = np.zeros(n_params)
+                # Output shape is (batch, 2, n_params): [means, log_scatter]
+                y_pred = output[:, 0, :].cpu().numpy()
+                pred_scatter = None
 
         return {
             "loss": loss,
             "mean_component": mean_component,
             "scatter_component": scatter_component,
-            "per_param_loss": per_param_loss,
+            "y_pred": y_pred,
+            "pred_scatter": pred_scatter,
         }
 
     def _to_tensor(self, data: np.ndarray | torch.Tensor) -> torch.Tensor:
@@ -655,12 +890,13 @@ class Trainer:
 
         Returns:
             Tuple of (predictions, uncertainties) as numpy arrays.
+            predictions has shape (batch, n_params).
+            uncertainties has shape (batch, n_params).
         """
         output = self.predict(X)
-        n_params = self.config.model.n_parameters
-
-        predictions = output[:, :n_params]
-        log_scatter = output[:, n_params:]
+        # Output shape is (batch, 2, n_params): [means, log_scatter]
+        predictions = output[:, 0, :]
+        log_scatter = output[:, 1, :]
 
         # Convert log-scatter to scatter (with floor)
         scatter_floor = self.config.training.scatter_floor
