@@ -43,7 +43,7 @@ PARAMETER_NAMES = [
 
 # Mapping from survey names to their label group names
 SURVEY_LABEL_MAP = {
-    "boss": "apogee",
+    "boss": "apogee_boss",
     "lamost_lrs": "apogee_lamost_lrs",
     "lamost_mrs": "apogee_lamost_mrs",
     "desi": "apogee_desi",
@@ -443,23 +443,8 @@ class CatalogueLoader:
             if survey is None:
                 raise ValueError("No surveys with data found in catalogue")
 
-        # Determine label source from survey if not specified
-        if label_source is None:
-            label_source = SURVEY_LABEL_MAP.get(survey)
-            if label_source is None:
-                # Fall back to checking what's available
-                info = self.get_info()
-                # Try survey-specific first, then generic
-                candidates = [f"apogee_{survey}", "apogee", "galah"]
-                for candidate in candidates:
-                    if candidate in info.labels:
-                        label_source = candidate
-                        break
-                if label_source is None:
-                    raise ValueError(
-                        f"No label source found for survey '{survey}'. "
-                        f"Available: {list(info.labels.keys())}"
-                    )
+        # Store original request for fallback logic
+        original_label_source = label_source
 
         with h5py.File(self.path, "r") as f:
             # Validate inputs
@@ -468,11 +453,38 @@ class CatalogueLoader:
                     f"Survey '{survey}' not in catalogue. "
                     f"Available: {list(f['surveys'].keys())}"
                 )
-            if label_source not in f["labels"]:
-                raise ValueError(
-                    f"Label source '{label_source}' not in catalogue. "
-                    f"Available: {list(f['labels'].keys())}"
-                )
+
+            available_labels = list(f["labels"].keys())
+
+            # Resolve label source with fallback logic
+            if label_source is None:
+                # Auto-derive: try SURVEY_LABEL_MAP first, then fallbacks
+                mapped_source = SURVEY_LABEL_MAP.get(survey)
+                if mapped_source and mapped_source in f["labels"]:
+                    label_source = mapped_source
+                else:
+                    # Try common fallbacks
+                    candidates = [f"apogee_{survey}", "apogee", "galah"]
+                    for candidate in candidates:
+                        if candidate in f["labels"]:
+                            label_source = candidate
+                            break
+                    if label_source is None:
+                        raise ValueError(
+                            f"No label source found for survey '{survey}'. "
+                            f"Available: {available_labels}"
+                        )
+            elif label_source not in f["labels"]:
+                # User-specified source not found - try {label_source}_{survey} pattern
+                # e.g., "apogee" for survey "boss" -> try "apogee_boss"
+                survey_specific = f"{label_source}_{survey}"
+                if survey_specific in f["labels"]:
+                    label_source = survey_specific
+                else:
+                    raise ValueError(
+                        f"Label source '{original_label_source}' not in catalogue. "
+                        f"Available: {available_labels}"
+                    )
 
             # Load survey data
             survey_grp = f["surveys"][survey]
@@ -535,6 +547,24 @@ class CatalogueLoader:
             else:
                 ra = np.zeros(n_stars, dtype=np.float64)
                 dec = np.zeros(n_stars, dtype=np.float64)
+
+            # Validate array sizes match
+            arrays_to_check = {
+                "gaia_ids": len(gaia_ids),
+                "ra": len(ra),
+                "dec": len(dec),
+                "labels": len(labels),
+                "label_errors": len(label_errors),
+                "label_flags": len(label_flags),
+                "snr": len(snr),
+            }
+            mismatched = {k: v for k, v in arrays_to_check.items() if v != n_stars}
+            if mismatched:
+                raise ValueError(
+                    f"Array size mismatch for survey '{survey}': "
+                    f"flux has {n_stars} rows but {mismatched}. "
+                    f"The catalogue may need to be rebuilt with aligned arrays."
+                )
 
         data = CatalogueData(
             gaia_ids=gaia_ids,
@@ -1310,33 +1340,62 @@ class CatalogueLoader:
         has_labels_dict: dict[str, np.ndarray] = {}
 
         n_params = 11
+        n_stars = merged.n_stars
 
         with h5py.File(self.path, "r") as f:
             if "labels" not in f:
                 raise ValueError("Catalogue has no 'labels' group")
 
+            available_labels = list(f["labels"].keys())
+
             for source in label_sources:
+                # Resolve source name with fallback logic (same as single-source mode)
+                resolved_source = source
                 if source not in f["labels"]:
-                    raise ValueError(
-                        f"Label source '{source}' not in catalogue. "
-                        f"Available: {list(f['labels'].keys())}"
-                    )
+                    # Try {source}_{survey} patterns for each survey being loaded
+                    found = False
+                    for survey in surveys:
+                        survey_specific = f"{source}_{survey}"
+                        if survey_specific in f["labels"]:
+                            resolved_source = survey_specific
+                            found = True
+                            break
+                    if not found:
+                        raise ValueError(
+                            f"Label source '{source}' not in catalogue. "
+                            f"Available: {available_labels}"
+                        )
 
-                # Load label data for this source
-                label_grp = f["labels"][source]
-                source_values = label_grp["values"][:]
-                source_errors = label_grp["errors"][:]
-                source_flags = label_grp["flags"][:]
+                # Check if this source matches the primary label source used in merged
+                # If so, use the already-aligned primary_labels from merged structure
+                # This is more reliable than re-loading and re-aligning from the file
+                label_grp = f["labels"][resolved_source]
+                use_merged_primary = False
 
-                # Initialize arrays aligned to merged gaia_ids
-                n_stars = merged.n_stars
-                values = np.zeros((n_stars, n_params), dtype=np.float32)
-                errors = np.zeros((n_stars, n_params), dtype=np.float32)
-                flags = np.zeros((n_stars, n_params), dtype=np.uint8)
-                has_labels = np.zeros(n_stars, dtype=bool)
+                if "gaia_id" not in label_grp:
+                    # No gaia_id means we can't properly align from file
+                    # Use the already-aligned labels from merged structure instead
+                    use_merged_primary = True
 
-                # Get gaia_ids from label source if available
-                if "gaia_id" in label_grp:
+                if use_merged_primary:
+                    # Use the already-aligned labels from merged structure
+                    values = merged.primary_labels.copy()
+                    errors = merged.primary_errors.copy()
+                    flags = merged.primary_flags.copy()
+                    # Star has labels if at least one error is positive
+                    has_labels = np.any(errors > 0, axis=1)
+                else:
+                    # Load label data from file and remap by gaia_id
+                    source_values = label_grp["values"][:]
+                    source_errors = label_grp["errors"][:]
+                    source_flags = label_grp["flags"][:]
+
+                    # Initialize arrays aligned to merged gaia_ids
+                    values = np.zeros((n_stars, n_params), dtype=np.float32)
+                    errors = np.zeros((n_stars, n_params), dtype=np.float32)
+                    flags = np.zeros((n_stars, n_params), dtype=np.uint8)
+                    has_labels = np.zeros(n_stars, dtype=bool)
+
                     source_gaia_ids = label_grp["gaia_id"][:]
 
                     # Create mapping from gaia_id to merged index
@@ -1354,13 +1413,6 @@ class CatalogueLoader:
                             flags[idx] = source_flags[i]
                             # Star has labels if at least one error is positive
                             has_labels[idx] = np.any(source_errors[i] > 0)
-                else:
-                    # If no gaia_id, assume same ordering (fallback)
-                    n_source = min(len(source_values), n_stars)
-                    values[:n_source] = source_values[:n_source]
-                    errors[:n_source] = source_errors[:n_source]
-                    flags[:n_source] = source_flags[:n_source]
-                    has_labels[:n_source] = np.any(source_errors[:n_source] > 0, axis=1)
 
                 # Apply flag filtering
                 if max_flag_bits >= 0:

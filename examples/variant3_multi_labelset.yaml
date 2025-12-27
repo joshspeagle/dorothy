@@ -38,19 +38,22 @@ multi_head_model:
   dropout: 0.0
 
 training:
-  epochs: 10
+  epochs: 100
   batch_size: 512
   learning_rate: 0.001
   loss: heteroscedastic
   gradient_clip: 10.0
   scatter_floor: 0.01
   save_every: 0
+  optimizer:
+    type: adamw
+    weight_decay: 0.01
   scheduler:
     type: one_cycle
     max_lr: 0.001
     pct_start: 0.3
-    div_factor: 25.0
-    final_div_factor: 10000.0
+    div_factor: 100.0
+    final_div_factor: 1.0
 
 output_dir: outputs
 seed: 42

@@ -444,6 +444,28 @@ def cmd_train(args: argparse.Namespace) -> int:
         checkpoint_path = trainer.save_checkpoint()
         print(f"  Saved to: {checkpoint_path}")
 
+        # Generate training report plots
+        print("\nGenerating training plots...")
+        try:
+            from dorothy.visualization import generate_training_report
+
+            plots_dir = checkpoint_path / "plots"
+            plots = generate_training_report(
+                history=history,
+                output_dir=plots_dir,
+                experiment_name=config.name,
+            )
+            if plots:
+                print(f"  Generated {len(plots)} plots in: {plots_dir}")
+                for p in plots:
+                    print(f"    - {p.name}")
+            else:
+                print("  No plots generated (matplotlib may not be installed)")
+        except ImportError:
+            print("  Skipping plots (matplotlib not available)")
+        except Exception as e:
+            print(f"  Warning: Could not generate plots: {e}")
+
     else:
         # Single survey: use load_for_training
         # Returns 3-channel format: X=(N, 3, wavelengths), y=(N, 3, n_params)
@@ -519,6 +541,28 @@ def cmd_train(args: argparse.Namespace) -> int:
         print("\nSaving checkpoint...")
         checkpoint_path = trainer.save_checkpoint()
         print(f"  Saved to: {checkpoint_path}")
+
+        # Generate training report plots
+        print("\nGenerating training plots...")
+        try:
+            from dorothy.visualization import generate_training_report
+
+            plots_dir = checkpoint_path / "plots"
+            plots = generate_training_report(
+                history=history,
+                output_dir=plots_dir,
+                experiment_name=config.name,
+            )
+            if plots:
+                print(f"  Generated {len(plots)} plots in: {plots_dir}")
+                for p in plots:
+                    print(f"    - {p.name}")
+            else:
+                print("  No plots generated (matplotlib may not be installed)")
+        except ImportError:
+            print("  Skipping plots (matplotlib not available)")
+        except Exception as e:
+            print(f"  Warning: Could not generate plots: {e}")
 
     return 0
 

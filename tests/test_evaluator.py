@@ -958,3 +958,130 @@ class TestEvaluatePredictionsBySurvey:
 
         assert "survey_a" in result.by_survey
         assert "param1" in result.overall.metrics
+
+
+class TestEvaluatorBySurveyNonExclusive:
+    """Tests for non-exclusive per-survey evaluation (has_data mode)."""
+
+    def test_evaluate_with_has_data(self):
+        """Test evaluation with has_data dict (non-exclusive mode)."""
+        evaluator = Evaluator(parameter_names=["teff", "logg"], teff_in_log=False)
+
+        n_samples = 100
+        y_true = np.column_stack(
+            [
+                np.full(n_samples, 5500.0),
+                np.full(n_samples, 4.0),
+            ]
+        ).astype(np.float32)
+
+        y_pred = y_true.copy()
+        # Add survey-specific bias based on which survey the star has data from
+        # BOSS-only stars: +50K
+        # DESI-only stars: +100K
+        # Both surveys: somewhere in between (using same prediction)
+        y_pred[:40, 0] += 50.0  # BOSS only (indices 0-39)
+        y_pred[40:60, 0] += 75.0  # Both (indices 40-59)
+        y_pred[60:, 0] += 100.0  # DESI only (indices 60-99)
+
+        # Non-exclusive assignment: stars 40-59 have data from both surveys
+        has_data = {
+            "boss": np.array([True] * 60 + [False] * 40),  # 0-59 have BOSS
+            "desi": np.array([False] * 40 + [True] * 60),  # 40-99 have DESI
+        }
+
+        result = evaluator.evaluate_by_survey(y_pred, y_true, has_data=has_data)
+
+        assert isinstance(result, SurveyEvaluationResult)
+        assert "boss" in result.by_survey
+        assert "desi" in result.by_survey
+
+        # Sample counts: 60 BOSS, 60 DESI (20 overlap, total 100)
+        assert result.survey_sample_counts["boss"] == 60
+        assert result.survey_sample_counts["desi"] == 60
+
+        # BOSS: indices 0-59, bias = (40*50 + 20*75) / 60 = 58.33
+        assert result["boss"]["teff"].bias == pytest.approx(58.33, abs=1.0)
+
+        # DESI: indices 40-99, bias = (20*75 + 40*100) / 60 = 91.67
+        assert result["desi"]["teff"].bias == pytest.approx(91.67, abs=1.0)
+
+        # Overall: average of all = (40*50 + 20*75 + 40*100) / 100 = 75.0
+        assert result.overall["teff"].bias == pytest.approx(75.0, abs=0.1)
+
+    def test_has_data_with_uncertainties(self):
+        """Test non-exclusive mode with uncertainty metrics."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        np.random.seed(42)
+        n_samples = 100
+        y_true = np.full((n_samples, 1), 5500.0, dtype=np.float32)
+        y_pred = y_true.copy()
+
+        # Add noise
+        y_pred += np.random.randn(n_samples, 1).astype(np.float32) * 50
+
+        pred_scatter = np.full((n_samples, 1), 50.0, dtype=np.float32)
+
+        has_data = {
+            "boss": np.array([True] * 60 + [False] * 40),
+            "desi": np.array([False] * 30 + [True] * 70),
+        }
+
+        result = evaluator.evaluate_by_survey(
+            y_pred, y_true, has_data=has_data, pred_scatter=pred_scatter
+        )
+
+        # Check z-score metrics are computed for each survey
+        assert result["boss"]["teff"].z_median is not None
+        assert result["desi"]["teff"].z_median is not None
+        assert result["boss"]["teff"].z_robust_scatter is not None
+        assert result["desi"]["teff"].z_robust_scatter is not None
+
+    def test_has_data_empty_survey(self):
+        """Test non-exclusive mode with a survey having no samples."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        n_samples = 50
+        y_true = np.full((n_samples, 1), 5500.0, dtype=np.float32)
+        y_pred = y_true.copy() + 50.0
+
+        has_data = {
+            "boss": np.array([True] * 50),
+            "desi": np.array([False] * 50),  # No DESI data
+        }
+
+        result = evaluator.evaluate_by_survey(y_pred, y_true, has_data=has_data)
+
+        assert result.survey_sample_counts["boss"] == 50
+        assert result.survey_sample_counts["desi"] == 0
+        assert np.isnan(result["desi"]["teff"].rmse)
+        assert result["boss"]["teff"].bias == pytest.approx(50.0, abs=0.1)
+
+    def test_has_data_raises_without_survey_ids(self):
+        """Test that error is raised when neither survey_ids nor has_data provided."""
+        evaluator = Evaluator(parameter_names=["teff"], teff_in_log=False)
+
+        y_pred = np.random.randn(10, 1).astype(np.float32)
+        y_true = np.random.randn(10, 1).astype(np.float32)
+
+        with pytest.raises(ValueError, match="Either survey_ids or has_data"):
+            evaluator.evaluate_by_survey(y_pred, y_true)
+
+    def test_convenience_function_with_has_data(self):
+        """Test convenience function with has_data parameter."""
+        y_pred = np.array([[5500], [5600], [5400]], dtype=np.float32)
+        y_true = np.array([[5450], [5650], [5350]], dtype=np.float32)
+
+        has_data = {
+            "boss": np.array([True, True, False]),
+            "lamost": np.array([False, True, True]),
+        }
+
+        result = evaluate_predictions_by_survey(
+            y_pred, y_true, has_data=has_data, parameter_names=["teff"]
+        )
+
+        assert isinstance(result, SurveyEvaluationResult)
+        assert result.survey_sample_counts["boss"] == 2
+        assert result.survey_sample_counts["lamost"] == 2

@@ -562,39 +562,52 @@ class Evaluator:
         self,
         y_pred: NDArray[np.float32],
         y_true: NDArray[np.float32],
-        survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str],
+        survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str] | None = None,
         survey_names: list[str] | None = None,
         pred_scatter: NDArray[np.float32] | None = None,
         label_errors: NDArray[np.float32] | None = None,
         mask: NDArray[np.float32] | None = None,
+        has_data: dict[str, NDArray[np.bool_]] | None = None,
     ) -> SurveyEvaluationResult:
         """Evaluate predictions with breakdown by survey.
 
         Computes overall metrics and per-survey metrics for multi-survey
-        training scenarios.
+        training scenarios. Supports two modes:
+
+        1. **Exclusive mode** (survey_ids): Each sample belongs to exactly one survey.
+           Use this when each spectrum comes from a single survey.
+
+        2. **Non-exclusive mode** (has_data): Samples can belong to multiple surveys.
+           Use this for multi-survey training where stars may have spectra from
+           multiple surveys (e.g., both BOSS and DESI). Sample counts may sum to
+           more than the total number of samples.
 
         Args:
             y_pred: Predicted values of shape (n_samples, n_parameters).
             y_true: Ground truth values of shape (n_samples, n_parameters).
-            survey_ids: Survey membership for each sample. Can be:
+            survey_ids: Survey membership for each sample (exclusive mode). Can be:
                 - Integer array of survey indices (0, 1, 2, ...)
                 - String array of survey names
                 - List of survey names (one per sample)
+                Ignored if has_data is provided.
             survey_names: List of survey names corresponding to survey indices.
                 Required if survey_ids is integer array. If survey_ids is strings,
-                this is inferred from unique values.
+                this is inferred from unique values. Ignored if has_data is provided.
             pred_scatter: Predicted scatter (s) from the model.
             label_errors: Label measurement errors (sigma_label).
             mask: Optional mask of shape (n_samples, n_parameters).
+            has_data: Dict mapping survey names to boolean arrays indicating which
+                samples have data from that survey (non-exclusive mode). Takes
+                precedence over survey_ids if both are provided.
 
         Returns:
             SurveyEvaluationResult with overall and per-survey metrics.
 
         Raises:
-            ValueError: If input shapes don't match or survey_names not provided
-                when needed.
+            ValueError: If neither survey_ids nor has_data is provided, or if
+                input shapes don't match.
 
-        Example:
+        Example (exclusive mode):
             >>> evaluator = Evaluator(["teff", "logg", "feh"])
             >>> survey_ids = np.array(["boss", "lamost", "boss", "lamost"])
             >>> result = evaluator.evaluate_by_survey(
@@ -602,7 +615,46 @@ class Evaluator:
             ...     pred_scatter=pred_scatter
             ... )
             >>> print(result.summary(compact=True))
+
+        Example (non-exclusive mode):
+            >>> has_data = {
+            ...     "boss": np.array([True, True, False, True]),
+            ...     "desi": np.array([False, True, True, True]),
+            ... }
+            >>> result = evaluator.evaluate_by_survey(
+            ...     y_pred, y_true, has_data=has_data,
+            ...     pred_scatter=pred_scatter
+            ... )
         """
+        # Determine which mode we're using
+        if has_data is not None:
+            return self._evaluate_by_survey_non_exclusive(
+                y_pred, y_true, has_data, pred_scatter, label_errors, mask
+            )
+        elif survey_ids is not None:
+            return self._evaluate_by_survey_exclusive(
+                y_pred,
+                y_true,
+                survey_ids,
+                survey_names,
+                pred_scatter,
+                label_errors,
+                mask,
+            )
+        else:
+            raise ValueError("Either survey_ids or has_data must be provided")
+
+    def _evaluate_by_survey_exclusive(
+        self,
+        y_pred: NDArray[np.float32],
+        y_true: NDArray[np.float32],
+        survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str],
+        survey_names: list[str] | None,
+        pred_scatter: NDArray[np.float32] | None,
+        label_errors: NDArray[np.float32] | None,
+        mask: NDArray[np.float32] | None,
+    ) -> SurveyEvaluationResult:
+        """Evaluate with exclusive survey assignment (each sample in one survey)."""
         # Convert survey_ids to numpy array if needed
         if isinstance(survey_ids, list):
             survey_ids = np.array(survey_ids)
@@ -636,6 +688,79 @@ class Evaluator:
         for survey_idx, survey_name in enumerate(survey_names):
             # Create boolean mask for this survey
             survey_mask = survey_indices == survey_idx
+            n_survey_samples = survey_mask.sum()
+            survey_sample_counts[survey_name] = int(n_survey_samples)
+
+            if n_survey_samples == 0:
+                # No samples for this survey - create empty result
+                empty_result = EvaluationResult(
+                    parameter_names=list(self.parameter_names),
+                    survey_name=survey_name,
+                )
+                for param_name in self.parameter_names:
+                    empty_result.metrics[param_name] = ParameterMetrics(
+                        name=param_name,
+                        n_samples=0,
+                        rmse=float("nan"),
+                        bias=float("nan"),
+                        sd=float("nan"),
+                        mae=float("nan"),
+                        median_offset=float("nan"),
+                        robust_scatter=float("nan"),
+                    )
+                by_survey[survey_name] = empty_result
+                continue
+
+            # Filter arrays for this survey
+            survey_y_pred = y_pred[survey_mask]
+            survey_y_true = y_true[survey_mask]
+            survey_pred_scatter = (
+                pred_scatter[survey_mask] if pred_scatter is not None else None
+            )
+            survey_label_errors = (
+                label_errors[survey_mask] if label_errors is not None else None
+            )
+            survey_param_mask = mask[survey_mask] if mask is not None else None
+
+            # Evaluate this survey
+            survey_result = self.evaluate(
+                survey_y_pred,
+                survey_y_true,
+                survey_pred_scatter,
+                survey_label_errors,
+                mask=survey_param_mask,
+            )
+            survey_result.survey_name = survey_name
+            by_survey[survey_name] = survey_result
+
+        return SurveyEvaluationResult(
+            overall=overall,
+            by_survey=by_survey,
+            survey_names=survey_names,
+            survey_sample_counts=survey_sample_counts,
+        )
+
+    def _evaluate_by_survey_non_exclusive(
+        self,
+        y_pred: NDArray[np.float32],
+        y_true: NDArray[np.float32],
+        has_data: dict[str, NDArray[np.bool_]],
+        pred_scatter: NDArray[np.float32] | None,
+        label_errors: NDArray[np.float32] | None,
+        mask: NDArray[np.float32] | None,
+    ) -> SurveyEvaluationResult:
+        """Evaluate with non-exclusive survey assignment (samples can be in multiple surveys)."""
+        survey_names = list(has_data.keys())
+
+        # Compute overall metrics
+        overall = self.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
+
+        # Compute per-survey metrics
+        by_survey: dict[str, EvaluationResult] = {}
+        survey_sample_counts: dict[str, int] = {}
+
+        for survey_name in survey_names:
+            survey_mask = has_data[survey_name]
             n_survey_samples = survey_mask.sum()
             survey_sample_counts[survey_name] = int(n_survey_samples)
 
@@ -816,29 +941,44 @@ def evaluate_predictions(
 def evaluate_predictions_by_survey(
     y_pred: NDArray[np.float32],
     y_true: NDArray[np.float32],
-    survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str],
+    survey_ids: NDArray[np.int32] | NDArray[np.str_] | list[str] | None = None,
     survey_names: list[str] | None = None,
     pred_scatter: NDArray[np.float32] | None = None,
     label_errors: NDArray[np.float32] | None = None,
     parameter_names: list[str] | None = None,
     mask: NDArray[np.float32] | None = None,
+    has_data: dict[str, NDArray[np.bool_]] | None = None,
 ) -> SurveyEvaluationResult:
     """Convenience function to evaluate predictions with per-survey breakdown.
+
+    Supports two modes:
+    1. **Exclusive mode** (survey_ids): Each sample belongs to exactly one survey.
+    2. **Non-exclusive mode** (has_data): Samples can belong to multiple surveys.
 
     Args:
         y_pred: Predicted values.
         y_true: Ground truth values.
         survey_ids: Survey membership for each sample (integer indices or strings).
+            Used for exclusive mode. Ignored if has_data is provided.
         survey_names: List of survey names (required if survey_ids is integers).
         pred_scatter: Predicted scatter (s) from the model.
         label_errors: Label measurement errors (sigma_label).
         parameter_names: Optional list of parameter names.
         mask: Optional mask of shape (n_samples, n_parameters).
+        has_data: Dict mapping survey names to boolean arrays (non-exclusive mode).
+            Takes precedence over survey_ids if both are provided.
 
     Returns:
         SurveyEvaluationResult with overall and per-survey metrics.
     """
     evaluator = Evaluator(parameter_names=parameter_names)
     return evaluator.evaluate_by_survey(
-        y_pred, y_true, survey_ids, survey_names, pred_scatter, label_errors, mask=mask
+        y_pred,
+        y_true,
+        survey_ids,
+        survey_names,
+        pred_scatter,
+        label_errors,
+        mask=mask,
+        has_data=has_data,
     )

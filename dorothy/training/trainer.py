@@ -126,6 +126,20 @@ class TrainingHistory:
     grad_norms: list[float] = field(default_factory=list)
     weight_updates: dict[str, list[float]] = field(default_factory=dict)
 
+    # Per-survey metrics for multi-survey training
+    survey_names: list[str] = field(default_factory=list)
+    per_survey_val_losses: dict[str, list[float]] = field(default_factory=dict)
+    per_survey_val_metrics: dict[str, dict[str, list[np.ndarray]]] = field(
+        default_factory=dict
+    )
+
+    # Per-labelset metrics for multi-labelset training (multiple output heads)
+    label_source_names: list[str] = field(default_factory=list)
+    per_labelset_val_losses: dict[str, list[float]] = field(default_factory=dict)
+    per_labelset_val_metrics: dict[str, dict[str, list[np.ndarray]]] = field(
+        default_factory=dict
+    )
+
     def save(self, path: str | Path) -> None:
         """Save training history to a pickle file."""
         data = {
@@ -138,6 +152,14 @@ class TrainingHistory:
             "weight_norms": self.weight_norms,
             "grad_norms": self.grad_norms,
             "weight_updates": self.weight_updates,
+            # Per-survey metrics
+            "survey_names": self.survey_names,
+            "per_survey_val_losses": self.per_survey_val_losses,
+            "per_survey_val_metrics": self.per_survey_val_metrics,
+            # Per-labelset metrics
+            "label_source_names": self.label_source_names,
+            "per_labelset_val_losses": self.per_labelset_val_losses,
+            "per_labelset_val_metrics": self.per_labelset_val_metrics,
         }
         with open(path, "wb") as f:
             pickle.dump(data, f)
@@ -1129,11 +1151,19 @@ class Trainer:
         self.scheduler = self._create_scheduler(steps_per_epoch)
 
         # Initialize tracking
+        survey_names = list(X_train.keys())
         self._best_weights = copy.deepcopy(self.model.state_dict())
         self.history = TrainingHistory(
             parameter_names=self.parameter_names,
             val_loss_breakdown={"mean_component": [], "scatter_component": []},
             val_metrics={name: [] for name in EVALUATOR_METRIC_NAMES},
+            # Initialize per-survey tracking
+            survey_names=survey_names,
+            per_survey_val_losses={name: [] for name in survey_names},
+            per_survey_val_metrics={
+                name: {metric: [] for metric in EVALUATOR_METRIC_NAMES}
+                for name in survey_names
+            },
         )
 
         self._evaluator = Evaluator(
@@ -1146,7 +1176,7 @@ class Trainer:
 
         start_time = time.time()
         logger.info(f"Starting multi-survey training for {n_epochs} epochs")
-        logger.info(f"Surveys: {list(X_train.keys())}")
+        logger.info(f"Surveys: {survey_names}")
 
         # Initialize grokking metrics
         initial_weight_norms = self._compute_weight_norms()
@@ -1234,6 +1264,50 @@ class Trainer:
                     dtype=np.float32,
                 )
                 self.history.val_metrics[metric_name].append(metric_values)
+
+            # Per-survey evaluation using has_data (non-exclusive mode)
+            has_data_val_np = {
+                survey: arr.cpu().numpy()
+                for survey, arr in has_data_val_tensors.items()
+            }
+            survey_eval_result = self._evaluator.evaluate_by_survey(
+                y_pred=y_pred,
+                y_true=y_true,
+                pred_scatter=pred_scatter,
+                label_errors=y_err,
+                mask=y_mask,
+                has_data=has_data_val_np,
+            )
+
+            # Store per-survey metrics and compute actual per-survey losses
+            for survey_name in survey_names:
+                survey_metrics = survey_eval_result.by_survey[survey_name]
+                survey_mask = has_data_val_tensors[survey_name]
+                n_survey_samples = survey_mask.sum().item()
+
+                # Compute actual per-survey heteroscedastic loss
+                if n_survey_samples > 0:
+                    # Get outputs and targets for this survey's samples
+                    survey_output = output[survey_mask]
+                    survey_target = y_val_tensor[survey_mask]
+                    # Compute loss for this survey subset
+                    survey_loss = self.loss_fn(survey_output, survey_target).item()
+                else:
+                    survey_loss = float("nan")
+                self.history.per_survey_val_losses[survey_name].append(survey_loss)
+
+                # Store each metric for this survey
+                for metric_name in EVALUATOR_METRIC_NAMES:
+                    metric_values = np.array(
+                        [
+                            getattr(survey_metrics.metrics[p], metric_name)
+                            for p in self.parameter_names
+                        ],
+                        dtype=np.float32,
+                    )
+                    self.history.per_survey_val_metrics[survey_name][
+                        metric_name
+                    ].append(metric_values)
 
             # Best model tracking
             if val_loss < self.history.best_val_loss:
@@ -1327,7 +1401,7 @@ class Trainer:
             if gradient_clip > 0:
                 grad_norm = nn.utils.clip_grad_norm_(
                     self.model.parameters(), gradient_clip
-                )
+                ).item()  # Convert tensor to float
             else:
                 grad_norm = 0.0
                 for p in self.model.parameters():
@@ -1602,6 +1676,13 @@ class Trainer:
             parameter_names=self.parameter_names,
             val_loss_breakdown={"mean_component": [], "scatter_component": []},
             val_metrics={name: [] for name in EVALUATOR_METRIC_NAMES},
+            # Initialize per-labelset tracking
+            label_source_names=label_sources,
+            per_labelset_val_losses={name: [] for name in label_sources},
+            per_labelset_val_metrics={
+                name: {metric: [] for metric in EVALUATOR_METRIC_NAMES}
+                for name in label_sources
+            },
         )
 
         self._evaluator = Evaluator(
@@ -1708,6 +1789,62 @@ class Trainer:
                     dtype=np.float32,
                 )
                 self.history.val_metrics[metric_name].append(metric_values)
+
+            # Per-labelset evaluation
+            for source in label_sources:
+                # Store per-labelset loss
+                source_loss = val_details["per_labelset_losses"].get(
+                    source, float("nan")
+                )
+                self.history.per_labelset_val_losses[source].append(source_loss)
+
+                # Compute per-labelset metrics
+                y_source = y_val_tensors[source]
+                has_labels_source = has_labels_val_tensors[source]
+
+                y_true_source = y_source[:, 0, :].cpu().numpy()
+                y_err_source = y_source[:, 1, :].cpu().numpy()
+                y_mask_source = y_source[:, 2, :].cpu().numpy()
+
+                # Get predictions for this label source
+                self.model.eval()
+                with torch.no_grad():
+                    output_source = self.model.forward_for_label_source(
+                        X_val_tensors, source, has_data=has_data_val_tensors
+                    )
+                y_pred_source = output_source[:, 0, :].cpu().numpy()
+                log_scatter_source = output_source[:, 1, :].cpu().numpy()
+                pred_scatter_source = np.sqrt(
+                    np.exp(2 * log_scatter_source)
+                    + self.config.training.scatter_floor**2
+                )
+
+                # Apply has_labels mask to parameter mask
+                y_mask_source = y_mask_source * has_labels_source.cpu().numpy().reshape(
+                    -1, 1
+                )
+
+                # Evaluate
+                source_eval_result = self._evaluator.evaluate(
+                    y_pred=y_pred_source,
+                    y_true=y_true_source,
+                    pred_scatter=pred_scatter_source,
+                    label_errors=y_err_source,
+                    mask=y_mask_source,
+                )
+
+                # Store each metric for this labelset
+                for metric_name in EVALUATOR_METRIC_NAMES:
+                    metric_values = np.array(
+                        [
+                            getattr(source_eval_result.metrics[p], metric_name)
+                            for p in self.parameter_names
+                        ],
+                        dtype=np.float32,
+                    )
+                    self.history.per_labelset_val_metrics[source][metric_name].append(
+                        metric_values
+                    )
 
             # Best model tracking
             if val_loss < self.history.best_val_loss:
@@ -1844,7 +1981,7 @@ class Trainer:
                 if gradient_clip > 0:
                     grad_norm = nn.utils.clip_grad_norm_(
                         self.model.parameters(), gradient_clip
-                    )
+                    ).item()  # Convert tensor to float
                 else:
                     grad_norm = 0.0
                     for p in self.model.parameters():
@@ -1881,6 +2018,9 @@ class Trainer:
         mean_component = np.zeros(n_params, dtype=np.float32)
         scatter_component = np.zeros(n_params, dtype=np.float32)
 
+        # Per-labelset losses
+        per_labelset_losses: dict[str, float] = {}
+
         with torch.no_grad():
             for source in label_sources:
                 y_source = y[source]
@@ -1900,6 +2040,11 @@ class Trainer:
                 # Compute loss
                 loss = self.loss_fn(output, y_masked)
                 n_valid = has_labels_source.sum().item()
+
+                # Store per-labelset loss
+                per_labelset_losses[source] = (
+                    loss.item() if n_valid > 0 else float("nan")
+                )
 
                 if n_valid > 0:
                     total_loss += loss.item() * n_valid
@@ -1924,6 +2069,7 @@ class Trainer:
             "loss": total_loss,
             "mean_component": mean_component,
             "scatter_component": scatter_component,
+            "per_labelset_losses": per_labelset_losses,
         }
 
     def predict_multi_labelset(

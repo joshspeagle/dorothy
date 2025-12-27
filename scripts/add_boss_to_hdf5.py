@@ -189,6 +189,12 @@ def create_or_update_hdf5(output_path: Path, boss_data: dict) -> None:
                 compression="gzip",
             )
             apogee_grp.create_dataset("flags", data=boss_data["flags"])
+
+            # Store IDs for cross-referencing (initially as strings, later converted to Gaia IDs)
+            dt = h5py.string_dtype(encoding="utf-8")
+            ids_list = [s.encode("utf-8") for s in boss_data["ids"]]
+            apogee_grp.create_dataset("gaia_id", data=ids_list, dtype=dt)
+
             print(f"  Added APOGEE labels: {n_stars} stars, {11} parameters")
 
     print("Done!")
