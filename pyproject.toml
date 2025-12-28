@@ -35,6 +35,7 @@ dependencies = [
     "tqdm>=4.65.0",
     "pandas>=2.0.0",
     "h5py>=3.0.0",
+    "matplotlib>=3.7.0",
 ]
 
 [project.optional-dependencies]

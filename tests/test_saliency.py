@@ -384,8 +384,7 @@ class TestVisualization:
 
     def test_plot_parameter_saliency_runs(self, sample_result):
         """Test that plot_parameter_saliency runs without error."""
-        import matplotlib
-
+        matplotlib = pytest.importorskip("matplotlib")
         matplotlib.use("Agg")  # Non-interactive backend
         import matplotlib.pyplot as plt
 
@@ -395,8 +394,7 @@ class TestVisualization:
 
     def test_plot_parameter_saliency_saves(self, sample_result):
         """Test that plot_parameter_saliency saves to file."""
-        import matplotlib
-
+        matplotlib = pytest.importorskip("matplotlib")
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -410,8 +408,7 @@ class TestVisualization:
 
     def test_plot_saliency_heatmap_runs(self, sample_result):
         """Test that plot_saliency_heatmap runs without error."""
-        import matplotlib
-
+        matplotlib = pytest.importorskip("matplotlib")
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -421,8 +418,7 @@ class TestVisualization:
 
     def test_plot_saliency_heatmap_saves(self, sample_result):
         """Test that plot_saliency_heatmap saves to file."""
-        import matplotlib
-
+        matplotlib = pytest.importorskip("matplotlib")
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -434,8 +430,7 @@ class TestVisualization:
 
     def test_plot_with_masked_regions(self, sample_result):
         """Test plotting with masked regions."""
-        import matplotlib
-
+        matplotlib = pytest.importorskip("matplotlib")
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
