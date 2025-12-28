@@ -9,8 +9,8 @@ This module provides inference capabilities for trained models, including:
 
 Example:
     >>> predictor = Predictor.load("path/to/checkpoint")
-    >>> preds, uncerts = predictor.predict(spectra)
-    >>> preds_physical = predictor.denormalize(preds, uncerts)
+    >>> result = predictor.predict(spectra, denormalize=True)
+    >>> print(result.predictions.shape, result.uncertainties.shape)
 """
 
 from __future__ import annotations

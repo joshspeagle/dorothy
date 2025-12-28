@@ -21,7 +21,6 @@ import logging
 import pickle
 import time
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -81,22 +80,6 @@ EVALUATOR_METRIC_NAMES = [
     "pred_unc_p50",
     "pred_unc_p84",
 ]
-
-
-class TrainingMode(Enum):
-    """Training mode for unified epoch methods.
-
-    Each mode handles different data structures and forward pass patterns:
-    - SINGLE: Standard single-survey training with dense tensors
-    - MULTI_SURVEY: Multiple surveys with shared labels (dense)
-    - MULTI_SURVEY_SPARSE: Multiple surveys with sparse storage
-    - MULTI_LABELSET: Multiple surveys with multiple label sources
-    """
-
-    SINGLE = "single"
-    MULTI_SURVEY = "multi_survey"
-    MULTI_SURVEY_SPARSE = "multi_survey_sparse"
-    MULTI_LABELSET = "multi_labelset"
 
 
 @dataclass

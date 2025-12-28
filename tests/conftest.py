@@ -6,7 +6,6 @@ All fixtures are automatically available to tests without explicit imports.
 
 Fixtures defined here:
 - simple_config: Basic ExperimentConfig for training tests
-- training_data_3ch: Synthetic 3-channel spectral data (X, y)
 - simple_model: Small MLP model for quick tests
 - simple_input: Random input data
 - simple_normalizer: Fitted LabelNormalizer
@@ -68,50 +67,6 @@ def simple_config():
 # =============================================================================
 # Data Fixtures
 # =============================================================================
-
-
-@pytest.fixture
-def training_data_3ch():
-    """Create synthetic 3-channel training data.
-
-    Returns a tuple (X, y) where:
-    - X: shape (100, 3, 1000) = [flux, sigma, mask]
-    - y: shape (100, 3, 3) = [values, errors, mask] for 3 params
-
-    Labels simulate Teff (~4500-6500K), logg (~2-5), [Fe/H] (~-1 to 0.5).
-    """
-    np.random.seed(42)
-    n_samples = 100
-    n_wavelengths = 1000
-    n_params = 3
-
-    # 3-channel spectral data: [flux, sigma, mask]
-    flux = np.random.randn(n_samples, n_wavelengths).astype(np.float32)
-    sigma = (np.abs(np.random.randn(n_samples, n_wavelengths)) * 0.1 + 0.01).astype(
-        np.float32
-    )
-    spec_mask = np.ones((n_samples, n_wavelengths), dtype=np.float32)
-    X = np.stack([flux, sigma, spec_mask], axis=1)
-
-    # 3-channel labels: [values, errors, mask]
-    labels = np.column_stack(
-        [
-            np.random.uniform(4500, 6500, n_samples),  # teff
-            np.random.uniform(2.0, 5.0, n_samples),  # logg
-            np.random.uniform(-1.0, 0.5, n_samples),  # feh
-        ]
-    ).astype(np.float32)
-    errors = np.column_stack(
-        [
-            np.abs(np.random.randn(n_samples)) * 50 + 10,  # teff_err
-            np.abs(np.random.randn(n_samples)) * 0.1 + 0.05,  # logg_err
-            np.abs(np.random.randn(n_samples)) * 0.05 + 0.02,  # feh_err
-        ]
-    ).astype(np.float32)
-    label_mask = np.ones((n_samples, n_params), dtype=np.float32)
-    y = np.stack([labels, errors, label_mask], axis=1)
-
-    return X, y
 
 
 @pytest.fixture
