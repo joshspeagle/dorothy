@@ -19,7 +19,7 @@ class DynamicLabelMasking:
 
     This augmentation implements a two-level hierarchical masking scheme:
     1. Labelset level: Which label sources (apogee, galah, etc.) to include
-    2. Label level: Which parameters (teff, logg, feh, etc.) within each set
+    2. Label level: Which parameters (teff, logg, fe_h, etc.) within each set
 
     All probabilities are sampled fresh per batch from configurable uniform
     ranges to ensure the model sees diverse masking conditions during training.

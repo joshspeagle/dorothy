@@ -23,9 +23,9 @@ class TestParameterStats:
 
     def test_basic_stats(self):
         """Test creating basic parameter stats."""
-        stats = ParameterStats(name="feh", median=-0.5, iqr=0.4)
+        stats = ParameterStats(name="fe_h", median=-0.5, iqr=0.4)
 
-        assert stats.name == "feh"
+        assert stats.name == "fe_h"
         assert stats.median == -0.5
         assert stats.iqr == 0.4
         assert stats.use_log is False
@@ -60,15 +60,15 @@ class TestLabelNormalizerInit:
 
         assert normalizer.n_parameters == 11
         assert "teff" in normalizer.parameters
-        assert "feh" in normalizer.parameters
+        assert "fe_h" in normalizer.parameters
         assert normalizer.is_fitted is False
 
     def test_custom_parameters(self):
         """Test custom parameter list."""
-        normalizer = LabelNormalizer(parameters=["teff", "logg", "feh"])
+        normalizer = LabelNormalizer(parameters=["teff", "logg", "fe_h"])
 
         assert normalizer.n_parameters == 3
-        assert normalizer.parameters == ["teff", "logg", "feh"]
+        assert normalizer.parameters == ["teff", "logg", "fe_h"]
 
     def test_empty_parameters_rejected(self):
         """Test that empty parameters list is rejected."""
@@ -357,7 +357,7 @@ class TestLabelNormalizerSaveLoad:
 
     def test_roundtrip_after_load(self):
         """Test that loaded normalizer produces same results."""
-        normalizer = LabelNormalizer(parameters=["teff", "feh"])
+        normalizer = LabelNormalizer(parameters=["teff", "fe_h"])
         y_train = np.column_stack(
             [
                 np.random.uniform(4000, 8000, 100),
@@ -371,7 +371,7 @@ class TestLabelNormalizerSaveLoad:
 
         try:
             normalizer.save(path)
-            loaded = LabelNormalizer.load(path, parameters=["teff", "feh"])
+            loaded = LabelNormalizer.load(path, parameters=["teff", "fe_h"])
 
             y_test = np.array([[5000, -0.5], [6000, 0.0]])
             y_norm_orig = normalizer.transform(y_test)
@@ -387,16 +387,16 @@ class TestLabelNormalizerGetParamsDict:
 
     def test_params_dict_format(self):
         """Test that params dict has expected format."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
         normalizer.fit(y)
 
         params = normalizer.get_params_dict()
 
-        assert "feh" in params
+        assert "fe_h" in params
         assert "logg" in params
-        assert "median" in params["feh"]
-        assert "IQR" in params["feh"]
+        assert "median" in params["fe_h"]
+        assert "IQR" in params["fe_h"]
 
     def test_params_dict_teff_includes_log(self):
         """Test that Teff params include log stats."""
@@ -415,35 +415,37 @@ class TestLabelNormalizerMasking:
 
     def test_fit_without_mask_unchanged(self):
         """Test that fit without mask works as before."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
 
         normalizer.fit(y)
-        normalizer_with_none = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer_with_none = LabelNormalizer(parameters=["fe_h", "logg"])
         normalizer_with_none.fit(y, mask=None)
 
         assert (
-            normalizer.stats["feh"].median == normalizer_with_none.stats["feh"].median
+            normalizer.stats["fe_h"].median == normalizer_with_none.stats["fe_h"].median
         )
         assert normalizer.stats["logg"].iqr == normalizer_with_none.stats["logg"].iqr
 
     def test_fit_with_all_ones_mask(self):
         """Test that all-ones mask gives same result as no mask."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
         mask = np.ones_like(y)
 
         normalizer.fit(y, mask=mask)
 
         # Should match no-mask stats
-        normalizer_no_mask = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer_no_mask = LabelNormalizer(parameters=["fe_h", "logg"])
         normalizer_no_mask.fit(y)
 
-        assert normalizer.stats["feh"].median == normalizer_no_mask.stats["feh"].median
+        assert (
+            normalizer.stats["fe_h"].median == normalizer_no_mask.stats["fe_h"].median
+        )
 
     def test_fit_mask_excludes_samples(self):
         """Test that masked samples don't contribute to stats."""
-        normalizer = LabelNormalizer(parameters=["feh"])
+        normalizer = LabelNormalizer(parameters=["fe_h"])
 
         # First sample is an outlier that would affect stats
         y = np.array([[100.0], [0.0], [0.1], [0.2]])  # 100 is outlier
@@ -453,11 +455,11 @@ class TestLabelNormalizerMasking:
 
         # Stats should be computed from [0.0, 0.1, 0.2] only
         expected_median = 0.1
-        assert normalizer.stats["feh"].median == pytest.approx(expected_median)
+        assert normalizer.stats["fe_h"].median == pytest.approx(expected_median)
 
     def test_fit_mask_per_parameter(self):
         """Test that mask works independently per parameter."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
 
         y = np.array(
             [
@@ -479,13 +481,13 @@ class TestLabelNormalizerMasking:
         normalizer.fit(y, mask=mask)
 
         # feh computed from [0.0, 0.1, 0.2]
-        assert normalizer.stats["feh"].median == pytest.approx(0.1)
+        assert normalizer.stats["fe_h"].median == pytest.approx(0.1)
         # logg computed from [2.0, 3.0, 4.0]
         assert normalizer.stats["logg"].median == pytest.approx(3.0)
 
     def test_fit_all_masked_raises(self):
         """Test that fully masked parameter raises error."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.random.randn(10, 2)
         mask = np.ones_like(y)
         mask[:, 0] = 0  # Mask all feh values
@@ -495,7 +497,7 @@ class TestLabelNormalizerMasking:
 
     def test_fit_mask_shape_mismatch_raises(self):
         """Test that mask shape mismatch raises error."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.random.randn(10, 2)
         mask = np.ones((5, 2))  # Wrong shape
 
@@ -504,7 +506,7 @@ class TestLabelNormalizerMasking:
 
     def test_transform_with_mask_shape_validation(self):
         """Test that transform validates mask shape."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
         normalizer.fit(y)
 
@@ -516,7 +518,7 @@ class TestLabelNormalizerMasking:
 
     def test_transform_with_mask_works(self):
         """Test that transform with mask parameter works."""
-        normalizer = LabelNormalizer(parameters=["feh", "logg"])
+        normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.array([[0.1, 2.0], [0.0, 3.0], [-0.1, 4.0]])
         normalizer.fit(y)
 

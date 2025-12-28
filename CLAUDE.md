@@ -10,8 +10,8 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 |--------|-------|
 | Package Version | 0.1.0 |
 | Python | >=3.10 |
-| Tests | 504 passing |
-| Test Coverage | 89% overall |
+| Tests | 618 passing |
+| Test Coverage | 88% overall |
 | Refactoring Stage | Complete |
 
 ## Module Overview
@@ -42,6 +42,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 | Predictor | `dorothy/inference/predictor.py` | 87% | Model loading, batch prediction |
 | Evaluator | `dorothy/inference/evaluator.py` | 89% | Comprehensive metrics (RMSE, MAE, z-scores) |
 | k-NN Anomaly | `dorothy/analysis/knn_anomaly.py` | 100% | Embedding-based anomaly detection |
+| Saliency Analysis | `dorothy/analysis/saliency.py` | 95% | Gradient-based saliency maps for interpretability |
 
 ### User Interface
 
@@ -74,7 +75,8 @@ dorothy/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── mlp.py              # Standard MLP architecture
-│   │   └── multi_head_mlp.py   # Multi-survey/multi-label architecture
+│   │   ├── multi_head_mlp.py   # Multi-survey/multi-label architecture
+│   │   └── utils.py            # Shared model utilities
 │   │
 │   ├── losses/
 │   │   ├── __init__.py
@@ -91,7 +93,8 @@ dorothy/
 │   │
 │   ├── analysis/
 │   │   ├── __init__.py
-│   │   └── knn_anomaly.py      # k-NN anomaly detection
+│   │   ├── knn_anomaly.py      # k-NN anomaly detection
+│   │   └── saliency.py         # Gradient-based saliency analysis
 │   │
 │   ├── visualization/
 │   │   ├── __init__.py
@@ -108,7 +111,7 @@ dorothy/
 │   ├── add_lamost_mrs_to_hdf5.py
 │   └── add_gaia_ids_to_hdf5.py
 │
-├── tests/                      # Test suite (504 tests)
+├── tests/                      # Test suite (618 tests)
 │   ├── test_augmentation.py
 │   ├── test_catalogue_loader.py
 │   ├── test_cli.py
@@ -122,15 +125,18 @@ dorothy/
 │   ├── test_multi_head_mlp.py
 │   ├── test_normalizer.py
 │   ├── test_predictor.py
-│   └── test_trainer.py
+│   ├── test_saliency.py
+│   ├── test_trainer.py
+│   └── test_visualization.py
 │
 ├── examples/                   # Example configurations
-│   ├── basic_training.yaml           # Legacy FITS-based
-│   ├── advanced_training.yaml        # Legacy with masking
 │   ├── boss_training.yaml            # Quick BOSS test
 │   ├── variant1_boss_apogee.yaml     # Single survey
 │   ├── variant2_multi_survey.yaml    # Multi-survey training
-│   └── variant3_multi_labelset.yaml  # Multi-label heads
+│   ├── variant3_multi_labelset.yaml  # Multi-label heads
+│   ├── variant4_all_surveys.yaml     # All surveys, single label
+│   ├── variant5_all_surveys_masked.yaml  # All surveys with masking
+│   └── saliency_example.py           # Saliency analysis demo
 │
 ├── docs/
 │   └── super_catalogue.md      # HDF5 catalogue documentation
@@ -293,6 +299,8 @@ model:
 8. **has_data masks**: Critical for multi-survey training - indicates which surveys a star has spectra from
 9. **gaia_id alignment**: All data aligned by Gaia DR3 source ID for cross-matching
 10. **TrainingHistory**: Contains per-survey and per-labelset metrics for visualization
+11. **Saliency analysis**: Use `SaliencyAnalyzer` from `dorothy.analysis` for gradient-based interpretability
+12. **TODO**: Implement ablation-based saliency metrics to complement gradient-based maps
 
 ## Super-Catalogue Schema
 
@@ -325,6 +333,7 @@ Located in `scripts/`:
 | `add_lamost_lrs_to_hdf5.py` | Load LAMOST LRS (3473 wavelengths) |
 | `add_lamost_mrs_to_hdf5.py` | Load LAMOST MRS (dual-arm) |
 | `add_gaia_ids_to_hdf5.py` | Cross-match with Gaia DR3 |
+| `create_deduplicated_catalogue.py` | Remove duplicate entries from catalogue |
 
 ## CI/CD and Code Quality
 

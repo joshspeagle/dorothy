@@ -122,7 +122,7 @@ class TestEvaluationResult:
     def test_summary_markdown(self):
         """Test markdown summary generation."""
         metrics = ParameterMetrics(
-            name="feh",
+            name="fe_h",
             n_samples=200,
             rmse=0.08,
             bias=0.01,
@@ -132,12 +132,12 @@ class TestEvaluationResult:
             robust_scatter=0.06,
         )
         result = EvaluationResult(
-            metrics={"feh": metrics},
-            parameter_names=["feh"],
+            metrics={"fe_h": metrics},
+            parameter_names=["fe_h"],
         )
 
         summary = result.summary(format="markdown")
-        assert "| feh |" in summary
+        assert "| fe_h |" in summary
         assert "|---|" in summary or "|-----------|" in summary
 
     def test_to_dict(self):
@@ -168,13 +168,13 @@ class TestEvaluator:
     def test_init_default_params(self):
         """Test default initialization."""
         evaluator = Evaluator()
-        assert evaluator.parameter_names == ["teff", "logg", "feh"]
+        assert evaluator.parameter_names == ["teff", "logg", "fe_h"]
         assert evaluator.teff_in_log is True
 
     def test_init_custom_params(self):
         """Test custom parameter initialization."""
         evaluator = Evaluator(
-            parameter_names=["teff", "logg", "feh", "mgfe"],
+            parameter_names=["teff", "logg", "fe_h", "mg_fe"],
             teff_in_log=False,
         )
         assert len(evaluator.parameter_names) == 4
@@ -305,7 +305,7 @@ class TestEvaluator:
 
     def test_evaluate_wrong_n_params(self):
         """Test that wrong number of parameters raises error."""
-        evaluator = Evaluator(parameter_names=["teff", "logg", "feh"])
+        evaluator = Evaluator(parameter_names=["teff", "logg", "fe_h"])
 
         y_pred = np.random.randn(100, 2).astype(np.float32)  # Only 2 params
         y_true = np.random.randn(100, 2).astype(np.float32)
@@ -326,7 +326,7 @@ class TestEvaluatePredictions:
 
         assert "teff" in result.metrics
         assert "logg" in result.metrics
-        assert "feh" in result.metrics
+        assert "fe_h" in result.metrics
 
     def test_custom_params(self):
         """Test with custom parameter names."""
@@ -633,7 +633,7 @@ class TestEvaluatorMasking:
         # logg should use only second sample
         assert result["logg"].n_samples == 1
         # feh should use only first sample
-        assert result["feh"].n_samples == 1
+        assert result["fe_h"].n_samples == 1
 
 
 class TestSurveyEvaluationResult:

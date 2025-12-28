@@ -62,15 +62,15 @@ class SchedulerType(str, Enum):
 STELLAR_PARAMETERS = [
     "teff",  # Effective temperature (K), normalized in log10 space
     "logg",  # Surface gravity (log g)
-    "feh",  # Iron abundance [Fe/H]
-    "mgfe",  # Magnesium abundance [Mg/Fe]
-    "cfe",  # Carbon abundance [C/Fe]
-    "sife",  # Silicon abundance [Si/Fe]
-    "nife",  # Nickel abundance [Ni/Fe]
-    "alfe",  # Aluminum abundance [Al/Fe]
-    "cafe",  # Calcium abundance [Ca/Fe]
-    "nfe",  # Nitrogen abundance [N/Fe]
-    "mnfe",  # Manganese abundance [Mn/Fe]
+    "fe_h",  # Iron abundance [Fe/H]
+    "mg_fe",  # Magnesium abundance [Mg/Fe]
+    "c_fe",  # Carbon abundance [C/Fe]
+    "si_fe",  # Silicon abundance [Si/Fe]
+    "ni_fe",  # Nickel abundance [Ni/Fe]
+    "al_fe",  # Aluminum abundance [Al/Fe]
+    "ca_fe",  # Calcium abundance [Ca/Fe]
+    "n_fe",  # Nitrogen abundance [N/Fe]
+    "mn_fe",  # Manganese abundance [Mn/Fe]
 ]
 
 

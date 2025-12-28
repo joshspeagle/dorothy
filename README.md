@@ -173,6 +173,25 @@ print(f"Label sources: {info.label_sources}")
 
 See [docs/super_catalogue.md](docs/super_catalogue.md) for the complete schema and usage guide.
 
+## Saliency Analysis
+
+Visualize which wavelengths are most important for each stellar parameter prediction:
+
+```python
+from dorothy.analysis import SaliencyAnalyzer, plot_parameter_saliency
+
+# Load model and create analyzer
+analyzer = SaliencyAnalyzer(model, device="cuda")
+
+# Compute saliency for a spectrum
+result = analyzer.compute_saliency(X, wavelength, survey="boss")
+
+# Visualize per-parameter importance
+fig = plot_parameter_saliency(result, "teff", output_path="teff_saliency.png")
+```
+
+The saliency analyzer computes gradient-based sensitivity maps using Fisher information weighting. See `examples/saliency_example.py` for complete usage.
+
 ## CLI Commands
 
 ```bash
@@ -189,10 +208,10 @@ dorothy info ./model
 ## Testing
 
 ```bash
-# Run all tests (504 tests)
+# Run all tests (618 tests)
 pytest tests/ -v
 
-# Run with coverage (89% coverage)
+# Run with coverage (88% coverage)
 pytest tests/ --cov=dorothy --cov-report=html
 ```
 
@@ -230,7 +249,7 @@ dorothy/
 │   ├── losses/          # Loss functions
 │   ├── training/        # Training loop
 │   ├── inference/       # Prediction and evaluation
-│   ├── analysis/        # Anomaly detection
+│   ├── analysis/        # Anomaly detection, saliency analysis
 │   ├── visualization/   # Training plots
 │   └── cli/             # Command-line interface
 ├── scripts/             # Catalogue building scripts

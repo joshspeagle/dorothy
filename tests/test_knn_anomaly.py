@@ -122,7 +122,7 @@ def simple_predictor(simple_model):
     return Predictor(
         simple_model,
         device="cpu",
-        parameter_names=["teff", "logg", "feh"],
+        parameter_names=["teff", "logg", "fe_h"],
     )
 
 

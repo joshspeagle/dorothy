@@ -97,7 +97,7 @@ class TestQualityFilter:
         """Test that NaN values are flagged as bad quality."""
         labels = np.array([[5000, 2.5, -0.5], [np.nan, 2.5, -0.5]])
         errors = np.ones((2, 3)) * 0.1
-        params = ["teff", "logg", "feh"]
+        params = ["teff", "logg", "fe_h"]
 
         mask = apply_quality_filter(labels, errors, params)
 
@@ -108,7 +108,7 @@ class TestQualityFilter:
         """Test that Inf values are flagged as bad quality."""
         labels = np.array([[5000, 2.5, -0.5], [5000, np.inf, -0.5]])
         errors = np.ones((2, 3)) * 0.1
-        params = ["teff", "logg", "feh"]
+        params = ["teff", "logg", "fe_h"]
 
         mask = apply_quality_filter(labels, errors, params)
 
@@ -119,7 +119,7 @@ class TestQualityFilter:
         """Test that zero errors are flagged as bad quality."""
         labels = np.array([[5000, 2.5, -0.5], [5000, 2.5, -0.5]])
         errors = np.array([[0.1, 0.1, 0.1], [0.1, 0.0, 0.1]])  # Zero error
-        params = ["teff", "logg", "feh"]
+        params = ["teff", "logg", "fe_h"]
 
         mask = apply_quality_filter(labels, errors, params)
 
@@ -137,7 +137,7 @@ class TestQualityFilter:
             ]
         )
         errors = np.ones((4, 3)) * 0.1
-        params = ["teff", "logg", "feh"]
+        params = ["teff", "logg", "fe_h"]
 
         mask = apply_quality_filter(labels, errors, params)
 
@@ -155,7 +155,7 @@ class TestQualityFilter:
             ]
         )
         errors = np.ones((2, 3)) * 0.1
-        params = ["teff", "logg", "feh"]
+        params = ["teff", "logg", "fe_h"]
 
         mask = apply_quality_filter(labels, errors, params)
 
@@ -198,7 +198,7 @@ class TestSpectralData:
             errors=errors,
             ids=ids,
             quality_mask=quality_mask,
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
     def test_properties(self, sample_data):
@@ -374,11 +374,11 @@ class TestFITSLoader:
 
     def test_loader_custom_parameters(self, mock_fits_path):
         """Test loading with custom parameter subset."""
-        loader = FITSLoader(mock_fits_path, parameters=["teff", "logg", "feh"])
+        loader = FITSLoader(mock_fits_path, parameters=["teff", "logg", "fe_h"])
         data = loader.load()
 
         assert data.n_parameters == 3
-        assert data.parameter_names == ["teff", "logg", "feh"]
+        assert data.parameter_names == ["teff", "logg", "fe_h"]
 
     def test_ids_extracted(self, mock_fits_path):
         """Test that star IDs are extracted correctly."""
@@ -408,7 +408,7 @@ class TestSplitData:
             + 0.01,
             ids=np.array([f"star_{i}" for i in range(n_samples)]),
             quality_mask=np.ones(n_samples, dtype=bool),
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
     def test_split_ratios(self, sample_spectral_data):
@@ -486,15 +486,15 @@ class TestColumnMappings:
         expected_params = [
             "teff",
             "logg",
-            "feh",
-            "mgfe",
-            "cfe",
-            "sife",
-            "nife",
-            "alfe",
-            "cafe",
-            "nfe",
-            "mnfe",
+            "fe_h",
+            "mg_fe",
+            "c_fe",
+            "si_fe",
+            "ni_fe",
+            "al_fe",
+            "ca_fe",
+            "n_fe",
+            "mn_fe",
         ]
 
         for param in expected_params:
@@ -612,7 +612,7 @@ class TestSpectralData3Channel:
             + 0.01,
             ids=np.array([f"star_{i}" for i in range(n_samples)]),
             quality_mask=np.ones(n_samples, dtype=bool),
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
             spectral_mask=spectral_mask,
             spectral_error=spectral_error,
         )
@@ -654,7 +654,7 @@ class TestSpectralData3Channel:
             errors=np.random.randn(5, 3).astype(np.float32),
             ids=np.array([f"star_{i}" for i in range(5)]),
             quality_mask=np.ones(5, dtype=bool),
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         with pytest.raises(ValueError, match="3-channel format requires"):
@@ -720,7 +720,7 @@ class TestFITSLoaderSpectralMask:
     def test_load_with_spectral_mask(self, mock_fits_path_with_masked_ivar):
         """Test loading with compute_spectral_mask=True."""
         loader = FITSLoader(
-            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "feh"]
+            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "fe_h"]
         )
         data = loader.load(compute_spectral_mask=True)
 
@@ -732,7 +732,7 @@ class TestFITSLoaderSpectralMask:
     def test_spectral_mask_values(self, mock_fits_path_with_masked_ivar):
         """Test that spectral mask has correct values."""
         loader = FITSLoader(
-            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "feh"]
+            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "fe_h"]
         )
         data = loader.load(compute_spectral_mask=True)
 
@@ -744,7 +744,7 @@ class TestFITSLoaderSpectralMask:
     def test_flux_zeroed_at_masked_wavelengths(self, mock_fits_path_with_masked_ivar):
         """Test that flux is zeroed at masked wavelengths."""
         loader = FITSLoader(
-            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "feh"]
+            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "fe_h"]
         )
         data = loader.load(compute_spectral_mask=True)
 
@@ -754,7 +754,7 @@ class TestFITSLoaderSpectralMask:
     def test_3channel_output_from_loader(self, mock_fits_path_with_masked_ivar):
         """Test getting 3-channel output from loaded data."""
         loader = FITSLoader(
-            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "feh"]
+            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "fe_h"]
         )
         data = loader.load(compute_spectral_mask=True)
 
@@ -764,7 +764,7 @@ class TestFITSLoaderSpectralMask:
     def test_load_without_spectral_mask_default(self, mock_fits_path_with_masked_ivar):
         """Test that spectral_mask is None by default."""
         loader = FITSLoader(
-            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "feh"]
+            mock_fits_path_with_masked_ivar, parameters=["teff", "logg", "fe_h"]
         )
         data = loader.load(compute_spectral_mask=False)
 

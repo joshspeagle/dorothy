@@ -31,7 +31,7 @@ class ParameterStats:
     Statistics for a single stellar parameter.
 
     Attributes:
-        name: Parameter name (e.g., "teff", "logg", "feh").
+        name: Parameter name (e.g., "teff", "logg", "fe_h").
         median: Median value for normalization.
         iqr: Interquartile range (75th - 25th percentile).
         use_log: Whether to apply log10 before normalization (for Teff).

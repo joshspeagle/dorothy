@@ -99,13 +99,13 @@ class TestTryImportMatplotlib:
 @pytest.fixture
 def empty_history():
     """Create an empty TrainingHistory for testing edge cases."""
-    return TrainingHistory(parameter_names=["teff", "logg", "feh"])
+    return TrainingHistory(parameter_names=["teff", "logg", "fe_h"])
 
 
 @pytest.fixture
 def basic_history():
     """Create a basic TrainingHistory with loss data."""
-    history = TrainingHistory(parameter_names=["teff", "logg", "feh"])
+    history = TrainingHistory(parameter_names=["teff", "logg", "fe_h"])
     history.train_losses = [1.0, 0.8, 0.6, 0.5, 0.4]
     history.val_losses = [1.1, 0.85, 0.65, 0.55, 0.45]
     history.best_val_loss = 0.45
@@ -119,7 +119,7 @@ def basic_history():
 def full_history():
     """Create a comprehensive TrainingHistory with all metrics."""
     history = TrainingHistory(
-        parameter_names=["teff", "logg", "feh"],
+        parameter_names=["teff", "logg", "fe_h"],
         val_loss_breakdown={"mean_component": [], "scatter_component": []},
         val_metrics={
             "rmse": [],
@@ -449,7 +449,7 @@ class TestEdgeCases:
     )
     def test_single_epoch_history(self, tmp_path):
         """Test handling of single-epoch training history."""
-        history = TrainingHistory(parameter_names=["teff", "logg", "feh"])
+        history = TrainingHistory(parameter_names=["teff", "logg", "fe_h"])
         history.train_losses = [0.5]
         history.val_losses = [0.6]
         history.best_val_loss = 0.6

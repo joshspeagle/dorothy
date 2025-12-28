@@ -34,30 +34,30 @@ if TYPE_CHECKING:
 APOGEE_COLUMN_MAP = {
     "teff": ("TEFF", "TEFF_ERR"),
     "logg": ("LOGG", "LOGG_ERR"),
-    "feh": ("FE_H", "FE_H_ERR"),
-    "mgfe": ("MG_FE", "MG_FE_ERR"),
-    "cfe": ("C_FE", "C_FE_ERR"),
-    "sife": ("SI_FE", "SI_FE_ERR"),
-    "nife": ("NI_FE", "NI_FE_ERR"),
-    "alfe": ("AL_FE", "AL_FE_ERR"),
-    "cafe": ("CA_FE", "CA_FE_ERR"),
-    "nfe": ("N_FE", "N_FE_ERR"),
-    "mnfe": ("MN_FE", "MN_FE_ERR"),
+    "fe_h": ("FE_H", "FE_H_ERR"),
+    "mg_fe": ("MG_FE", "MG_FE_ERR"),
+    "c_fe": ("C_FE", "C_FE_ERR"),
+    "si_fe": ("SI_FE", "SI_FE_ERR"),
+    "ni_fe": ("NI_FE", "NI_FE_ERR"),
+    "al_fe": ("AL_FE", "AL_FE_ERR"),
+    "ca_fe": ("CA_FE", "CA_FE_ERR"),
+    "n_fe": ("N_FE", "N_FE_ERR"),
+    "mn_fe": ("MN_FE", "MN_FE_ERR"),
 }
 
 # Physical bounds for quality filtering
 PARAMETER_BOUNDS = {
     "teff": (2500, 10000),  # Kelvin
     "logg": (-1.0, 6.0),  # log cm/s^2
-    "feh": (-5.0, 1.0),  # dex
-    "mgfe": (-2.0, 2.0),  # dex
-    "cfe": (-2.0, 2.0),
-    "sife": (-2.0, 2.0),
-    "nife": (-2.0, 2.0),
-    "alfe": (-2.0, 2.0),
-    "cafe": (-2.0, 2.0),
-    "nfe": (-2.0, 2.0),
-    "mnfe": (-2.0, 2.0),
+    "fe_h": (-5.0, 1.0),  # dex
+    "mg_fe": (-2.0, 2.0),  # dex
+    "c_fe": (-2.0, 2.0),
+    "si_fe": (-2.0, 2.0),
+    "ni_fe": (-2.0, 2.0),
+    "al_fe": (-2.0, 2.0),
+    "ca_fe": (-2.0, 2.0),
+    "n_fe": (-2.0, 2.0),
+    "mn_fe": (-2.0, 2.0),
 }
 
 
@@ -291,7 +291,7 @@ def apply_quality_filter(
             mask &= (values >= low) & (values <= high)
 
         # Special check for zero values (often indicates missing data)
-        if param_name != "feh":  # [Fe/H] can legitimately be 0
+        if param_name != "fe_h":  # [Fe/H] can legitimately be 0
             mask &= values != 0
 
     return mask

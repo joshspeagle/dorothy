@@ -28,6 +28,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from dorothy.models.utils import get_activation, get_normalization
+
 
 class SurveyEncoder(nn.Module):
     """Encoder network for a single survey's spectral data.
@@ -75,8 +77,8 @@ class SurveyEncoder(nn.Module):
         input_features = 3 * n_wavelengths
 
         # Build encoder layers
-        activation_fn = self._get_activation(activation)
-        norm_class = self._get_normalization(normalization)
+        activation_fn = get_activation(activation)
+        norm_class = get_normalization(normalization)
 
         layers: list[nn.Module] = [nn.Flatten()]
 
@@ -95,28 +97,6 @@ class SurveyEncoder(nn.Module):
         layers.append(activation_fn())
 
         self.encoder = nn.Sequential(*layers)
-
-    @staticmethod
-    def _get_activation(activation: str) -> type[nn.Module]:
-        """Get the activation function class."""
-        activations = {"gelu": nn.GELU, "relu": nn.ReLU, "silu": nn.SiLU}
-        if activation.lower() not in activations:
-            raise ValueError(
-                f"Unknown activation '{activation}'. "
-                f"Valid options: {list(activations.keys())}"
-            )
-        return activations[activation.lower()]
-
-    @staticmethod
-    def _get_normalization(normalization: str) -> type[nn.Module]:
-        """Get the normalization layer class."""
-        normalizations = {"batchnorm": nn.BatchNorm1d, "layernorm": nn.LayerNorm}
-        if normalization.lower() not in normalizations:
-            raise ValueError(
-                f"Unknown normalization '{normalization}'. "
-                f"Valid options: {list(normalizations.keys())}"
-            )
-        return normalizations[normalization.lower()]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Encode spectral data to latent representation.
@@ -169,8 +149,8 @@ class SharedTrunk(nn.Module):
         if hidden_layers is None:
             hidden_layers = [512, 256]
 
-        activation_fn = SurveyEncoder._get_activation(activation)
-        norm_class = SurveyEncoder._get_normalization(normalization)
+        activation_fn = get_activation(activation)
+        norm_class = get_normalization(normalization)
 
         layers: list[nn.Module] = []
         prev_size = input_dim
@@ -240,8 +220,8 @@ class OutputHead(nn.Module):
         if hidden_layers is None:
             hidden_layers = [64]
 
-        activation_fn = SurveyEncoder._get_activation(activation)
-        norm_class = SurveyEncoder._get_normalization(normalization)
+        activation_fn = get_activation(activation)
+        norm_class = get_normalization(normalization)
 
         layers: list[nn.Module] = []
         prev_size = input_dim

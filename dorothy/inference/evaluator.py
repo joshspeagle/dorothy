@@ -23,7 +23,7 @@ Metrics computed:
         - pred_unc_p16, pred_unc_p50, pred_unc_p84: Percentiles of predicted scatter
 
 Example:
-    >>> evaluator = Evaluator(parameter_names=["teff", "logg", "feh"])
+    >>> evaluator = Evaluator(parameter_names=["teff", "logg", "fe_h"])
     >>> result = evaluator.evaluate(y_pred, y_true, pred_scatter, label_errors)
     >>> print(result.summary())
 """
@@ -433,7 +433,7 @@ class Evaluator:
         scatter_floor: Minimum scatter value (for z-score computation).
 
     Example:
-        >>> evaluator = Evaluator(["teff", "logg", "feh"])
+        >>> evaluator = Evaluator(["teff", "logg", "fe_h"])
         >>> result = evaluator.evaluate(predictions, ground_truth, pred_scatter, label_errors)
         >>> print(result.summary())
     """
@@ -448,13 +448,13 @@ class Evaluator:
 
         Args:
             parameter_names: Names of stellar parameters. If None, uses
-                default ["teff", "logg", "feh"].
+                default ["teff", "logg", "fe_h"].
             teff_in_log: Whether to also evaluate Teff in log10 space,
                 adding a "log_teff" entry to the metrics.
             scatter_floor: Minimum scatter floor for z-score computation.
         """
         if parameter_names is None:
-            parameter_names = ["teff", "logg", "feh"]
+            parameter_names = ["teff", "logg", "fe_h"]
 
         self.parameter_names = parameter_names
         self.teff_in_log = teff_in_log
@@ -608,7 +608,7 @@ class Evaluator:
                 input shapes don't match.
 
         Example (exclusive mode):
-            >>> evaluator = Evaluator(["teff", "logg", "feh"])
+            >>> evaluator = Evaluator(["teff", "logg", "fe_h"])
             >>> survey_ids = np.array(["boss", "lamost", "boss", "lamost"])
             >>> result = evaluator.evaluate_by_survey(
             ...     y_pred, y_true, survey_ids,

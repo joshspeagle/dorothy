@@ -366,14 +366,14 @@ class TestStellarParameters:
         expected = {
             "teff",
             "logg",
-            "feh",
-            "mgfe",
-            "cfe",
-            "sife",
-            "nife",
-            "alfe",
-            "cafe",
-            "nfe",
-            "mnfe",
+            "fe_h",
+            "mg_fe",
+            "c_fe",
+            "si_fe",
+            "ni_fe",
+            "al_fe",
+            "ca_fe",
+            "n_fe",
+            "mn_fe",
         }
         assert set(STELLAR_PARAMETERS) == expected

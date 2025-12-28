@@ -123,7 +123,7 @@ def simple_normalizer():
             np.random.uniform(-1, 0.5, 100),  # feh
         ]
     )
-    normalizer = LabelNormalizer(parameters=["teff", "logg", "feh"])
+    normalizer = LabelNormalizer(parameters=["teff", "logg", "fe_h"])
     normalizer.fit(y)
     return normalizer
 

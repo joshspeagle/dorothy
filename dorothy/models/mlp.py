@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
+from dorothy.models.utils import get_activation, get_normalization
+
 
 if TYPE_CHECKING:
     from dorothy.config.schema import ModelConfig
@@ -115,10 +117,10 @@ class MLP(nn.Module):
         self.hidden_layers = hidden_layers
 
         # Select activation function
-        activation_fn = self._get_activation(activation)
+        activation_fn = get_activation(activation)
 
         # Select normalization class
-        norm_class = self._get_normalization(normalization)
+        norm_class = get_normalization(normalization)
 
         # Build the network layers
         layers: list[nn.Module] = [nn.Flatten()]
@@ -137,35 +139,6 @@ class MLP(nn.Module):
         layers.append(nn.Linear(prev_size, output_features))
 
         self.layers = nn.Sequential(*layers)
-
-    @staticmethod
-    def _get_activation(activation: str) -> type[nn.Module]:
-        """Get the activation function class."""
-        activations = {
-            "gelu": nn.GELU,
-            "relu": nn.ReLU,
-            "silu": nn.SiLU,
-        }
-        if activation.lower() not in activations:
-            raise ValueError(
-                f"Unknown activation '{activation}'. "
-                f"Supported: {list(activations.keys())}"
-            )
-        return activations[activation.lower()]
-
-    @staticmethod
-    def _get_normalization(normalization: str) -> type[nn.Module]:
-        """Get the normalization layer class."""
-        normalizations = {
-            "batchnorm": nn.BatchNorm1d,
-            "layernorm": nn.LayerNorm,
-        }
-        if normalization.lower() not in normalizations:
-            raise ValueError(
-                f"Unknown normalization '{normalization}'. "
-                f"Supported: {list(normalizations.keys())}"
-            )
-        return normalizations[normalization.lower()]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

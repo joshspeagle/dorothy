@@ -60,7 +60,7 @@ def simple_normalizer():
             np.random.uniform(-1, 0.5, 100),  # feh
         ]
     )
-    normalizer = LabelNormalizer(parameters=["teff", "logg", "feh"])
+    normalizer = LabelNormalizer(parameters=["teff", "logg", "fe_h"])
     normalizer.fit(y)
     return normalizer
 
@@ -78,7 +78,7 @@ class TestPredictionResult:
             predictions=predictions,
             uncertainties=uncertainties,
             raw_output=raw_output,
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         assert result.n_samples == 20
@@ -96,7 +96,7 @@ class TestPredictionResult:
             predictions=predictions,
             uncertainties=uncertainties,
             raw_output=raw_output,
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         d = result.to_dict()
@@ -105,8 +105,8 @@ class TestPredictionResult:
         assert "teff_err" in d
         assert "logg" in d
         assert "logg_err" in d
-        assert "feh" in d
-        assert "feh_err" in d
+        assert "fe_h" in d
+        assert "fe_h_err" in d
         assert np.allclose(d["teff"], [5000, 6000])
         assert np.allclose(d["logg_err"], [0.1, 0.15])
 
@@ -128,11 +128,11 @@ class TestPredictorInit:
             simple_model,
             normalizer=simple_normalizer,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         assert predictor.normalizer is simple_normalizer
-        assert predictor.parameter_names == ["teff", "logg", "feh"]
+        assert predictor.parameter_names == ["teff", "logg", "fe_h"]
 
     def test_model_in_eval_mode(self, simple_model):
         """Test that model is set to eval mode."""
@@ -148,7 +148,7 @@ class TestPredictorPredict:
         predictor = Predictor(
             simple_model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         result = predictor.predict(simple_input)
@@ -162,7 +162,7 @@ class TestPredictorPredict:
         predictor = Predictor(
             simple_model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         X = torch.randn(30, 100)
@@ -175,7 +175,7 @@ class TestPredictorPredict:
         predictor = Predictor(
             simple_model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         # Small batch size should still produce correct results
@@ -188,7 +188,7 @@ class TestPredictorPredict:
         predictor = Predictor(
             simple_model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         result = predictor.predict(simple_input)
@@ -203,7 +203,7 @@ class TestPredictorPredict:
             simple_model,
             normalizer=simple_normalizer,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         result_norm = predictor.predict(simple_input, denormalize=False)
@@ -224,7 +224,7 @@ class TestPredictorChunked:
         predictor = Predictor(
             simple_model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         # Create an iterator of chunks
@@ -243,7 +243,7 @@ class TestPredictorChunked:
         predictor = Predictor(
             simple_model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         def chunk_iterator():

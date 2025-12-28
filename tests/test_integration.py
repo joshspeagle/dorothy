@@ -198,7 +198,7 @@ class TestPredictionWorkflow:
         predictor = Predictor(
             model,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         result = predictor.predict(X)
@@ -241,7 +241,7 @@ class TestPredictionWorkflow:
         y_train_labels = y_train[:, 0, :]  # (N, n_params)
 
         # Create and fit normalizer
-        normalizer = LabelNormalizer(parameters=["teff", "logg", "feh"])
+        normalizer = LabelNormalizer(parameters=["teff", "logg", "fe_h"])
         normalizer.fit(y_train_labels)
 
         model = MLP(
@@ -254,7 +254,7 @@ class TestPredictionWorkflow:
             model,
             normalizer=normalizer,
             device="cpu",
-            parameter_names=["teff", "logg", "feh"],
+            parameter_names=["teff", "logg", "fe_h"],
         )
 
         result_norm = predictor.predict(X_test, denormalize=False)

@@ -31,23 +31,23 @@ multi_head_model:
   combination_mode: concat
   normalization: layernorm
   activation: gelu
-  dropout: 0.0
+  dropout: 0.1
 
 training:
-  epochs: 2000
+  epochs: 1000
   batch_size: 512
   learning_rate: 0.001
   loss: heteroscedastic
   gradient_clip: 10.0
   scatter_floor: 0.01
-  save_every: 0
+  save_every: 100
   optimizer:
     type: adamw
-    weight_decay: 0.01
+    weight_decay: 0.05
   scheduler:
     type: one_cycle
     max_lr: 0.001
-    pct_start: 0.3
+    pct_start: 0.15
     div_factor: 100.0
     final_div_factor: 1.0
 
