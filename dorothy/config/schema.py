@@ -90,8 +90,6 @@ class DataConfig(BaseModel):
         train_ratio: Fraction of data for training (default 0.7).
         val_ratio: Fraction of data for validation (default 0.2).
         max_flag_bits: Maximum allowed flag bits (0=highest quality).
-        smart_deduplicate: Use consistency-checking deduplication (stack or highest SNR).
-        chi2_threshold: Threshold for reduced chi-squared in smart deduplication.
         duplicate_labels: Dict mapping target label source to source label source.
             Used for testing multi-labelset training when some label sources don't exist.
             e.g., {'galah': 'apogee'} copies APOGEE labels to create "fake" GALAH labels.
@@ -119,18 +117,13 @@ class DataConfig(BaseModel):
         ge=0,
         description="Maximum allowed flag bits (0=highest quality)",
     )
-    smart_deduplicate: bool = Field(
-        default=True,
-        description="Use consistency-checking deduplication (stack or highest SNR)",
-    )
-    chi2_threshold: float = Field(
-        default=2.0,
-        gt=0,
-        description="Threshold for reduced chi-squared in smart deduplication",
-    )
     duplicate_labels: dict[str, str] | None = Field(
         default=None,
         description="Map target label source to source (e.g., {'galah': 'apogee'})",
+    )
+    use_dense_loading: bool = Field(
+        default=False,
+        description="Use dense loading for spectra (higher memory, ~40GB vs ~7GB sparse)",
     )
 
     @property
@@ -467,6 +460,11 @@ class TrainingConfig(BaseModel):
         ge=0,
         le=1.0,
         description="Minimum scatter floor for heteroscedastic loss",
+    )
+    amp: bool = Field(
+        default=False,
+        description="Enable mixed precision training (AMP). Disabled by default "
+        "due to numerical instability with large encoder inputs.",
     )
 
 

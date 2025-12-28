@@ -21,6 +21,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from dorothy import __version__
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for the CLI."""
@@ -32,7 +34,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.1.0",
+        version=f"%(prog)s {__version__}",
     )
 
     subparsers = parser.add_subparsers(
@@ -130,6 +132,24 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _get_memory_mb() -> float:
+    """Get current process memory usage in MB."""
+    try:
+        import psutil
+
+        process = psutil.Process()
+        return process.memory_info().rss / 1e6
+    except ImportError:
+        return 0.0
+
+
+def _print_memory(label: str) -> None:
+    """Print current memory usage with a label."""
+    mem = _get_memory_mb()
+    if mem > 0:
+        print(f"  [Memory] {label}: {mem:.0f} MB ({mem/1024:.2f} GB)")
+
+
 def cmd_train(args: argparse.Namespace) -> int:
     """Execute the train command."""
     import yaml
@@ -166,12 +186,12 @@ def cmd_train(args: argparse.Namespace) -> int:
     if args.output_dir is not None:
         config_dict["output_dir"] = args.output_dir
 
-    # Auto-populate multi_head_model.survey_wavelengths for multi-survey training
+    # Auto-populate multi_head_model.survey_wavelengths if multi_head_model is used
     data_config = config_dict.get("data", {})
     surveys = data_config.get("surveys", [])
     label_sources = data_config.get("label_sources", ["apogee"])
 
-    if len(surveys) > 1:
+    if "multi_head_model" in config_dict or len(surveys) > 1:
         # Multi-survey training requires multi_head_model with survey_wavelengths
         catalogue_path = data_config.get("catalogue_path")
         if catalogue_path is None:
@@ -212,6 +232,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"Output: {config.get_output_path()}")
     print(f"Surveys: {config.data.surveys}")
     print(f"Label sources: {config.data.label_sources}")
+    _print_memory("After config")
 
     # Load data from super-catalogue
     print(f"\nLoading data from {config.data.catalogue_path}")
@@ -223,25 +244,24 @@ def cmd_train(args: argparse.Namespace) -> int:
         # Determine if multi-labelset training
         is_multi_label = config.data.is_multi_label
 
-        if is_multi_label:
-            # Multi-labelset mode: load labels from multiple sources
-            # Determine which label sources to actually load from catalogue
-            # (excluding duplicated ones that will be copied from source)
+        if is_multi_label and config.data.use_dense_loading:
+            # Multi-labelset mode with DENSE loading (high memory, ~40GB)
+            # Only use when use_dense_loading: true is set in config
             duplicate_labels = config.data.duplicate_labels or {}
             sources_to_load = [
                 s for s in config.data.label_sources if s not in duplicate_labels
             ]
 
+            _print_memory("Before load_merged_for_training (DENSE)")
             X_dict, y_dict, has_data_dict, has_labels_dict = (
                 loader.load_merged_for_training(
                     surveys=config.data.surveys,
-                    smart_deduplicate=config.data.smart_deduplicate,
-                    chi2_threshold=config.data.chi2_threshold,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
                     label_sources=sources_to_load,
                 )
             )
+            _print_memory("After load_merged_for_training (DENSE)")
 
             # Handle duplicate_labels: copy labels from source to target
             if duplicate_labels:
@@ -341,7 +361,8 @@ def cmd_train(args: argparse.Namespace) -> int:
             print(f"  Output heads: {config.multi_head_model.label_sources}")
 
             # Train with multi-survey + multi-labelset data
-            print("\nStarting multi-labelset training...")
+            print("\nStarting multi-labelset training (dense)...")
+            _print_memory("Before training")
             history = trainer.fit_multi_labelset(
                 X_train,
                 y_train,
@@ -354,86 +375,152 @@ def cmd_train(args: argparse.Namespace) -> int:
             )
 
         else:
-            # Single-label mode: use existing multi-survey code
-            X_dict, y, has_data_dict, _ = loader.load_merged_for_training(
-                surveys=config.data.surveys,
-                smart_deduplicate=config.data.smart_deduplicate,
-                chi2_threshold=config.data.chi2_threshold,
-                label_source=config.data.label_sources[0],
-                max_flag_bits=config.data.max_flag_bits,
-            )
+            # Memory-efficient sparse loading (default for all multi-survey training)
+            # Supports both single-label and multi-label configurations
+            _print_memory("Before load_merged_sparse (SPARSE)")
 
-            print(f"  Surveys loaded: {list(X_dict.keys())}")
-            for survey_name, X_survey in X_dict.items():
-                n_with_data = has_data_dict[survey_name].sum()
+            # Determine which label sources to load
+            duplicate_labels = config.data.duplicate_labels or {}
+            sources_to_load = [
+                s for s in config.data.label_sources if s not in duplicate_labels
+            ]
+
+            # Load sparse data with multi-label support if needed
+            if is_multi_label and len(sources_to_load) > 1:
+                sparse_data = loader.load_merged_sparse(
+                    surveys=config.data.surveys,
+                    label_source=sources_to_load[0],
+                    max_flag_bits=config.data.max_flag_bits,
+                    label_sources=sources_to_load,
+                )
+            else:
+                sparse_data = loader.load_merged_sparse(
+                    surveys=config.data.surveys,
+                    label_source=(
+                        sources_to_load[0]
+                        if sources_to_load
+                        else config.data.label_sources[0]
+                    ),
+                    max_flag_bits=config.data.max_flag_bits,
+                )
+            _print_memory("After load_merged_sparse (SPARSE)")
+
+            # Handle duplicate_labels: copy labels from source to target
+            if duplicate_labels:
+                print(f"  Duplicating labels: {duplicate_labels}")
+                for target, source in duplicate_labels.items():
+                    if sparse_data.labels_dict is not None:
+                        # Multi-label mode: copy in labels_dict
+                        if source not in sparse_data.labels_dict:
+                            print(
+                                f"Error: Cannot duplicate from '{source}' - not in loaded sources"
+                            )
+                            return 1
+                        sparse_data.labels_dict[target] = sparse_data.labels_dict[
+                            source
+                        ].copy()
+                        sparse_data.has_labels_dict[target] = (
+                            sparse_data.has_labels_dict[source].copy()
+                        )
+                        if target not in sparse_data.label_sources:
+                            sparse_data.label_sources.append(target)
+                    else:
+                        # Single-label mode: initialize multi-label structure
+                        sparse_data.labels_dict = {
+                            source: sparse_data.labels.copy(),
+                            target: sparse_data.labels.copy(),
+                        }
+                        has_labels = np.any(sparse_data.labels[:, 2, :] > 0, axis=1)
+                        sparse_data.has_labels_dict = {
+                            source: has_labels.copy(),
+                            target: has_labels.copy(),
+                        }
+                        sparse_data.label_sources = [source, target]
+
+            print(f"  Surveys loaded: {sparse_data.surveys}")
+            for survey_name in sparse_data.surveys:
+                n_with_data = sparse_data.n_with_data(survey_name)
+                n_wave = sparse_data.wavelengths[survey_name].shape[0]
                 print(
-                    f"    {survey_name}: {X_survey.shape[2]} wavelengths, "
+                    f"    {survey_name}: {n_wave} wavelengths, "
                     f"{n_with_data:,} stars"
                 )
-            print(f"  Total unique stars: {y.shape[0]:,}")
-            print(f"  Parameters: {y.shape[2]}")
+            print(f"  Total unique stars: {sparse_data.n_total:,}")
+            print(f"  Parameters: {sparse_data.n_params}")
 
-            # Filter to samples with at least one survey having data AND all valid labels
-            has_any_survey = np.zeros(y.shape[0], dtype=bool)
-            for survey_name in X_dict:
-                has_any_survey |= has_data_dict[survey_name]
+            # Report label sources for multi-label
+            if sparse_data.is_multi_label():
+                print(f"  Label sources: {sparse_data.label_sources}")
+                for source in sparse_data.label_sources:
+                    n_with_labels = sparse_data.has_labels_for_source(source).sum()
+                    print(f"    {source}: {n_with_labels:,} stars")
 
-            label_mask = y[:, 2, :]  # (N, n_params)
-            valid_labels = label_mask.all(axis=1)
+            # Filter to samples with at least one survey having data AND labels
+            has_any_survey = np.zeros(sparse_data.n_total, dtype=bool)
+            for survey_name in sparse_data.surveys:
+                has_any_survey |= sparse_data.has_data(survey_name)
+
+            # For multi-label: require at least one label source
+            # For single-label: require all labels valid
+            if sparse_data.is_multi_label():
+                has_any_labels = np.zeros(sparse_data.n_total, dtype=bool)
+                for source in sparse_data.label_sources:
+                    has_any_labels |= sparse_data.has_labels_for_source(source)
+                valid_labels = has_any_labels
+                label_desc = "at least one label source"
+            else:
+                label_mask = sparse_data.labels[:, 2, :]  # (N, n_params)
+                valid_labels = label_mask.all(axis=1)
+                label_desc = "all labels"
 
             valid_samples = has_any_survey & valid_labels
+            valid_indices = np.where(valid_samples)[0]
             print(
-                f"  Valid samples (at least one survey + all labels): "
-                f"{valid_samples.sum():,}"
+                f"  Valid samples (at least one survey + {label_desc}): "
+                f"{len(valid_indices):,}"
             )
 
-            # Filter all arrays
-            X_dict = {survey: arr[valid_samples] for survey, arr in X_dict.items()}
-            y = y[valid_samples]
-            has_data_dict = {
-                survey: arr[valid_samples] for survey, arr in has_data_dict.items()
-            }
+            # Report memory usage
+            mem_usage = sparse_data.memory_usage_mb()
+            print(f"  Memory usage: {mem_usage['total']:.1f} MB (sparse storage)")
 
-            # Split data
-            n_samples = y.shape[0]
-            indices = np.random.RandomState(config.seed).permutation(n_samples)
+            # Split indices for train/val/test
+            n_samples = len(valid_indices)
+            perm = np.random.RandomState(config.seed).permutation(n_samples)
 
             n_train = int(n_samples * config.data.train_ratio)
             n_val = int(n_samples * config.data.val_ratio)
 
-            train_idx = indices[:n_train]
-            val_idx = indices[n_train : n_train + n_val]
-            test_idx = indices[n_train + n_val :]
-
-            X_train = {survey: arr[train_idx] for survey, arr in X_dict.items()}
-            X_val = {survey: arr[val_idx] for survey, arr in X_dict.items()}
-            y_train, y_val = y[train_idx], y[val_idx]
-            has_data_train = {
-                survey: arr[train_idx] for survey, arr in has_data_dict.items()
-            }
-            has_data_val = {
-                survey: arr[val_idx] for survey, arr in has_data_dict.items()
-            }
+            train_idx = valid_indices[perm[:n_train]]
+            val_idx = valid_indices[perm[n_train : n_train + n_val]]
+            test_idx = valid_indices[perm[n_train + n_val :]]
 
             print(f"\n  Training samples: {len(train_idx):,}")
             print(f"  Validation samples: {len(val_idx):,}")
             print(f"  Test samples: {len(test_idx):,}")
 
-            # Create trainer and train (uses MultiHeadMLP via config.is_multi_head)
+            # Create trainer (uses MultiHeadMLP via config.is_multi_head)
             print("\nInitializing trainer...")
             trainer = Trainer(config)
 
             print(f"  Model parameters: {trainer.model.count_parameters():,}")
-            print("  Architecture: MultiHeadMLP")
+            if sparse_data.is_multi_label():
+                print("  Architecture: MultiHeadMLP (multi-labelset)")
+                print(f"  Output heads: {config.multi_head_model.label_sources}")
+            else:
+                print("  Architecture: MultiHeadMLP")
             print(
                 f"  Combination mode: {config.multi_head_model.combination_mode.value}"
             )
 
-            # Train with multi-survey data
-            print("\nStarting multi-survey training...")
-            history = trainer.fit_multi_survey(
-                X_train, y_train, X_val, y_val, has_data_train, has_data_val
+            # Train with sparse multi-survey data (memory-efficient)
+            training_mode = (
+                "multi-labelset" if sparse_data.is_multi_label() else "multi-survey"
             )
+            print(f"\nStarting {training_mode} training (sparse)...")
+            _print_memory("Before training")
+            history = trainer.fit_multi_survey_sparse(sparse_data, train_idx, val_idx)
+            _print_memory("After training")
 
         print("\nTraining complete!")
         print(f"  Best validation loss: {history.best_val_loss:.6f}")

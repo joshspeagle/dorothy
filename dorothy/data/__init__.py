@@ -8,6 +8,7 @@ from dorothy.data.catalogue_loader import (
     CatalogueInfo,
     CatalogueLoader,
     MergedCatalogueData,
+    SparseMergedData,
 )
 from dorothy.data.fits_loader import (
     APOGEE_COLUMN_MAP,
@@ -37,6 +38,7 @@ __all__ = [
     "CatalogueData",
     "CatalogueInfo",
     "MergedCatalogueData",
+    "SparseMergedData",
     "SURVEY_LABEL_MAP",
     "PARAMETER_NAMES",
     # Label normalization

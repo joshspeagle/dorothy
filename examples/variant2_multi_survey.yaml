@@ -5,7 +5,7 @@
 name: variant2_multi_survey
 
 data:
-  catalogue_path: data/super_catalogue.h5
+  catalogue_path: data/super_catalogue_clean.h5
   surveys:
     - boss
     - desi
@@ -14,7 +14,6 @@ data:
   train_ratio: 0.7
   val_ratio: 0.2
   max_flag_bits: 0
-  smart_deduplicate: true
 
 # Multi-head MLP for multi-survey training
 # survey_wavelengths is auto-populated from the catalogue

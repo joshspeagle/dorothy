@@ -12,6 +12,7 @@ from dorothy.data.catalogue_loader import (
     CatalogueInfo,
     CatalogueLoader,
     MergedCatalogueData,
+    SparseMergedData,
 )
 
 
@@ -1128,8 +1129,353 @@ class TestMergedCatalogueDataMethods:
         assert filtered.n_stars == 30
 
 
-class TestDeduplication:
-    """Tests for deduplication methods."""
+class TestLamostMRSDualArm:
+    """Tests for LAMOST MRS dual-arm spectral loading."""
+
+    @pytest.fixture
+    def lamost_mrs_catalogue(self, tmp_path):
+        """Create a mock HDF5 catalogue with LAMOST MRS dual-arm spectra.
+
+        LAMOST MRS stores spectra as (N, 4, wavelengths) with channels:
+        [flux_B, ivar_B, flux_R, ivar_R] for blue and red arms.
+        """
+        path = tmp_path / "lamost_mrs_catalogue.h5"
+        n_stars = 30
+        n_wave = 3375  # Typical LAMOST MRS wavelength bins per arm
+        n_params = 11
+
+        with h5py.File(path, "w") as f:
+            # Metadata
+            meta = f.create_group("metadata")
+            meta.create_dataset(
+                "gaia_id", data=np.arange(1, n_stars + 1, dtype=np.int64)
+            )
+            meta.create_dataset("ra", data=np.random.uniform(0, 360, n_stars))
+            meta.create_dataset("dec", data=np.random.uniform(-90, 90, n_stars))
+
+            # LAMOST MRS survey with spectra dataset (not flux/ivar)
+            surveys = f.create_group("surveys")
+            lamost_mrs = surveys.create_group("lamost_mrs")
+
+            # Create spectra array with shape (N, 4, wavelengths)
+            # Channels: [flux_B, ivar_B, flux_R, ivar_R]
+            spectra = np.zeros((n_stars, 4, n_wave), dtype=np.float32)
+
+            # Stars 0-9: Both arms valid
+            spectra[:10, 0, :] = np.random.randn(10, n_wave) + 1.0  # flux_B
+            spectra[:10, 1, :] = np.abs(np.random.randn(10, n_wave)) + 0.1  # ivar_B
+            spectra[:10, 2, :] = np.random.randn(10, n_wave) + 1.0  # flux_R
+            spectra[:10, 3, :] = np.abs(np.random.randn(10, n_wave)) + 0.1  # ivar_R
+
+            # Stars 10-19: Only blue arm valid
+            spectra[10:20, 0, :] = np.random.randn(10, n_wave) + 1.0  # flux_B
+            spectra[10:20, 1, :] = np.abs(np.random.randn(10, n_wave)) + 0.1  # ivar_B
+            spectra[10:20, 2, :] = 0  # flux_R (zero)
+            spectra[10:20, 3, :] = 0  # ivar_R (zero)
+
+            # Stars 20-29: Only red arm valid
+            spectra[20:30, 0, :] = 0  # flux_B (zero)
+            spectra[20:30, 1, :] = 0  # ivar_B (zero)
+            spectra[20:30, 2, :] = np.random.randn(10, n_wave) + 1.0  # flux_R
+            spectra[20:30, 3, :] = np.abs(np.random.randn(10, n_wave)) + 0.1  # ivar_R
+
+            lamost_mrs.create_dataset("spectra", data=spectra)
+            lamost_mrs.create_dataset(
+                "wavelength", data=np.linspace(4000, 6800, n_wave).astype(np.float32)
+            )
+            lamost_mrs.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            # Labels
+            labels = f.create_group("labels")
+            apogee = labels.create_group("apogee")
+            apogee.create_dataset(
+                "values", data=np.random.randn(n_stars, n_params).astype(np.float32)
+            )
+            apogee.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, n_params)).astype(np.float32)
+                + 0.01,
+            )
+            apogee.create_dataset(
+                "flags", data=np.zeros((n_stars, n_params), dtype=np.uint8)
+            )
+
+            # Attributes
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["lamost_mrs"]
+            f.attrs["creation_date"] = "2024-01-01"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    def test_load_lamost_mrs_spectra(self, lamost_mrs_catalogue):
+        """Should load LAMOST MRS spectra and concatenate arms correctly."""
+        loader = CatalogueLoader(lamost_mrs_catalogue)
+        data = loader.load(survey="lamost_mrs", label_source="apogee")
+
+        assert data.n_stars == 30
+        # Arms are concatenated: 3375 * 2 = 6750 wavelength bins
+        assert data.flux.shape == (30, 6750)
+        assert data.ivar.shape == (30, 6750)
+        assert data.survey_name == "lamost_mrs"
+
+    def test_lamost_mrs_both_arms_valid(self, lamost_mrs_catalogue):
+        """Stars with both arms valid should have combined flux and ivar."""
+        loader = CatalogueLoader(lamost_mrs_catalogue)
+        data = loader.load(survey="lamost_mrs", label_source="apogee")
+
+        # Stars 0-9 have both arms - should have non-zero flux and ivar
+        for i in range(10):
+            assert np.any(data.flux[i] != 0), f"Star {i} should have flux"
+            assert np.any(data.ivar[i] > 0), f"Star {i} should have valid ivar"
+
+    def test_lamost_mrs_blue_arm_only(self, lamost_mrs_catalogue):
+        """Stars with only blue arm should still have valid spectra."""
+        loader = CatalogueLoader(lamost_mrs_catalogue)
+        data = loader.load(survey="lamost_mrs", label_source="apogee")
+
+        # Stars 10-19 have only blue arm
+        for i in range(10, 20):
+            # Should have valid ivar from blue arm
+            assert np.any(
+                data.ivar[i] > 0
+            ), f"Star {i} should have valid ivar from blue"
+
+    def test_lamost_mrs_red_arm_only(self, lamost_mrs_catalogue):
+        """Stars with only red arm should still have valid spectra."""
+        loader = CatalogueLoader(lamost_mrs_catalogue)
+        data = loader.load(survey="lamost_mrs", label_source="apogee")
+
+        # Stars 20-29 have only red arm
+        for i in range(20, 30):
+            # Should have valid ivar from red arm
+            assert np.any(data.ivar[i] > 0), f"Star {i} should have valid ivar from red"
+
+    def test_lamost_mrs_all_stars_have_spectra(self, lamost_mrs_catalogue):
+        """All stars should be detected as having spectra."""
+        loader = CatalogueLoader(lamost_mrs_catalogue)
+        data = loader.load(survey="lamost_mrs", label_source="apogee")
+
+        # All 30 stars have at least one arm valid
+        assert data.n_with_spectra == 30
+
+    def test_lamost_mrs_for_training(self, lamost_mrs_catalogue):
+        """Should return 3-channel training data for LAMOST MRS."""
+        loader = CatalogueLoader(lamost_mrs_catalogue)
+        X, y = loader.load_for_training(survey="lamost_mrs", label_source="apogee")
+
+        # X: 3-channel spectral data [flux, sigma, mask]
+        # Arms are concatenated: 3375 * 2 = 6750 wavelength bins
+        assert X.shape == (30, 3, 6750)
+        # y: 3-channel labels [values, errors, mask]
+        assert y.shape == (30, 3, 11)
+
+
+class TestLabelSourceFallback:
+    """Tests for label source fallback behavior."""
+
+    @pytest.fixture
+    def fallback_catalogue(self, tmp_path):
+        """Create catalogue with survey-specific label sources."""
+        path = tmp_path / "fallback_catalogue.h5"
+        n_stars = 20
+        n_wave = 500
+        n_params = 11
+
+        with h5py.File(path, "w") as f:
+            # Metadata
+            meta = f.create_group("metadata")
+            meta.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
+            meta.create_dataset("ra", data=np.random.uniform(0, 360, n_stars))
+            meta.create_dataset("dec", data=np.random.uniform(-90, 90, n_stars))
+
+            # Surveys
+            surveys = f.create_group("surveys")
+            boss = surveys.create_group("boss")
+            boss.create_dataset(
+                "flux", data=np.random.randn(n_stars, n_wave).astype(np.float32)
+            )
+            boss.create_dataset(
+                "ivar",
+                data=np.abs(np.random.randn(n_stars, n_wave)).astype(np.float32),
+            )
+            boss.create_dataset(
+                "wavelength", data=np.linspace(3600, 10400, n_wave).astype(np.float32)
+            )
+            boss.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            # Labels - survey-specific naming pattern
+            labels = f.create_group("labels")
+
+            # apogee_boss - survey-specific labels
+            apogee_boss = labels.create_group("apogee_boss")
+            apogee_boss.create_dataset(
+                "values", data=np.random.randn(n_stars, n_params).astype(np.float32)
+            )
+            apogee_boss.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, n_params)).astype(np.float32)
+                + 0.01,
+            )
+            apogee_boss.create_dataset(
+                "flags", data=np.zeros((n_stars, n_params), dtype=np.uint8)
+            )
+            apogee_boss.create_dataset(
+                "gaia_id", data=np.arange(n_stars, dtype=np.int64)
+            )
+
+            # Attributes
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["boss"]
+            f.attrs["creation_date"] = "2024-01-01"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    def test_fallback_to_survey_specific_labels(self, fallback_catalogue):
+        """Should fall back to apogee_boss when apogee is requested for BOSS survey."""
+        loader = CatalogueLoader(fallback_catalogue)
+        # Request "apogee" but only "apogee_boss" exists
+        data = loader.load(survey="boss", label_source="apogee")
+
+        assert data.n_stars == 20
+        assert data.n_with_labels == 20
+
+    def test_info_shows_survey_specific_labels(self, fallback_catalogue):
+        """Info should show survey-specific label sources."""
+        loader = CatalogueLoader(fallback_catalogue)
+        info = loader.get_info()
+
+        assert "apogee_boss" in info.labels
+
+
+class TestNoSpectraDataError:
+    """Tests for error handling when survey has no flux data."""
+
+    @pytest.fixture
+    def no_flux_catalogue(self, tmp_path):
+        """Create catalogue with a survey missing flux/spectra data."""
+        path = tmp_path / "no_flux_catalogue.h5"
+        n_stars = 10
+        n_params = 11
+
+        with h5py.File(path, "w") as f:
+            meta = f.create_group("metadata")
+            meta.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
+            meta.create_dataset("ra", data=np.zeros(n_stars))
+            meta.create_dataset("dec", data=np.zeros(n_stars))
+
+            # Survey without flux or spectra
+            surveys = f.create_group("surveys")
+            bad_survey = surveys.create_group("bad_survey")
+            bad_survey.create_dataset("wavelength", data=np.linspace(3600, 9800, 100))
+            bad_survey.create_dataset("snr", data=np.ones(n_stars, dtype=np.float32))
+
+            labels = f.create_group("labels")
+            apogee = labels.create_group("apogee")
+            apogee.create_dataset(
+                "values", data=np.zeros((n_stars, n_params), dtype=np.float32)
+            )
+            apogee.create_dataset(
+                "errors", data=np.ones((n_stars, n_params), dtype=np.float32)
+            )
+            apogee.create_dataset(
+                "flags", data=np.zeros((n_stars, n_params), dtype=np.uint8)
+            )
+
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["bad_survey"]
+            f.attrs["creation_date"] = "2024-01-01"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    def test_raises_error_for_missing_flux(self, no_flux_catalogue):
+        """Should raise ValueError when survey has no flux or spectra data."""
+        loader = CatalogueLoader(no_flux_catalogue)
+        with pytest.raises(ValueError, match="no flux or spectra"):
+            loader.load(survey="bad_survey", label_source="apogee")
+
+
+class TestCoordinateFallback:
+    """Tests for RA/Dec coordinate fallback behavior."""
+
+    @pytest.fixture
+    def no_coords_catalogue(self, tmp_path):
+        """Create catalogue without RA/Dec in survey group."""
+        path = tmp_path / "no_coords_catalogue.h5"
+        n_stars = 10
+        n_wave = 100
+        n_params = 11
+
+        with h5py.File(path, "w") as f:
+            meta = f.create_group("metadata")
+            meta.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
+            # Metadata has different row count - should not be used
+            meta.create_dataset(
+                "ra", data=np.random.uniform(0, 360, n_stars * 2)
+            )  # Wrong size
+            meta.create_dataset(
+                "dec", data=np.random.uniform(-90, 90, n_stars * 2)
+            )  # Wrong size
+
+            surveys = f.create_group("surveys")
+            desi = surveys.create_group("desi")
+            desi.create_dataset(
+                "flux", data=np.random.randn(n_stars, n_wave).astype(np.float32)
+            )
+            desi.create_dataset(
+                "ivar",
+                data=np.abs(np.random.randn(n_stars, n_wave)).astype(np.float32),
+            )
+            desi.create_dataset(
+                "wavelength", data=np.linspace(3600, 9800, n_wave).astype(np.float32)
+            )
+            desi.create_dataset(
+                "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
+            )
+
+            labels = f.create_group("labels")
+            apogee = labels.create_group("apogee")
+            apogee.create_dataset(
+                "values", data=np.random.randn(n_stars, n_params).astype(np.float32)
+            )
+            apogee.create_dataset(
+                "errors",
+                data=np.abs(np.random.randn(n_stars, n_params)).astype(np.float32)
+                + 0.01,
+            )
+            apogee.create_dataset(
+                "flags", data=np.zeros((n_stars, n_params), dtype=np.uint8)
+            )
+
+            f.attrs["n_stars"] = n_stars
+            f.attrs["parameter_names"] = PARAMETER_NAMES
+            f.attrs["survey_names"] = ["desi"]
+            f.attrs["creation_date"] = "2024-01-01"
+            f.attrs["version"] = "1.0.0"
+
+        return path
+
+    def test_fallback_to_zero_coords(self, no_coords_catalogue):
+        """Should use zero coordinates when metadata RA/Dec has wrong size."""
+        loader = CatalogueLoader(no_coords_catalogue)
+        data = loader.load(survey="desi", label_source="apogee")
+
+        # Should have zero coordinates (fallback)
+        assert np.all(data.ra == 0)
+        assert np.all(data.dec == 0)
+
+
+class TestDuplicateDetection:
+    """Tests for duplicate detection - loading should error if duplicates exist."""
 
     @pytest.fixture
     def duplicate_catalogue(self, tmp_path):
@@ -1184,30 +1530,139 @@ class TestDeduplication:
 
         return path
 
-    def test_load_merged_deduplicates(self, duplicate_catalogue):
-        """load_merged_for_training should deduplicate by default."""
+    def test_load_merged_raises_on_duplicates(self, duplicate_catalogue):
+        """load_merged should raise ValueError if duplicates are found."""
         loader = CatalogueLoader(duplicate_catalogue)
-        X_dict, y, has_data_dict, _ = loader.load_merged_for_training(
-            surveys=["desi"],
-            label_source="apogee",
-            smart_deduplicate=False,  # Use simple deduplication
+        with pytest.raises(ValueError, match="DUPLICATE OBSERVATIONS DETECTED"):
+            loader.load_merged(
+                surveys=["desi"],
+                label_source="apogee",
+            )
+
+    def test_load_merged_for_training_raises_on_duplicates(self, duplicate_catalogue):
+        """load_merged_for_training should raise ValueError if duplicates are found."""
+        loader = CatalogueLoader(duplicate_catalogue)
+        with pytest.raises(ValueError, match="DUPLICATE OBSERVATIONS DETECTED"):
+            loader.load_merged_for_training(
+                surveys=["desi"],
+                label_source="apogee",
+            )
+
+    def test_load_merged_sparse_raises_on_duplicates(self, duplicate_catalogue):
+        """load_merged_sparse should raise ValueError if duplicates are found."""
+        loader = CatalogueLoader(duplicate_catalogue)
+        with pytest.raises(ValueError, match="DUPLICATE OBSERVATIONS DETECTED"):
+            loader.load_merged_sparse(
+                surveys=["desi"],
+                label_source="apogee",
+            )
+
+
+class TestSparseMergedDataMethods:
+    """Tests for SparseMergedData utility methods."""
+
+    @pytest.fixture
+    def sparse_data(self):
+        """Create a minimal SparseMergedData for testing methods."""
+        n_total = 100
+        n_params = 11
+
+        # Create fake sparse data for two surveys
+        flux = {
+            "survey_a": np.random.randn(60, 1000).astype(np.float32),
+            "survey_b": np.random.randn(40, 800).astype(np.float32),
+        }
+        ivar = {
+            "survey_a": np.abs(np.random.randn(60, 1000)).astype(np.float32),
+            "survey_b": np.abs(np.random.randn(40, 800)).astype(np.float32),
+        }
+        wavelengths = {
+            "survey_a": np.linspace(3500, 10000, 1000).astype(np.float32),
+            "survey_b": np.linspace(3600, 9800, 800).astype(np.float32),
+        }
+        snr = {
+            "survey_a": np.random.uniform(10, 100, 60).astype(np.float32),
+            "survey_b": np.random.uniform(10, 100, 40).astype(np.float32),
+        }
+
+        # Create mappings
+        # Survey A has first 60 stars
+        global_to_local_a = np.full(n_total, -1, dtype=np.int32)
+        global_to_local_a[:60] = np.arange(60)
+        local_to_global_a = np.arange(60)
+
+        # Survey B has last 40 stars
+        global_to_local_b = np.full(n_total, -1, dtype=np.int32)
+        global_to_local_b[60:] = np.arange(40)
+        local_to_global_b = np.arange(60, 100)
+
+        global_to_local = {"survey_a": global_to_local_a, "survey_b": global_to_local_b}
+        local_to_global = {"survey_a": local_to_global_a, "survey_b": local_to_global_b}
+
+        labels = np.zeros((n_total, 3, n_params), dtype=np.float32)
+        labels[:, 0, :] = np.random.randn(n_total, n_params)  # values
+        labels[:, 1, :] = np.abs(np.random.randn(n_total, n_params)) + 0.01  # errors
+        labels[:, 2, :] = 1.0  # mask
+
+        return SparseMergedData(
+            flux=flux,
+            ivar=ivar,
+            wavelengths=wavelengths,
+            snr=snr,
+            global_to_local=global_to_local,
+            local_to_global=local_to_global,
+            labels=labels,
+            gaia_ids=np.arange(1000, 1100),
+            ra=np.random.uniform(0, 360, n_total),
+            dec=np.random.uniform(-90, 90, n_total),
+            surveys=["survey_a", "survey_b"],
+            n_total=n_total,
+            n_params=n_params,
         )
 
-        # Should have fewer than 15 (deduplicated)
-        n_unique = X_dict["desi"].shape[0]
-        assert n_unique < 15, "Should deduplicate duplicate observations"
-        assert n_unique >= 9, "Should have at least 9 unique Gaia IDs"
+    def test_n_total_property(self, sparse_data):
+        """n_total should return correct value."""
+        assert sparse_data.n_total == 100
 
-    def test_smart_deduplicate_picks_best(self, duplicate_catalogue):
-        """Smart deduplication should select highest SNR observation."""
-        loader = CatalogueLoader(duplicate_catalogue)
-        X_dict, y, has_data_dict, _ = loader.load_merged_for_training(
-            surveys=["desi"],
-            label_source="apogee",
-            smart_deduplicate=True,
-        )
+    def test_surveys_property(self, sparse_data):
+        """surveys should list survey names."""
+        assert set(sparse_data.surveys) == {"survey_a", "survey_b"}
 
-        # Should have fewer than 15 (deduplicated)
-        n_unique = X_dict["desi"].shape[0]
-        assert n_unique < 15, "Should deduplicate duplicate observations"
-        assert n_unique >= 9, "Should have at least 9 unique Gaia IDs"
+    def test_memory_usage_includes_all_arrays(self, sparse_data):
+        """memory_usage_mb should include all data arrays."""
+        usage = sparse_data.memory_usage_mb()
+
+        # Flat key structure: {survey}_flux, {survey}_ivar
+        assert "survey_a_flux" in usage
+        assert "survey_b_flux" in usage
+        assert "labels" in usage
+        assert "total" in usage
+        assert usage["total"] > 0
+
+    def test_has_data_returns_mask(self, sparse_data):
+        """has_data should return boolean mask."""
+        mask_a = sparse_data.has_data("survey_a")
+        mask_b = sparse_data.has_data("survey_b")
+
+        assert mask_a.dtype == bool
+        assert len(mask_a) == 100
+        # First 60 stars have survey_a data
+        assert np.sum(mask_a) == 60
+        # Last 40 stars have survey_b data
+        assert np.sum(mask_b) == 40
+
+    def test_coverage_returns_fraction(self, sparse_data):
+        """coverage should return fraction."""
+        assert sparse_data.coverage("survey_a") == 0.6
+        assert sparse_data.coverage("survey_b") == 0.4
+
+    def test_n_with_data_returns_count(self, sparse_data):
+        """n_with_data should return count."""
+        assert sparse_data.n_with_data("survey_a") == 60
+        assert sparse_data.n_with_data("survey_b") == 40
+
+    def test_get_coverage_stats(self, sparse_data):
+        """get_coverage_stats should return counts per survey."""
+        stats = sparse_data.get_coverage_stats()
+        assert stats["survey_a"] == 60
+        assert stats["survey_b"] == 40

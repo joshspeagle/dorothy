@@ -40,8 +40,6 @@ class TestDataConfig:
         assert config.train_ratio == 0.7
         assert config.val_ratio == 0.2
         assert config.max_flag_bits == 0
-        assert config.smart_deduplicate is True
-        assert config.chi2_threshold == 2.0
 
     def test_test_ratio_computed_correctly(self):
         """Test that test_ratio is computed as 1 - train - val."""

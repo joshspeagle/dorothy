@@ -12,7 +12,6 @@ data:
   train_ratio: 0.7
   val_ratio: 0.2
   max_flag_bits: 0
-  smart_deduplicate: true
 
 model:
   hidden_layers: [2000, 1000, 500, 200, 100]

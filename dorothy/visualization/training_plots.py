@@ -243,12 +243,62 @@ def plot_loss_components(
     return save_path
 
 
+def _categorize_layer_names(layer_names: list[str]) -> dict[str, list[str]]:
+    """
+    Categorize layer names by component for grouped plotting.
+
+    Returns dict mapping component name to list of layer names.
+    Components: encoders (by survey), trunk, output_head(s), other.
+    """
+    import re
+
+    categories: dict[str, list[str]] = {}
+
+    for name in layer_names:
+        # Check for encoder pattern: encoders.survey_name.*
+        match = re.match(r"encoders\.(\w+)\.", name)
+        if match:
+            survey = match.group(1)
+            cat = f"encoder_{survey}"
+            categories.setdefault(cat, []).append(name)
+            continue
+
+        # Check for trunk pattern
+        if name.startswith("trunk."):
+            categories.setdefault("trunk", []).append(name)
+            continue
+
+        # Check for output head pattern (single or multi)
+        if name.startswith("output_head.") or name.startswith("output_heads."):
+            match = re.match(r"output_heads\.(\w+)\.", name)
+            if match:
+                source = match.group(1)
+                cat = f"output_{source}"
+            else:
+                cat = "output_head"
+            categories.setdefault(cat, []).append(name)
+            continue
+
+        # Standard MLP layers pattern
+        if name.startswith("layers."):
+            categories.setdefault("layers", []).append(name)
+            continue
+
+        # Fallback
+        categories.setdefault("other", []).append(name)
+
+    return categories
+
+
 def plot_grokking_metrics(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
     """
     Plot grokking-related metrics: gradient norms, weight norms, weight updates.
+
+    For multi-head models, weight norms and updates are grouped by component
+    (encoders, trunk, output heads) for better interpretability.
 
     Args:
         history: TrainingHistory object.
@@ -271,7 +321,7 @@ def plot_grokking_metrics(
     has_weight_updates = bool(history.weight_updates)
 
     n_plots = 1 + has_weight_norms + has_weight_updates
-    fig, axes = plt.subplots(1, n_plots, figsize=(4 * n_plots, 4))
+    fig, axes = plt.subplots(1, n_plots, figsize=(5 * n_plots, 4))
     if n_plots == 1:
         axes = [axes]
 
@@ -286,32 +336,108 @@ def plot_grokking_metrics(
     ax.grid(True, alpha=0.3)
     plot_idx += 1
 
-    # Weight norms per layer
+    # Categorize layers for grouped plotting
+    if has_weight_norms:
+        categories = _categorize_layer_names(list(history.weight_norms.keys()))
+    else:
+        categories = {}
+
+    # Color palette for different components
+    component_colors = {
+        "layers": "blue",
+        "trunk": "green",
+        "output_head": "red",
+    }
+    encoder_colors = ["steelblue", "coral", "purple", "olive"]
+    output_colors = ["crimson", "darkred", "indianred", "salmon"]
+
+    # Weight norms per layer (grouped by component)
     if has_weight_norms:
         ax = axes[plot_idx]
-        for layer_name, norms in history.weight_norms.items():
-            if norms:
-                # Simplify layer name for legend - keep layer index if present
-                short_name = _simplify_layer_name(layer_name)
-                ax.plot(epochs[: len(norms)], norms, label=short_name, alpha=0.7)
+
+        # Assign colors to categories
+        encoder_idx = 0
+        output_idx = 0
+        for cat_name, layer_names in sorted(categories.items()):
+            if cat_name.startswith("encoder_"):
+                color = encoder_colors[encoder_idx % len(encoder_colors)]
+                encoder_idx += 1
+            elif cat_name.startswith("output_"):
+                color = output_colors[output_idx % len(output_colors)]
+                output_idx += 1
+            else:
+                color = component_colors.get(cat_name, "gray")
+
+            # Plot aggregate (mean) norm for this category
+            cat_norms = []
+            for layer_name in layer_names:
+                norms = history.weight_norms.get(layer_name, [])
+                if norms:
+                    cat_norms.append(np.array(norms))
+
+            if cat_norms:
+                # Stack and compute mean across layers in category
+                stacked = np.stack(cat_norms, axis=0)
+                mean_norm = np.mean(stacked, axis=0)
+                # Prettify category name for legend
+                display_name = cat_name.replace("_", " ").title()
+                ax.plot(
+                    epochs[: len(mean_norm)],
+                    mean_norm,
+                    label=display_name,
+                    color=color,
+                    alpha=0.8,
+                    linewidth=2,
+                )
+
         ax.set_xlabel("Epoch")
-        ax.set_ylabel("Weight Norm")
-        ax.set_title("Weight Norms by Layer")
-        ax.legend(fontsize=7, ncol=2, loc="upper right")
+        ax.set_ylabel("Mean Weight Norm")
+        ax.set_title("Weight Norms by Component")
+        ax.legend(fontsize=8, loc="best")
         ax.grid(True, alpha=0.3)
         plot_idx += 1
 
-    # Weight updates per layer
+    # Weight updates per layer (grouped by component)
     if has_weight_updates:
         ax = axes[plot_idx]
-        for layer_name, updates in history.weight_updates.items():
-            if updates:
-                short_name = _simplify_layer_name(layer_name)
-                ax.plot(epochs[: len(updates)], updates, label=short_name, alpha=0.7)
+        categories = _categorize_layer_names(list(history.weight_updates.keys()))
+
+        encoder_idx = 0
+        output_idx = 0
+        for cat_name, layer_names in sorted(categories.items()):
+            if cat_name.startswith("encoder_"):
+                color = encoder_colors[encoder_idx % len(encoder_colors)]
+                encoder_idx += 1
+            elif cat_name.startswith("output_"):
+                color = output_colors[output_idx % len(output_colors)]
+                output_idx += 1
+            else:
+                color = component_colors.get(cat_name, "gray")
+
+            # Plot aggregate (mean) update for this category
+            cat_updates = []
+            for layer_name in layer_names:
+                updates = history.weight_updates.get(layer_name, [])
+                if updates:
+                    cat_updates.append(np.array(updates))
+
+            if cat_updates:
+                stacked = np.stack(cat_updates, axis=0)
+                mean_update = np.mean(stacked, axis=0)
+                display_name = cat_name.replace("_", " ").title()
+                ax.plot(
+                    epochs[: len(mean_update)],
+                    mean_update,
+                    label=display_name,
+                    color=color,
+                    alpha=0.8,
+                    linewidth=2,
+                )
+
         ax.set_xlabel("Epoch")
-        ax.set_ylabel("Weight Update Magnitude")
-        ax.set_title("Weight Updates by Layer")
-        ax.legend(fontsize=7, ncol=2, loc="upper right")
+        ax.set_ylabel("Mean Weight Update")
+        ax.set_title("Weight Updates by Component")
+        ax.legend(fontsize=8, loc="best")
         ax.set_yscale("log")
         ax.grid(True, alpha=0.3)
 
@@ -635,10 +761,11 @@ def plot_per_survey_loss_curves(
     output_path: Path,
 ) -> Path | None:
     """
-    Plot per-survey validation RMSE curves over training epochs.
+    Plot per-survey validation loss curves and relative performance.
 
-    For multi-survey training, shows how each survey's RMSE evolves
-    during training, allowing comparison between surveys.
+    For multi-survey training, shows:
+    - Left: Per-survey loss curves with overall loss for reference
+    - Right: Relative loss (survey loss / overall loss) to show survey difficulty
 
     Args:
         history: TrainingHistory object with per_survey_val_losses.
@@ -663,22 +790,13 @@ def plot_per_survey_loss_curves(
     n_epochs = len(history.val_losses)
     epochs = np.arange(1, n_epochs + 1)
 
+    # Survey colors
+    colors = ["steelblue", "coral", "green", "purple"]
+
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    # Per-survey validation loss curves
+    # Left: Per-survey validation loss with overall
     ax = axes[0]
-    for survey_name in history.survey_names:
-        losses = history.per_survey_val_losses.get(survey_name, [])
-        if losses and len(losses) == n_epochs:
-            ax.plot(epochs, losses, label=survey_name.upper(), alpha=0.8)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Validation Loss")
-    ax.set_title("Per-Survey Validation Loss")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # Compare per-survey loss against overall validation loss
-    ax = axes[1]
     ax.plot(
         epochs,
         history.val_losses,
@@ -687,15 +805,40 @@ def plot_per_survey_loss_curves(
         linewidth=2,
         alpha=0.9,
     )
-    for survey_name in history.survey_names:
+    for i, survey_name in enumerate(history.survey_names):
         losses = history.per_survey_val_losses.get(survey_name, [])
         if losses and len(losses) == n_epochs:
             ax.plot(
-                epochs, losses, label=survey_name.upper(), alpha=0.6, linestyle="--"
+                epochs,
+                losses,
+                label=survey_name.upper(),
+                color=colors[i % len(colors)],
+                alpha=0.8,
             )
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Validation Loss")
-    ax.set_title("Overall vs Per-Survey Loss")
+    ax.set_title("Per-Survey Validation Loss")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Right: Relative loss (survey / overall) - shows which surveys are harder
+    ax = axes[1]
+    overall_loss = np.array(history.val_losses)
+    ax.axhline(1.0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+    for i, survey_name in enumerate(history.survey_names):
+        losses = history.per_survey_val_losses.get(survey_name, [])
+        if losses and len(losses) == n_epochs:
+            relative_loss = np.array(losses) / np.maximum(overall_loss, 1e-8)
+            ax.plot(
+                epochs,
+                relative_loss,
+                label=survey_name.upper(),
+                color=colors[i % len(colors)],
+                alpha=0.8,
+            )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Relative Loss (Survey / Overall)")
+    ax.set_title("Survey Difficulty (>1 = harder)")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -716,8 +859,8 @@ def plot_per_survey_metrics(
     """
     Plot final validation metrics grouped by survey.
 
-    Creates grouped bar charts comparing RMSE, Bias, and Scatter
-    across surveys for each parameter.
+    Creates a 2x2 grid of grouped bar charts comparing RMSE, Scatter, Bias, and MAE
+    across surveys for each parameter (matching the layout of val_metrics).
 
     Args:
         history: TrainingHistory object with per_survey_val_metrics.
@@ -752,15 +895,15 @@ def plot_per_survey_metrics(
     n_show = min(n_params, 6)
     param_names = PARAM_DISPLAY_NAMES[:n_show]
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     x = np.arange(n_show)
     width = 0.35 if n_surveys == 2 else 0.25
 
     # Color palette for surveys
     colors = ["steelblue", "coral", "green", "purple"][:n_surveys]
 
-    # RMSE by survey
-    ax = axes[0]
+    # RMSE by survey (top-left)
+    ax = axes[0, 0]
     for i, survey_name in enumerate(history.survey_names):
         rmse_list = history.per_survey_val_metrics[survey_name].get("rmse", [])
         if rmse_list:
@@ -781,31 +924,8 @@ def plot_per_survey_metrics(
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
-    # Bias by survey
-    ax = axes[1]
-    for i, survey_name in enumerate(history.survey_names):
-        bias_list = history.per_survey_val_metrics[survey_name].get("bias", [])
-        if bias_list:
-            bias = bias_list[-1][:n_show]
-            offset = (i - n_surveys / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                bias,
-                width,
-                label=survey_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.axhline(0, color="black", linewidth=1)
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("Bias (normalized)")
-    ax.set_title("Bias by Survey (pred - true)")
-    ax.legend()
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Robust scatter by survey
-    ax = axes[2]
+    # Robust scatter by survey (top-right)
+    ax = axes[0, 1]
     for i, survey_name in enumerate(history.survey_names):
         scatter_list = history.per_survey_val_metrics[survey_name].get(
             "robust_scatter", []
@@ -824,11 +944,60 @@ def plot_per_survey_metrics(
     ax.set_xticks(x)
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("Robust Scatter (normalized)")
-    ax.set_title("Scatter by Survey")
+    ax.set_title("Scatter/Precision by Survey")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
-    plt.suptitle("Per-Survey Validation Metrics (Final Epoch)", fontsize=12)
+    # Bias by survey (bottom-left)
+    ax = axes[1, 0]
+    for i, survey_name in enumerate(history.survey_names):
+        bias_list = history.per_survey_val_metrics[survey_name].get("bias", [])
+        if bias_list:
+            bias = bias_list[-1][:n_show]
+            offset = (i - n_surveys / 2 + 0.5) * width
+            ax.bar(
+                x + offset,
+                bias,
+                width,
+                label=survey_name.upper(),
+                color=colors[i],
+                alpha=0.8,
+            )
+    ax.axhline(0, color="black", linewidth=1)
+    ax.axhline(0.1, color="gray", linestyle="--", alpha=0.5)
+    ax.axhline(-0.1, color="gray", linestyle="--", alpha=0.5)
+    ax.set_xticks(x)
+    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
+    ax.set_ylabel("Bias (normalized)")
+    ax.set_title("Bias by Survey (pred - true)")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # MAE by survey (bottom-right)
+    ax = axes[1, 1]
+    for i, survey_name in enumerate(history.survey_names):
+        mae_list = history.per_survey_val_metrics[survey_name].get("mae", [])
+        if mae_list:
+            mae = mae_list[-1][:n_show]
+            offset = (i - n_surveys / 2 + 0.5) * width
+            ax.bar(
+                x + offset,
+                mae,
+                width,
+                label=survey_name.upper(),
+                color=colors[i],
+                alpha=0.8,
+            )
+    ax.set_xticks(x)
+    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
+    ax.set_ylabel("MAE (normalized)")
+    ax.set_title("MAE by Survey")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+
+    plt.suptitle(
+        "Per-Survey Validation Metrics (normalized space, Final Epoch)", fontsize=12
+    )
     plt.tight_layout()
 
     save_path = output_path / "per_survey_metrics.png"
@@ -926,10 +1095,11 @@ def plot_per_labelset_loss_curves(
     output_path: Path,
 ) -> Path | None:
     """
-    Plot per-labelset validation loss curves over training epochs.
+    Plot per-labelset validation loss curves and relative performance.
 
-    For multi-labelset training (multiple output heads), shows how each
-    labelset's (output head's) loss evolves during training.
+    For multi-labelset training (multiple output heads), shows:
+    - Left: Per-labelset loss curves with overall loss for reference
+    - Right: Relative loss (labelset loss / overall loss) to show head difficulty
 
     Args:
         history: TrainingHistory object with per_labelset_val_losses.
@@ -956,22 +1126,13 @@ def plot_per_labelset_loss_curves(
     n_epochs = len(history.val_losses)
     epochs = np.arange(1, n_epochs + 1)
 
+    # Labelset colors
+    colors = ["steelblue", "coral", "green", "purple"]
+
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    # Per-labelset validation loss curves
+    # Left: Per-labelset validation loss with overall
     ax = axes[0]
-    for source_name in history.label_source_names:
-        losses = history.per_labelset_val_losses.get(source_name, [])
-        if losses and len(losses) == n_epochs:
-            ax.plot(epochs, losses, label=source_name.upper(), alpha=0.8)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Validation Loss")
-    ax.set_title("Per-Labelset (Output Head) Validation Loss")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # Compare per-labelset loss against overall validation loss
-    ax = axes[1]
     ax.plot(
         epochs,
         history.val_losses,
@@ -980,15 +1141,40 @@ def plot_per_labelset_loss_curves(
         linewidth=2,
         alpha=0.9,
     )
-    for source_name in history.label_source_names:
+    for i, source_name in enumerate(history.label_source_names):
         losses = history.per_labelset_val_losses.get(source_name, [])
         if losses and len(losses) == n_epochs:
             ax.plot(
-                epochs, losses, label=source_name.upper(), alpha=0.6, linestyle="--"
+                epochs,
+                losses,
+                label=source_name.upper(),
+                color=colors[i % len(colors)],
+                alpha=0.8,
             )
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Validation Loss")
-    ax.set_title("Overall vs Per-Labelset Loss")
+    ax.set_title("Per-Labelset Validation Loss")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Right: Relative loss (labelset / overall)
+    ax = axes[1]
+    overall_loss = np.array(history.val_losses)
+    ax.axhline(1.0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+    for i, source_name in enumerate(history.label_source_names):
+        losses = history.per_labelset_val_losses.get(source_name, [])
+        if losses and len(losses) == n_epochs:
+            relative_loss = np.array(losses) / np.maximum(overall_loss, 1e-8)
+            ax.plot(
+                epochs,
+                relative_loss,
+                label=source_name.upper(),
+                color=colors[i % len(colors)],
+                alpha=0.8,
+            )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Relative Loss (Labelset / Overall)")
+    ax.set_title("Labelset Difficulty (>1 = harder)")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -1009,8 +1195,8 @@ def plot_per_labelset_metrics(
     """
     Plot final validation metrics grouped by labelset (output head).
 
-    Creates grouped bar charts comparing RMSE, Bias, and Scatter
-    across labelsets for each parameter.
+    Creates a 2x2 grid of grouped bar charts comparing RMSE, Scatter, Bias, and MAE
+    across labelsets for each parameter (matching the layout of val_metrics).
 
     Args:
         history: TrainingHistory object with per_labelset_val_metrics.
@@ -1045,15 +1231,15 @@ def plot_per_labelset_metrics(
     n_show = min(n_params, 6)
     param_names = PARAM_DISPLAY_NAMES[:n_show]
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     x = np.arange(n_show)
     width = 0.35 if n_labelsets == 2 else 0.25
 
     # Color palette for labelsets
     colors = ["steelblue", "coral", "green", "purple"][:n_labelsets]
 
-    # RMSE by labelset
-    ax = axes[0]
+    # RMSE by labelset (top-left)
+    ax = axes[0, 0]
     for i, source_name in enumerate(history.label_source_names):
         rmse_list = history.per_labelset_val_metrics[source_name].get("rmse", [])
         if rmse_list:
@@ -1074,31 +1260,8 @@ def plot_per_labelset_metrics(
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
-    # Bias by labelset
-    ax = axes[1]
-    for i, source_name in enumerate(history.label_source_names):
-        bias_list = history.per_labelset_val_metrics[source_name].get("bias", [])
-        if bias_list:
-            bias = bias_list[-1][:n_show]
-            offset = (i - n_labelsets / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                bias,
-                width,
-                label=source_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.axhline(0, color="black", linewidth=1)
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("Bias (normalized)")
-    ax.set_title("Bias by Labelset (pred - true)")
-    ax.legend()
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Robust scatter by labelset
-    ax = axes[2]
+    # Robust scatter by labelset (top-right)
+    ax = axes[0, 1]
     for i, source_name in enumerate(history.label_source_names):
         scatter_list = history.per_labelset_val_metrics[source_name].get(
             "robust_scatter", []
@@ -1117,12 +1280,59 @@ def plot_per_labelset_metrics(
     ax.set_xticks(x)
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("Robust Scatter (normalized)")
-    ax.set_title("Scatter by Labelset")
+    ax.set_title("Scatter/Precision by Labelset")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # Bias by labelset (bottom-left)
+    ax = axes[1, 0]
+    for i, source_name in enumerate(history.label_source_names):
+        bias_list = history.per_labelset_val_metrics[source_name].get("bias", [])
+        if bias_list:
+            bias = bias_list[-1][:n_show]
+            offset = (i - n_labelsets / 2 + 0.5) * width
+            ax.bar(
+                x + offset,
+                bias,
+                width,
+                label=source_name.upper(),
+                color=colors[i],
+                alpha=0.8,
+            )
+    ax.axhline(0, color="black", linewidth=1)
+    ax.axhline(0.1, color="gray", linestyle="--", alpha=0.5)
+    ax.axhline(-0.1, color="gray", linestyle="--", alpha=0.5)
+    ax.set_xticks(x)
+    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
+    ax.set_ylabel("Bias (normalized)")
+    ax.set_title("Bias by Labelset (pred - true)")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # MAE by labelset (bottom-right)
+    ax = axes[1, 1]
+    for i, source_name in enumerate(history.label_source_names):
+        mae_list = history.per_labelset_val_metrics[source_name].get("mae", [])
+        if mae_list:
+            mae = mae_list[-1][:n_show]
+            offset = (i - n_labelsets / 2 + 0.5) * width
+            ax.bar(
+                x + offset,
+                mae,
+                width,
+                label=source_name.upper(),
+                color=colors[i],
+                alpha=0.8,
+            )
+    ax.set_xticks(x)
+    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
+    ax.set_ylabel("MAE (normalized)")
+    ax.set_title("MAE by Labelset")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.suptitle(
-        "Per-Labelset (Output Head) Validation Metrics (Final Epoch)", fontsize=12
+        "Per-Labelset Validation Metrics (normalized space, Final Epoch)", fontsize=12
     )
     plt.tight_layout()
 

@@ -145,7 +145,9 @@ class HeteroscedasticLoss(nn.Module):
         # Compute model's predicted scatter with floor
         # s = sqrt(exp(2 * ln_s) + s_0^2)
         # Using exp(2 * ln_s) = exp(ln_s)^2 for numerical stability
-        s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
+        # Clamp ln_s to prevent overflow: exp(2 * 5) = exp(10) ≈ 22000, safe for float16
+        ln_s_clamped = torch.clamp(ln_s, min=-10.0, max=5.0)
+        s_squared = torch.exp(2 * ln_s_clamped) + self.scatter_floor_sq
 
         # Total variance is sum of label variance and model variance
         # variance = sigma_label^2 + s^2
@@ -183,7 +185,8 @@ class HeteroscedasticLoss(nn.Module):
             sqrt(exp(2 * ln_s) + s_0^2).
         """
         ln_s = output[:, 1, :]  # (batch, n_params)
-        s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
+        ln_s_clamped = torch.clamp(ln_s, min=-10.0, max=5.0)
+        s_squared = torch.exp(2 * ln_s_clamped) + self.scatter_floor_sq
         return torch.sqrt(s_squared)
 
     def forward_detailed(
@@ -224,7 +227,9 @@ class HeteroscedasticLoss(nn.Module):
         mask = target[:, 2, :]  # (batch, n_params)
 
         # Compute model's predicted scatter with floor
-        s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
+        # Clamp ln_s to prevent overflow in float16
+        ln_s_clamped = torch.clamp(ln_s, min=-10.0, max=5.0)
+        s_squared = torch.exp(2 * ln_s_clamped) + self.scatter_floor_sq
         pred_scatter = torch.sqrt(s_squared)
 
         # Total variance

@@ -1,6 +1,9 @@
 # DOROTHY Training Configuration - Variant 3
 # Multi-Survey Input -> Multi-Label Source Output
-# BOSS + DESI spectra -> APOGEE + GALAH labels
+# LAMOST LRS + LAMOST MRS -> APOGEE + GALAH labels
+#
+# This variant tests multi-survey sparse training with LAMOST's larger
+# datasets (LRS ~100K+ stars, MRS dual-arm spectra).
 #
 # NOTE: If GALAH labels don't exist in the catalogue, use:
 #   duplicate_labels:
@@ -10,17 +13,16 @@
 name: variant3_multi_labelset
 
 data:
-  catalogue_path: data/super_catalogue.h5
+  catalogue_path: data/super_catalogue_clean.h5
   surveys:
-    - boss
-    - desi
+    - lamost_lrs
+    - lamost_mrs
   label_sources:
     - apogee
     - galah
   train_ratio: 0.7
   val_ratio: 0.2
   max_flag_bits: 0
-  smart_deduplicate: true
   # Duplicate APOGEE labels as GALAH for testing (remove when real GALAH data exists)
   duplicate_labels:
     galah: apogee

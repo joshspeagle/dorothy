@@ -107,7 +107,10 @@ class SurveyEncoder(nn.Module):
         """Get the activation function class."""
         activations = {"gelu": nn.GELU, "relu": nn.ReLU, "silu": nn.SiLU}
         if activation.lower() not in activations:
-            raise ValueError(f"Unknown activation '{activation}'")
+            raise ValueError(
+                f"Unknown activation '{activation}'. "
+                f"Valid options: {list(activations.keys())}"
+            )
         return activations[activation.lower()]
 
     @staticmethod
@@ -115,7 +118,10 @@ class SurveyEncoder(nn.Module):
         """Get the normalization layer class."""
         normalizations = {"batchnorm": nn.BatchNorm1d, "layernorm": nn.LayerNorm}
         if normalization.lower() not in normalizations:
-            raise ValueError(f"Unknown normalization '{normalization}'")
+            raise ValueError(
+                f"Unknown normalization '{normalization}'. "
+                f"Valid options: {list(normalizations.keys())}"
+            )
         return normalizations[normalization.lower()]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

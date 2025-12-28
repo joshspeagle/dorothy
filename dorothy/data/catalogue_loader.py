@@ -18,6 +18,7 @@ Example:
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -274,6 +275,129 @@ class MergedCatalogueData:
 
 
 @dataclass
+class SparseMergedData:
+    """
+    Memory-efficient multi-survey data with sparse survey storage.
+
+    Unlike MergedCatalogueData which stores dense arrays for each survey
+    (with zeros for missing stars), this class stores only stars that have
+    actual data for each survey. Index mappings allow efficient lookup
+    between global star indices and survey-local indices.
+
+    This reduces memory usage significantly for surveys with low coverage:
+    - DESI: 0.8% coverage → stores only 1.3K rows instead of 155K
+    - BOSS: 7.4% coverage → stores only 11K rows instead of 155K
+
+    Attributes:
+        flux: Per-survey sparse spectra. Maps survey name to array of shape
+            (n_with_data[survey], n_wavelengths) containing only stars with data.
+        ivar: Per-survey inverse variance arrays with same structure as flux.
+        wavelengths: Per-survey wavelength grids (n_wavelengths,).
+        snr: Per-survey SNR values for stars with data.
+        global_to_local: Maps survey name to index array (n_total,) where
+            value = local index into sparse array, or -1 if no data.
+        local_to_global: Maps survey name to index array (n_with_data,) where
+            value = global star index.
+        labels: Dense labels array (n_total, 3, n_params) with [values, errors, mask].
+        gaia_ids: Gaia DR3 source IDs for all stars (n_total,).
+        ra: Right ascension in degrees (n_total,).
+        dec: Declination in degrees (n_total,).
+        surveys: List of survey names.
+        n_total: Total number of unique stars across all surveys.
+        n_params: Number of stellar parameters (typically 11).
+    """
+
+    flux: dict[str, np.ndarray]
+    ivar: dict[str, np.ndarray]
+    wavelengths: dict[str, np.ndarray]
+    snr: dict[str, np.ndarray]
+    global_to_local: dict[str, np.ndarray]
+    local_to_global: dict[str, np.ndarray]
+    labels: np.ndarray
+    gaia_ids: np.ndarray
+    ra: np.ndarray
+    dec: np.ndarray
+    surveys: list[str]
+    n_total: int
+    n_params: int
+
+    # Multi-label support (optional) - for training with multiple label sources
+    labels_dict: dict[str, np.ndarray] | None = None  # {source: (n_total, 3, n_params)}
+    has_labels_dict: dict[str, np.ndarray] | None = None  # {source: (n_total,) bool}
+    label_sources: list[str] | None = None  # List of label source names
+
+    def has_data(self, survey: str) -> np.ndarray:
+        """Return boolean mask of which global indices have data for survey."""
+        return self.global_to_local[survey] >= 0
+
+    def coverage(self, survey: str) -> float:
+        """Return fraction of stars with data for this survey."""
+        return np.sum(self.global_to_local[survey] >= 0) / self.n_total
+
+    def n_with_data(self, survey: str) -> int:
+        """Return number of stars with data for this survey."""
+        return len(self.local_to_global[survey])
+
+    def get_coverage_stats(self) -> dict[str, int]:
+        """Get the number of stars with data from each survey."""
+        return {survey: self.n_with_data(survey) for survey in self.surveys}
+
+    def memory_usage_mb(self) -> dict[str, float]:
+        """Estimate memory usage in MB for each component."""
+        usage = {}
+        for survey in self.surveys:
+            flux_mb = self.flux[survey].nbytes / 1e6
+            ivar_mb = self.ivar[survey].nbytes / 1e6
+            usage[f"{survey}_flux"] = flux_mb
+            usage[f"{survey}_ivar"] = ivar_mb
+        usage["labels"] = self.labels.nbytes / 1e6
+        usage["gaia_ids"] = self.gaia_ids.nbytes / 1e6
+        usage["total"] = sum(usage.values())
+        return usage
+
+    def get_labels_for_source(self, source: str) -> np.ndarray:
+        """Get labels for a specific source (or primary if single-source).
+
+        Args:
+            source: Label source name (e.g., 'apogee', 'galah').
+
+        Returns:
+            Labels array of shape (n_total, 3, n_params).
+        """
+        if self.labels_dict is not None and source in self.labels_dict:
+            return self.labels_dict[source]
+        return self.labels
+
+    def has_labels_for_source(self, source: str) -> np.ndarray:
+        """Get has_labels mask for a specific source.
+
+        Args:
+            source: Label source name.
+
+        Returns:
+            Boolean mask of shape (n_total,) indicating which stars have labels.
+
+        Raises:
+            ValueError: If has_labels_dict exists but source is not in it.
+        """
+        if self.has_labels_dict is not None:
+            if source in self.has_labels_dict:
+                return self.has_labels_dict[source]
+            # Don't silently fall back - this indicates a bug in data setup
+            raise ValueError(
+                f"Label source '{source}' not found in has_labels_dict. "
+                f"Available sources: {list(self.has_labels_dict.keys())}. "
+                "Ensure duplicate_labels config properly populates has_labels_dict."
+            )
+        # Single-label mode: derive from primary labels mask
+        return np.any(self.labels[:, 2, :] > 0, axis=1)
+
+    def is_multi_label(self) -> bool:
+        """Check if this data has multiple label sources."""
+        return self.label_sources is not None and len(self.label_sources) > 1
+
+
+@dataclass
 class CatalogueInfo:
     """Summary information about a catalogue."""
 
@@ -441,7 +565,10 @@ class CatalogueLoader:
                     survey = name
                     break
             if survey is None:
-                raise ValueError("No surveys with data found in catalogue")
+                raise ValueError(
+                    f"No surveys with data found in catalogue at {self.path}. "
+                    f"Available surveys (all empty): {info.survey_names}"
+                )
 
         # Store original request for fallback logic
         original_label_source = label_source
@@ -498,19 +625,15 @@ class CatalogueLoader:
             elif "spectra" in survey_grp:
                 # LAMOST MRS stores as (N, 4, wavelengths) - [flux_B, ivar_B, flux_R, ivar_R]
                 spectra = survey_grp["spectra"][:]
-                # Average the two arms for a combined spectrum
-                flux = (spectra[:, 0, :] + spectra[:, 2, :]) / 2
+                # Concatenate the two arms along wavelength dimension (preserves all info)
+                flux_b = spectra[:, 0, :]
+                flux_r = spectra[:, 2, :]
                 ivar_b = spectra[:, 1, :]
                 ivar_r = spectra[:, 3, :]
-                # Combine inverse variances (sum of variances -> sum of 1/ivars -> 1/(1/ivar_b + 1/ivar_r))
-                # For simplicity, use average ivar where both are valid
-                ivar = np.zeros_like(flux)
-                valid = (ivar_b > 0) & (ivar_r > 0)
-                ivar[valid] = 2.0 / (1.0 / ivar_b[valid] + 1.0 / ivar_r[valid])
-                single_b = (ivar_b > 0) & (ivar_r <= 0)
-                single_r = (ivar_r > 0) & (ivar_b <= 0)
-                ivar[single_b] = ivar_b[single_b]
-                ivar[single_r] = ivar_r[single_r]
+                flux = np.concatenate([flux_b, flux_r], axis=1)
+                ivar = np.concatenate([ivar_b, ivar_r], axis=1)
+                # Tile wavelength to match concatenated flux shape
+                wavelength = np.tile(wavelength, 2)
             else:
                 raise ValueError(f"Survey '{survey}' has no flux or spectra data")
 
@@ -812,136 +935,436 @@ class CatalogueLoader:
 
         return result
 
+    def _resolve_label_source(
+        self, survey: str, label_source: str | None, f: h5py.File
+    ) -> str:
+        """Resolve label source name with fallback logic."""
+        available_labels = list(f["labels"].keys())
+
+        if label_source is None:
+            # Auto-derive: try SURVEY_LABEL_MAP first, then fallbacks
+            mapped_source = SURVEY_LABEL_MAP.get(survey)
+            if mapped_source and mapped_source in f["labels"]:
+                return mapped_source
+            # Try common fallbacks
+            for candidate in [f"apogee_{survey}", "apogee", "galah"]:
+                if candidate in f["labels"]:
+                    return candidate
+            raise ValueError(
+                f"No label source found for survey '{survey}'. "
+                f"Available: {available_labels}"
+            )
+        elif label_source not in f["labels"]:
+            # Try {label_source}_{survey} pattern
+            survey_specific = f"{label_source}_{survey}"
+            if survey_specific in f["labels"]:
+                return survey_specific
+            raise ValueError(
+                f"Label source '{label_source}' not in catalogue. "
+                f"Available: {available_labels}"
+            )
+        return label_source
+
+    def _load_survey_metadata(
+        self, survey: str, label_source: str, f: h5py.File
+    ) -> dict:
+        """
+        Load only metadata for a survey (no spectra).
+
+        Returns dict with gaia_ids, snr, ra, dec, labels, label_errors, label_flags,
+        wavelength shape info, and storage format.
+        """
+        survey_grp = f["surveys"][survey]
+        label_grp = f["labels"][label_source]
+
+        # Determine storage format and get wavelength info
+        if "flux" in survey_grp:
+            storage_format = "flux"
+            n_wavelengths = survey_grp["flux"].shape[1]
+        elif "spectra" in survey_grp:
+            storage_format = "spectra"
+            # LAMOST MRS: (N, 4, wavelengths) -> concatenated = 2 * wavelengths
+            n_wavelengths = survey_grp["spectra"].shape[2] * 2
+        else:
+            raise ValueError(f"Survey '{survey}' has no flux or spectra data")
+
+        wavelength = survey_grp["wavelength"][:]
+        if storage_format == "spectra":
+            wavelength = np.tile(wavelength, 2)
+
+        # Load metadata arrays (small compared to spectra)
+        snr = survey_grp["snr"][:]
+        n_stars = len(snr)
+
+        # Load IDs
+        if "gaia_id" in label_grp:
+            gaia_ids = label_grp["gaia_id"][:]
+        elif "metadata" in f and "gaia_id" in f["metadata"]:
+            gaia_ids = f["metadata"]["gaia_id"][:]
+        else:
+            gaia_ids = np.arange(n_stars, dtype=np.int64)
+
+        # Load RA/Dec
+        if "ra" in survey_grp:
+            ra = survey_grp["ra"][:]
+            dec = survey_grp["dec"][:]
+        elif "metadata" in f and "ra" in f["metadata"]:
+            meta_ra = f["metadata"]["ra"][:]
+            if len(meta_ra) == n_stars:
+                ra = meta_ra
+                dec = f["metadata"]["dec"][:]
+            else:
+                ra = np.zeros(n_stars, dtype=np.float64)
+                dec = np.zeros(n_stars, dtype=np.float64)
+        else:
+            ra = np.zeros(n_stars, dtype=np.float64)
+            dec = np.zeros(n_stars, dtype=np.float64)
+
+        # Load labels
+        labels = label_grp["values"][:]
+        label_errors = label_grp["errors"][:]
+        label_flags = label_grp["flags"][:]
+
+        return {
+            "gaia_ids": gaia_ids,
+            "snr": snr,
+            "ra": ra,
+            "dec": dec,
+            "labels": labels,
+            "label_errors": label_errors,
+            "label_flags": label_flags,
+            "wavelength": wavelength,
+            "n_wavelengths": n_wavelengths,
+            "n_stars": n_stars,
+            "storage_format": storage_format,
+        }
+
+    def _load_spectra_for_indices(
+        self, survey: str, indices: np.ndarray, storage_format: str, f: h5py.File
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Load flux and ivar for specific row indices using HDF5 fancy indexing.
+
+        Args:
+            survey: Survey name
+            indices: Row indices to load (must be sorted for efficiency)
+            storage_format: "flux" or "spectra"
+            f: Open HDF5 file handle
+
+        Returns:
+            (flux, ivar) arrays for the requested indices
+        """
+        survey_grp = f["surveys"][survey]
+
+        if storage_format == "flux":
+            # Direct indexed read
+            flux = survey_grp["flux"][indices]
+            ivar = survey_grp["ivar"][indices]
+        else:
+            # LAMOST MRS: (N, 4, wavelengths) format
+            spectra = survey_grp["spectra"][indices]
+            flux_b = spectra[:, 0, :]
+            flux_r = spectra[:, 2, :]
+            ivar_b = spectra[:, 1, :]
+            ivar_r = spectra[:, 3, :]
+            flux = np.concatenate([flux_b, flux_r], axis=1)
+            ivar = np.concatenate([ivar_b, ivar_r], axis=1)
+
+        return flux.astype(np.float32), ivar.astype(np.float32)
+
+    def _collect_survey_metadata_pass1(
+        self,
+        surveys: list[str],
+        label_source: str,
+        f: h5py.File,
+    ) -> tuple[dict[str, dict], dict[str, str], np.ndarray, int, dict[int, int]]:
+        """
+        Pass 1: Load metadata only and identify duplicates per survey.
+
+        This is shared logic between load_merged() and load_merged_sparse().
+
+        Args:
+            surveys: List of survey names to process.
+            label_source: Primary label source to use.
+            f: Open HDF5 file handle.
+
+        Returns:
+            Tuple of:
+                - survey_meta: Dict mapping survey -> metadata dict (includes
+                  duplicate_indices, unique_indices, duplicate_gaia_ids, unique_gaia_ids)
+                - survey_resolved_labels: Dict mapping survey -> resolved label source name
+                - all_gaia_ids_sorted: Sorted array of all unique Gaia IDs
+                - n_total: Total number of unique stars
+                - id_to_idx: Dict mapping Gaia ID -> merged array index
+        """
+        survey_meta: dict[str, dict] = {}
+        survey_resolved_labels: dict[str, str] = {}
+        all_gaia_ids: set[int] = set()
+
+        for survey in surveys:
+            print(f"Loading {survey}...")
+            resolved_label = self._resolve_label_source(survey, label_source, f)
+            survey_resolved_labels[survey] = resolved_label
+
+            meta = self._load_survey_metadata(survey, resolved_label, f)
+            survey_meta[survey] = meta
+
+            # Identify duplicates vs unique stars
+            gaia_ids = meta["gaia_ids"]
+            valid_mask = gaia_ids > 0
+            valid_ids = gaia_ids[valid_mask].astype(np.int64)
+
+            # Count occurrences
+            unique_ids, counts = np.unique(valid_ids, return_counts=True)
+            duplicate_gaia_ids = set(unique_ids[counts > 1])
+            unique_gaia_ids = set(unique_ids[counts == 1])
+
+            # Find indices for duplicates and unique stars
+            duplicate_indices = []
+            unique_indices = []
+            for idx, gid in enumerate(gaia_ids):
+                if gid <= 0:
+                    continue  # Skip invalid IDs
+                gid_int = int(gid)
+                if gid_int in duplicate_gaia_ids:
+                    duplicate_indices.append(idx)
+                else:
+                    unique_indices.append(idx)
+
+            meta["duplicate_indices"] = np.array(duplicate_indices, dtype=np.intp)
+            meta["unique_indices"] = np.array(unique_indices, dtype=np.intp)
+            meta["duplicate_gaia_ids"] = duplicate_gaia_ids
+            meta["unique_gaia_ids"] = unique_gaia_ids
+
+            # Collect all valid Gaia IDs
+            all_gaia_ids.update(unique_gaia_ids)
+            all_gaia_ids.update(duplicate_gaia_ids)
+
+            n_dups = len(duplicate_gaia_ids)
+            n_unique = len(unique_gaia_ids)
+            print(f"  {n_unique:,} unique stars, {n_dups:,} stars with duplicates")
+
+        # Create sorted union of all Gaia IDs
+        all_gaia_ids_sorted = np.array(sorted(all_gaia_ids), dtype=np.int64)
+        n_total = len(all_gaia_ids_sorted)
+        id_to_idx = {int(gid): i for i, gid in enumerate(all_gaia_ids_sorted)}
+
+        print(f"Total unique stars: {n_total:,}")
+
+        return (
+            survey_meta,
+            survey_resolved_labels,
+            all_gaia_ids_sorted,
+            n_total,
+            id_to_idx,
+        )
+
+    def _check_for_duplicates(
+        self,
+        survey_meta: dict[str, dict],
+        surveys: list[str],
+    ) -> None:
+        """
+        Check for duplicate observations and raise an error if found.
+
+        This method enforces that catalogues must be pre-deduplicated before
+        training. If duplicates are found, it provides instructions for creating
+        a clean catalogue.
+
+        Args:
+            survey_meta: Survey metadata from pass 1, containing duplicate info.
+            surveys: List of survey names being processed.
+
+        Raises:
+            ValueError: If any survey contains duplicate observations.
+        """
+        total_duplicates = 0
+        duplicate_details = []
+
+        for survey in surveys:
+            n_dups = len(survey_meta[survey].get("duplicate_gaia_ids", set()))
+            if n_dups > 0:
+                total_duplicates += n_dups
+                n_obs = len(survey_meta[survey].get("duplicate_indices", []))
+                duplicate_details.append(
+                    f"  - {survey}: {n_dups:,} stars with {n_obs:,} total duplicate observations"
+                )
+
+        if total_duplicates > 0:
+            details = "\n".join(duplicate_details)
+            raise ValueError(
+                f"\n{'='*60}\n"
+                f"DUPLICATE OBSERVATIONS DETECTED\n"
+                f"{'='*60}\n\n"
+                f"Found {total_duplicates:,} stars with duplicate observations:\n"
+                f"{details}\n\n"
+                f"Training requires a deduplicated catalogue. To create one, run:\n\n"
+                f"  python scripts/create_deduplicated_catalogue.py \\\n"
+                f"      {self.path} \\\n"
+                f"      data/super_catalogue_clean.h5 \\\n"
+                f"      --surveys {' '.join(surveys)}\n\n"
+                f"Then update your config to use the clean catalogue:\n"
+                f"  data:\n"
+                f"    catalogue_path: data/super_catalogue_clean.h5\n"
+                f"{'='*60}\n"
+            )
+
     def load_merged(
         self,
         surveys: list[str],
-        smart_deduplicate: bool = True,
-        chi2_threshold: float = 2.0,
         label_source: str = "apogee",
     ) -> MergedCatalogueData:
         """
         Load and merge multiple surveys with outer join structure.
 
-        This method loads data from multiple surveys, deduplicates within each
-        survey, then creates an outer join indexed by Gaia DR3 ID. Stars that
-        don't appear in a survey have ivar=0 for that survey (natural masking).
+        This method uses memory-efficient two-pass loading:
+        1. First pass: Load only metadata to check for duplicates
+        2. Second pass: Load spectra selectively using HDF5 indexed access
+
+        Stars that don't appear in a survey have ivar=0 (natural masking).
+
+        Note:
+            This method requires a pre-deduplicated catalogue. If duplicates are
+            found, an error is raised with instructions to run the deduplication
+            script: scripts/create_deduplicated_catalogue.py
 
         Args:
             surveys: List of survey names to load and merge.
-            smart_deduplicate: If True (default), use consistency-checking
-                deduplication (stack consistent observations, else take highest SNR).
-                If False, simply take the first observation per star.
-            chi2_threshold: Threshold for reduced chi-squared in smart deduplication.
             label_source: Primary label source to use for combined labels.
 
         Returns:
             MergedCatalogueData with outer join structure.
 
+        Raises:
+            ValueError: If duplicate observations are found in the catalogue.
+
         Example:
             >>> merged = loader.load_merged(["boss", "lamost_lrs", "desi"])
             >>> print(f"Total unique stars: {merged.n_stars}")
             >>> print(f"Coverage: {merged.get_coverage_stats()}")
-            >>> # Filter to stars with both BOSS and LAMOST
-            >>> subset = merged.filter_by_surveys(["boss", "lamost_lrs"])
         """
-        # Step 1: Load and deduplicate each survey
-        survey_data: dict[str, CatalogueData] = {}
-        all_gaia_ids: set[int] = set()
-
-        for survey in surveys:
-            print(f"Loading {survey}...")
-            data = self.load(survey=survey, label_source=label_source)
-
-            # Deduplicate within survey
-            if smart_deduplicate:
-                data = self._smart_deduplicate(data, chi2_threshold=chi2_threshold)
-            else:
-                data = self._deduplicate(data)
-
-            survey_data[survey] = data
-
-            # Collect valid Gaia IDs
-            for gid in data.gaia_ids:
-                gid_int = int(gid)
-                if gid_int > 0:
-                    all_gaia_ids.add(gid_int)
-
-        # Step 2: Create sorted union of all Gaia IDs
-        all_gaia_ids_sorted = np.array(sorted(all_gaia_ids), dtype=np.int64)
-        n_total = len(all_gaia_ids_sorted)
-        id_to_idx = {gid: i for i, gid in enumerate(all_gaia_ids_sorted)}
-
-        print(f"Total unique stars: {n_total:,}")
-
-        # Step 3: Build merged structure
-        merged_surveys: dict[str, dict[str, np.ndarray]] = {}
-
-        # Initialize common arrays
-        merged_ra = np.zeros(n_total, dtype=np.float64)
-        merged_dec = np.zeros(n_total, dtype=np.float64)
-        ra_set = np.zeros(n_total, dtype=bool)
-
-        # Primary labels (from specified label source, filled from first survey that has it)
         n_params = 11
-        primary_labels = np.zeros((n_total, n_params), dtype=np.float32)
-        primary_errors = np.zeros((n_total, n_params), dtype=np.float32)
-        primary_flags = np.zeros((n_total, n_params), dtype=np.uint8)
-        labels_set = np.zeros(n_total, dtype=bool)
 
-        for survey in surveys:
-            data = survey_data[survey]
-            n_wave = data.flux.shape[1]
+        with h5py.File(self.path, "r") as f:
+            # PASS 1: Load metadata and identify duplicates
+            (
+                survey_meta,
+                survey_resolved_labels,
+                all_gaia_ids_sorted,
+                n_total,
+                id_to_idx,
+            ) = self._collect_survey_metadata_pass1(surveys, label_source, f)
 
-            # Initialize arrays for this survey
-            flux = np.zeros((n_total, n_wave), dtype=np.float32)
-            ivar = np.zeros((n_total, n_wave), dtype=np.float32)
-            snr = np.zeros(n_total, dtype=np.float32)
-            has_data = np.zeros(n_total, dtype=bool)
-            labels = np.zeros((n_total, n_params), dtype=np.float32)
-            label_errors = np.zeros((n_total, n_params), dtype=np.float32)
-            label_flags = np.zeros((n_total, n_params), dtype=np.uint8)
+            # Always check for duplicates - require pre-deduplicated catalogue
+            self._check_for_duplicates(survey_meta, surveys)
 
-            # Fill in data for stars in this survey
-            for i, gid in enumerate(data.gaia_ids):
-                gid_int = int(gid)
-                if gid_int <= 0:
-                    continue  # Skip invalid IDs
+            # =========================================================
+            # PASS 2: Process each survey with selective spectra loading
+            # =========================================================
+            merged_surveys: dict[str, dict[str, np.ndarray]] = {}
 
-                idx = id_to_idx[gid_int]
-                flux[idx] = data.flux[i]
-                ivar[idx] = data.ivar[i]
-                snr[idx] = data.snr[i]
-                has_data[idx] = True
-                labels[idx] = data.labels[i]
-                label_errors[idx] = data.label_errors[i]
-                label_flags[idx] = data.label_flags[i]
+            # Initialize common arrays
+            merged_ra = np.zeros(n_total, dtype=np.float64)
+            merged_dec = np.zeros(n_total, dtype=np.float64)
+            ra_set = np.zeros(n_total, dtype=bool)
 
-                # Set RA/Dec from first survey that has it
-                if not ra_set[idx]:
-                    merged_ra[idx] = data.ra[i]
-                    merged_dec[idx] = data.dec[i]
-                    ra_set[idx] = True
+            primary_labels = np.zeros((n_total, n_params), dtype=np.float32)
+            primary_errors = np.zeros((n_total, n_params), dtype=np.float32)
+            primary_flags = np.zeros((n_total, n_params), dtype=np.uint8)
+            labels_set = np.zeros(n_total, dtype=bool)
 
-                # Set primary labels from first survey that has them
-                if not labels_set[idx] and np.any(data.label_errors[i] > 0):
-                    primary_labels[idx] = data.labels[i]
-                    primary_errors[idx] = data.label_errors[i]
-                    primary_flags[idx] = data.label_flags[i]
-                    labels_set[idx] = True
+            for survey in surveys:
+                meta = survey_meta[survey]
+                n_wave = meta["n_wavelengths"]
+                storage_format = meta["storage_format"]
 
-            merged_surveys[survey] = {
-                "flux": flux,
-                "ivar": ivar,
-                "wavelength": data.wavelength,
-                "snr": snr,
-                "has_data": has_data,
-                "labels": labels,
-                "label_errors": label_errors,
-                "label_flags": label_flags,
-            }
+                # Initialize arrays for this survey
+                flux = np.zeros((n_total, n_wave), dtype=np.float32)
+                ivar = np.zeros((n_total, n_wave), dtype=np.float32)
+                snr = np.zeros(n_total, dtype=np.float32)
+                has_data = np.zeros(n_total, dtype=bool)
+                labels = np.zeros((n_total, n_params), dtype=np.float32)
+                label_errors = np.zeros((n_total, n_params), dtype=np.float32)
+                label_flags = np.zeros((n_total, n_params), dtype=np.uint8)
 
-            n_with_data = int(has_data.sum())
-            print(f"  {survey}: {n_with_data:,} stars ({100*n_with_data/n_total:.1f}%)")
+                # --- Handle unique stars (load directly into final arrays) ---
+                # With deduplicated catalogue, all stars should be unique
+                unique_indices = meta["unique_indices"]
+                if len(unique_indices) > 0:
+                    # Load spectra for unique stars
+                    sorted_unique = np.sort(unique_indices)
+                    unique_flux, unique_ivar = self._load_spectra_for_indices(
+                        survey, sorted_unique, storage_format, f
+                    )
+
+                    # Map back to original order
+                    reorder = np.argsort(np.argsort(unique_indices))
+                    unique_flux = unique_flux[reorder]
+                    unique_ivar = unique_ivar[reorder]
+
+                    # Get merged indices for unique stars
+                    unique_gaia_ids = meta["gaia_ids"][unique_indices].astype(np.int64)
+                    merged_indices = np.array(
+                        [id_to_idx[int(gid)] for gid in unique_gaia_ids], dtype=np.intp
+                    )
+
+                    # Bulk copy
+                    flux[merged_indices] = unique_flux
+                    ivar[merged_indices] = unique_ivar
+                    snr[merged_indices] = meta["snr"][unique_indices]
+                    has_data[merged_indices] = True
+                    labels[merged_indices] = meta["labels"][unique_indices]
+                    label_errors[merged_indices] = meta["label_errors"][unique_indices]
+                    label_flags[merged_indices] = meta["label_flags"][unique_indices]
+
+                    # RA/Dec for unique stars
+                    ra_not_set = ~ra_set[merged_indices]
+                    if np.any(ra_not_set):
+                        update_merged = merged_indices[ra_not_set]
+                        update_orig = unique_indices[ra_not_set]
+                        merged_ra[update_merged] = meta["ra"][update_orig]
+                        merged_dec[update_merged] = meta["dec"][update_orig]
+                        ra_set[update_merged] = True
+
+                    # Primary labels for unique stars
+                    labels_not_set = ~labels_set[merged_indices]
+                    has_valid_errors = np.any(
+                        meta["label_errors"][unique_indices] > 0, axis=1
+                    )
+                    should_set = labels_not_set & has_valid_errors
+                    if np.any(should_set):
+                        update_merged = merged_indices[should_set]
+                        update_orig = unique_indices[should_set]
+                        primary_labels[update_merged] = meta["labels"][update_orig]
+                        primary_errors[update_merged] = meta["label_errors"][
+                            update_orig
+                        ]
+                        primary_flags[update_merged] = meta["label_flags"][update_orig]
+                        labels_set[update_merged] = True
+
+                    del unique_flux, unique_ivar
+                    gc.collect()
+
+                # Store survey results
+                merged_surveys[survey] = {
+                    "flux": flux,
+                    "ivar": ivar,
+                    "wavelength": meta["wavelength"],
+                    "snr": snr,
+                    "has_data": has_data,
+                    "labels": labels,
+                    "label_errors": label_errors,
+                    "label_flags": label_flags,
+                }
+
+                n_with_data = int(has_data.sum())
+                print(
+                    f"  {survey}: {n_with_data:,} stars ({100*n_with_data/n_total:.1f}%)"
+                )
+
+        # Clean up
+        del survey_meta
+        gc.collect()
 
         return MergedCatalogueData(
             gaia_ids=all_gaia_ids_sorted,
@@ -954,6 +1377,325 @@ class CatalogueLoader:
             primary_flags=primary_flags,
         )
 
+    def load_merged_sparse(
+        self,
+        surveys: list[str],
+        label_source: str = "apogee",
+        max_flag_bits: int = 0,
+        label_sources: list[str] | None = None,
+    ) -> SparseMergedData:
+        """
+        Load and merge multiple surveys with memory-efficient sparse storage.
+
+        Unlike load_merged() which stores dense arrays (with zeros for missing
+        stars), this method stores only stars that have actual data per survey.
+        This reduces memory usage by 60-80% for multi-survey datasets.
+
+        Memory comparison for 155K total stars:
+        - Dense (load_merged): ~28 GB for spectra
+        - Sparse (this method): ~7 GB for spectra
+
+        Note:
+            This method requires a pre-deduplicated catalogue. If duplicates are
+            found, an error is raised with instructions to run the deduplication
+            script: scripts/create_deduplicated_catalogue.py
+
+        Args:
+            surveys: List of survey names to load and merge.
+            label_source: Primary label source to use for combined labels.
+            max_flag_bits: Maximum flag bits allowed (0 = highest quality).
+            label_sources: Optional list of label sources for multi-label training.
+                If provided, labels_dict and has_labels_dict will be populated
+                with labels from each source. The primary `labels` array uses
+                the first source in the list (or label_source if not provided).
+
+        Returns:
+            SparseMergedData with memory-efficient sparse survey storage.
+            Use with trainer's sparse batch construction for training.
+
+        Raises:
+            ValueError: If duplicate observations are found in the catalogue.
+
+        Example:
+            >>> sparse_data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
+            >>> print(f"Memory: {sparse_data.memory_usage_mb()['total']:.1f} MB")
+            >>> print(f"Coverage: {sparse_data.get_coverage_stats()}")
+            >>>
+            >>> # Multi-label loading
+            >>> sparse_data = loader.load_merged_sparse(
+            ...     ["lamost_lrs", "lamost_mrs"],
+            ...     label_sources=["apogee", "galah"]
+            ... )
+            >>> print(f"Multi-label: {sparse_data.is_multi_label()}")
+        """
+        n_params = 11
+
+        with h5py.File(self.path, "r") as f:
+            # PASS 1: Load metadata and identify duplicates
+            (
+                survey_meta,
+                survey_resolved_labels,
+                all_gaia_ids_sorted,
+                n_total,
+                id_to_idx,
+            ) = self._collect_survey_metadata_pass1(surveys, label_source, f)
+
+            # Always check for duplicates - require pre-deduplicated catalogue
+            self._check_for_duplicates(survey_meta, surveys)
+
+            # =========================================================
+            # PASS 2: Process each survey and build sparse arrays
+            # =========================================================
+            sparse_flux: dict[str, np.ndarray] = {}
+            sparse_ivar: dict[str, np.ndarray] = {}
+            sparse_snr: dict[str, np.ndarray] = {}
+            wavelengths: dict[str, np.ndarray] = {}
+            global_to_local: dict[str, np.ndarray] = {}
+            local_to_global: dict[str, np.ndarray] = {}
+
+            # Initialize common arrays (dense - these are needed for all stars)
+            merged_ra = np.zeros(n_total, dtype=np.float64)
+            merged_dec = np.zeros(n_total, dtype=np.float64)
+            ra_set = np.zeros(n_total, dtype=bool)
+
+            primary_labels = np.zeros((n_total, n_params), dtype=np.float32)
+            primary_errors = np.zeros((n_total, n_params), dtype=np.float32)
+            primary_flags = np.zeros((n_total, n_params), dtype=np.uint8)
+            labels_set = np.zeros(n_total, dtype=bool)
+
+            for survey in surveys:
+                meta = survey_meta[survey]
+                n_wave = meta["n_wavelengths"]
+                storage_format = meta["storage_format"]
+
+                # Track which global indices have data for this survey
+                has_data_mask = np.zeros(n_total, dtype=bool)
+
+                # Temporary storage for this survey's data
+                # Maps global_idx -> (flux, ivar, snr)
+                survey_results: dict[int, tuple[np.ndarray, np.ndarray, float]] = {}
+
+                # --- Handle unique stars (all stars should be unique with deduplicated catalogue) ---
+                unique_indices = meta["unique_indices"]
+                if len(unique_indices) > 0:
+                    # Load spectra for unique stars
+                    sorted_unique = np.sort(unique_indices)
+                    unique_flux, unique_ivar = self._load_spectra_for_indices(
+                        survey, sorted_unique, storage_format, f
+                    )
+
+                    # Map back to original order
+                    reorder = np.argsort(np.argsort(unique_indices))
+                    unique_flux = unique_flux[reorder]
+                    unique_ivar = unique_ivar[reorder]
+
+                    for i, orig_idx in enumerate(unique_indices):
+                        gid_int = int(meta["gaia_ids"][orig_idx])
+                        merged_idx = id_to_idx[gid_int]
+
+                        survey_results[merged_idx] = (
+                            unique_flux[i],
+                            unique_ivar[i],
+                            float(meta["snr"][orig_idx]),
+                        )
+                        has_data_mask[merged_idx] = True
+
+                        if not ra_set[merged_idx]:
+                            merged_ra[merged_idx] = meta["ra"][orig_idx]
+                            merged_dec[merged_idx] = meta["dec"][orig_idx]
+                            ra_set[merged_idx] = True
+
+                        if (
+                            not labels_set[merged_idx]
+                            and meta["label_errors"][orig_idx].any()
+                        ):
+                            primary_labels[merged_idx] = meta["labels"][orig_idx]
+                            primary_errors[merged_idx] = meta["label_errors"][orig_idx]
+                            primary_flags[merged_idx] = meta["label_flags"][orig_idx]
+                            labels_set[merged_idx] = True
+
+                    del unique_flux, unique_ivar
+                    gc.collect()
+
+                # Build sparse arrays for this survey
+                n_with_data = int(has_data_mask.sum())
+                local_indices = np.where(has_data_mask)[0].astype(np.int32)
+
+                # Build index mappings
+                g2l = np.full(n_total, -1, dtype=np.int32)
+                g2l[local_indices] = np.arange(n_with_data, dtype=np.int32)
+                global_to_local[survey] = g2l
+                local_to_global[survey] = local_indices
+
+                # Allocate sparse arrays and fill from results
+                survey_flux = np.zeros((n_with_data, n_wave), dtype=np.float32)
+                survey_ivar = np.zeros((n_with_data, n_wave), dtype=np.float32)
+                survey_snr = np.zeros(n_with_data, dtype=np.float32)
+
+                for global_idx, (fl, iv, sn) in survey_results.items():
+                    local_idx = g2l[global_idx]
+                    survey_flux[local_idx] = fl
+                    survey_ivar[local_idx] = iv
+                    survey_snr[local_idx] = sn
+
+                sparse_flux[survey] = survey_flux
+                sparse_ivar[survey] = survey_ivar
+                sparse_snr[survey] = survey_snr
+                wavelengths[survey] = meta["wavelength"]
+
+                print(
+                    f"  {survey}: {n_with_data:,} stars ({100*n_with_data/n_total:.1f}%)"
+                )
+
+                # Clean up survey results
+                del survey_results
+                gc.collect()
+
+        # Clean up
+        del survey_meta
+        gc.collect()
+
+        # Build 3-channel label format: [values, errors, mask]
+        # Apply flag filtering to label mask
+        if max_flag_bits >= 0:
+            flag_bits = np.sum(
+                np.bitwise_count(primary_flags.astype(np.uint64)), axis=1
+            )
+            flag_ok = flag_bits <= max_flag_bits
+        else:
+            flag_ok = np.ones(n_total, dtype=bool)
+
+        label_mask = (
+            (primary_flags == 0) & (primary_errors > 0) & flag_ok[:, None]
+        ).astype(np.float32)
+
+        labels_3ch = np.stack([primary_labels, primary_errors, label_mask], axis=1)
+
+        # Multi-label support: load additional label sources if requested
+        labels_dict_out: dict[str, np.ndarray] | None = None
+        has_labels_dict_out: dict[str, np.ndarray] | None = None
+        label_sources_out: list[str] | None = None
+
+        if label_sources is not None and len(label_sources) > 1:
+            labels_dict_out = {}
+            has_labels_dict_out = {}
+            label_sources_out = label_sources
+
+            with h5py.File(self.path, "r") as f:
+                if "labels" not in f:
+                    raise ValueError("Catalogue has no 'labels' group")
+
+                available_labels = list(f["labels"].keys())
+
+                for source in label_sources:
+                    # Check if this is the primary source (already loaded)
+                    if source == label_source:
+                        # Use the already-loaded primary labels
+                        labels_dict_out[source] = labels_3ch.copy()
+                        has_labels_out = np.any(primary_errors > 0, axis=1)
+                        has_labels_dict_out[source] = has_labels_out
+                        continue
+
+                    # Resolve source name with fallback logic
+                    resolved_source = source
+                    if source not in f["labels"]:
+                        # Try {source}_{survey} patterns
+                        found = False
+                        for survey in surveys:
+                            survey_specific = f"{source}_{survey}"
+                            if survey_specific in f["labels"]:
+                                resolved_source = survey_specific
+                                found = True
+                                break
+                        if not found:
+                            raise ValueError(
+                                f"Label source '{source}' not in catalogue. "
+                                f"Available: {available_labels}"
+                            )
+
+                    label_grp = f["labels"][resolved_source]
+
+                    if "gaia_id" not in label_grp:
+                        # Can't properly align from file; duplicate primary labels
+                        labels_dict_out[source] = labels_3ch.copy()
+                        has_labels_out = np.any(primary_errors > 0, axis=1)
+                        has_labels_dict_out[source] = has_labels_out
+                        continue
+
+                    # Load label data from file
+                    source_values = label_grp["values"][:]
+                    source_errors = label_grp["errors"][:]
+                    source_flags = label_grp["flags"][:]
+                    source_gaia_ids = label_grp["gaia_id"][:]
+
+                    # Initialize arrays aligned to merged gaia_ids
+                    values = np.zeros((n_total, n_params), dtype=np.float32)
+                    errors = np.zeros((n_total, n_params), dtype=np.float32)
+                    flags = np.zeros((n_total, n_params), dtype=np.uint8)
+                    has_labels_arr = np.zeros(n_total, dtype=bool)
+
+                    # Map label source data to merged structure (vectorized)
+                    source_gaia_ids_int = source_gaia_ids.astype(np.int64)
+                    # Find which source IDs exist in merged set
+                    valid_source_mask = np.isin(
+                        source_gaia_ids_int, all_gaia_ids_sorted
+                    )
+                    valid_source_idx = np.where(valid_source_mask)[0]
+                    valid_source_gids = source_gaia_ids_int[valid_source_mask]
+
+                    # Get merged indices for matching IDs (use id_to_idx dict)
+                    merged_idx = np.array(
+                        [id_to_idx[int(gid)] for gid in valid_source_gids],
+                        dtype=np.intp,
+                    )
+
+                    # Bulk copy
+                    values[merged_idx] = source_values[valid_source_idx]
+                    errors[merged_idx] = source_errors[valid_source_idx]
+                    flags[merged_idx] = source_flags[valid_source_idx]
+                    has_labels_arr[merged_idx] = np.any(
+                        source_errors[valid_source_idx] > 0, axis=1
+                    )
+
+                    # Apply flag filtering (vectorized)
+                    if max_flag_bits >= 0:
+                        source_flag_bits = np.sum(
+                            np.bitwise_count(flags.astype(np.uint64)), axis=1
+                        )
+                        source_flag_ok = source_flag_bits <= max_flag_bits
+                    else:
+                        source_flag_ok = np.ones(n_total, dtype=bool)
+
+                    # Create label mask
+                    source_label_mask = (
+                        (flags == 0) & (errors > 0) & source_flag_ok[:, None]
+                    ).astype(np.float32)
+
+                    # Stack into 3-channel format
+                    labels_dict_out[source] = np.stack(
+                        [values, errors, source_label_mask], axis=1
+                    )
+                    has_labels_dict_out[source] = has_labels_arr
+
+        return SparseMergedData(
+            flux=sparse_flux,
+            ivar=sparse_ivar,
+            wavelengths=wavelengths,
+            snr=sparse_snr,
+            global_to_local=global_to_local,
+            local_to_global=local_to_global,
+            labels=labels_3ch,
+            gaia_ids=all_gaia_ids_sorted,
+            ra=merged_ra,
+            dec=merged_dec,
+            surveys=surveys,
+            n_total=n_total,
+            n_params=n_params,
+            labels_dict=labels_dict_out,
+            has_labels_dict=has_labels_dict_out,
+            label_sources=label_sources_out,
+        )
+
     def _deduplicate(self, data: CatalogueData) -> CatalogueData:
         """
         Remove duplicate observations, keeping only the first occurrence per star.
@@ -962,25 +1704,35 @@ class CatalogueLoader:
         they may represent different stars that couldn't be cross-matched.
         """
         ids = data.gaia_ids
-        seen = set()
-        keep_indices = []
 
-        for idx, gid in enumerate(ids):
-            if np.issubdtype(ids.dtype, np.integer):
-                gid_int = int(gid)
-                # Keep all invalid IDs (can't deduplicate unknown stars)
-                if gid_int <= 0:
-                    keep_indices.append(idx)
-                    continue
-                gid_key = gid_int
-            else:
+        if np.issubdtype(ids.dtype, np.integer):
+            # Vectorized deduplication for integer IDs
+            # Invalid IDs (<=0) are kept; for valid IDs, keep first occurrence
+            invalid_mask = ids <= 0
+            invalid_indices = np.where(invalid_mask)[0]
+
+            # For valid IDs, use numpy.unique to find first occurrences
+            valid_mask = ~invalid_mask
+            valid_ids = ids[valid_mask]
+            valid_original_indices = np.where(valid_mask)[0]
+
+            # np.unique returns indices of first occurrences in the valid subset
+            _, first_in_subset = np.unique(valid_ids, return_index=True)
+            valid_first_indices = valid_original_indices[first_in_subset]
+
+            # Combine invalid indices (all kept) with first occurrences of valid IDs
+            indices = np.union1d(invalid_indices, valid_first_indices)
+            indices = np.sort(indices)  # Maintain original order
+        else:
+            # Fallback for string IDs (less common)
+            seen = set()
+            keep_indices = []
+            for idx, gid in enumerate(ids):
                 gid_key = str(gid)
-
-            if gid_key not in seen:
-                seen.add(gid_key)
-                keep_indices.append(idx)
-
-        indices = np.array(keep_indices)
+                if gid_key not in seen:
+                    seen.add(gid_key)
+                    keep_indices.append(idx)
+            indices = np.array(keep_indices)
         return CatalogueData(
             gaia_ids=data.gaia_ids[indices],
             ra=data.ra[indices],
@@ -992,203 +1744,6 @@ class CatalogueLoader:
             labels=data.labels[indices],
             label_errors=data.label_errors[indices],
             label_flags=data.label_flags[indices],
-            survey_name=data.survey_name,
-            label_source=data.label_source,
-        )
-
-    def _smart_deduplicate(
-        self,
-        data: CatalogueData,
-        chi2_threshold: float = 2.0,
-    ) -> CatalogueData:
-        """
-        Deduplicate by stacking consistent observations or taking highest SNR.
-
-        For each star with multiple observations:
-        1. Compute inverse-variance weighted mean spectrum
-        2. Compute reduced chi-squared across all observations
-        3. If chi2_red < threshold: stack all observations (weighted average)
-        4. Otherwise: take the observation with highest SNR
-
-        Args:
-            data: Input CatalogueData with possible duplicates.
-            chi2_threshold: Maximum reduced chi-squared to consider consistent.
-
-        Returns:
-            Deduplicated CatalogueData with one row per unique star.
-        """
-        ids = data.gaia_ids
-
-        # Group indices by Gaia ID
-        id_to_indices: dict[int, list[int]] = {}
-        invalid_indices = []
-
-        for idx, gid in enumerate(ids):
-            if np.issubdtype(ids.dtype, np.integer):
-                gid_int = int(gid)
-                if gid_int <= 0:
-                    invalid_indices.append(idx)
-                    continue
-                gid_key = gid_int
-            else:
-                gid_key = hash(str(gid))
-
-            if gid_key not in id_to_indices:
-                id_to_indices[gid_key] = []
-            id_to_indices[gid_key].append(idx)
-
-        # Process each unique star
-        n_unique = len(id_to_indices) + len(invalid_indices)
-        n_wavelengths = data.flux.shape[1]
-        n_params = data.labels.shape[1]
-
-        # Pre-allocate output arrays
-        out_gaia_ids = np.zeros(n_unique, dtype=data.gaia_ids.dtype)
-        out_ra = np.zeros(n_unique, dtype=data.ra.dtype)
-        out_dec = np.zeros(n_unique, dtype=data.dec.dtype)
-        out_flux = np.zeros((n_unique, n_wavelengths), dtype=np.float32)
-        out_ivar = np.zeros((n_unique, n_wavelengths), dtype=np.float32)
-        out_snr = np.zeros(n_unique, dtype=np.float32)
-        out_labels = np.zeros((n_unique, n_params), dtype=np.float32)
-        out_errors = np.zeros((n_unique, n_params), dtype=np.float32)
-        out_flags = np.zeros((n_unique, n_params), dtype=np.uint8)
-
-        out_idx = 0
-        n_stacked = 0
-        n_highest_snr = 0
-
-        # Handle invalid IDs first (keep as-is)
-        for idx in invalid_indices:
-            out_gaia_ids[out_idx] = data.gaia_ids[idx]
-            out_ra[out_idx] = data.ra[idx]
-            out_dec[out_idx] = data.dec[idx]
-            out_flux[out_idx] = data.flux[idx]
-            out_ivar[out_idx] = data.ivar[idx]
-            out_snr[out_idx] = data.snr[idx]
-            out_labels[out_idx] = data.labels[idx]
-            out_errors[out_idx] = data.label_errors[idx]
-            out_flags[out_idx] = data.label_flags[idx]
-            out_idx += 1
-
-        # Process each unique star
-        for _gid_key, indices in id_to_indices.items():
-            if len(indices) == 1:
-                # Single observation - just copy
-                idx = indices[0]
-                out_gaia_ids[out_idx] = data.gaia_ids[idx]
-                out_ra[out_idx] = data.ra[idx]
-                out_dec[out_idx] = data.dec[idx]
-                out_flux[out_idx] = data.flux[idx]
-                out_ivar[out_idx] = data.ivar[idx]
-                out_snr[out_idx] = data.snr[idx]
-                out_labels[out_idx] = data.labels[idx]
-                out_errors[out_idx] = data.label_errors[idx]
-                out_flags[out_idx] = data.label_flags[idx]
-            else:
-                # Multiple observations - check consistency
-                obs_flux = data.flux[indices]  # (N_obs, N_wave)
-                obs_ivar = data.ivar[indices]  # (N_obs, N_wave)
-                obs_snr = data.snr[indices]  # (N_obs,)
-                obs_labels = data.labels[indices]  # (N_obs, N_params)
-                obs_errors = data.label_errors[indices]  # (N_obs, N_params)
-
-                # Compute inverse-variance weighted mean spectrum
-                sum_weights = np.sum(obs_ivar, axis=0)  # (N_wave,)
-                valid = sum_weights > 0
-                weighted_flux = np.zeros(n_wavelengths, dtype=np.float32)
-                weighted_flux[valid] = (
-                    np.sum(obs_flux[:, valid] * obs_ivar[:, valid], axis=0)
-                    / sum_weights[valid]
-                )
-
-                # Compute reduced chi-squared for spectra
-                # chi2 = sum((flux_i - mean)^2 * ivar_i) / (N_obs - 1)
-                residuals_sq = (obs_flux - weighted_flux) ** 2 * obs_ivar
-                chi2_per_pixel = np.sum(residuals_sq, axis=0)  # sum over observations
-                n_obs = len(indices)
-                # Only count pixels with valid data from multiple observations
-                multi_obs_pixels = np.sum(obs_ivar > 0, axis=0) > 1
-                if multi_obs_pixels.sum() > 0:
-                    chi2_red = chi2_per_pixel[multi_obs_pixels].sum() / (
-                        multi_obs_pixels.sum() * (n_obs - 1)
-                    )
-                else:
-                    chi2_red = 0.0  # Can't compute, assume consistent
-
-                if chi2_red < chi2_threshold:
-                    # Consistent - stack spectra
-                    n_stacked += 1
-                    out_flux[out_idx] = weighted_flux
-                    out_ivar[out_idx] = sum_weights
-
-                    # Stack labels (inverse-variance weighted, mask-aware)
-                    # Only include labels where error > 0 (valid/unmasked)
-                    valid_labels = obs_errors > 0
-                    obs_weights = np.zeros_like(obs_errors)
-                    obs_weights[valid_labels] = 1.0 / (obs_errors[valid_labels] ** 2)
-
-                    sum_label_weights = np.sum(obs_weights, axis=0)
-                    has_valid = sum_label_weights > 0
-
-                    # Weighted average where we have valid labels
-                    out_labels[out_idx, has_valid] = (
-                        np.sum(
-                            obs_labels[:, has_valid] * obs_weights[:, has_valid], axis=0
-                        )
-                        / sum_label_weights[has_valid]
-                    )
-                    out_errors[out_idx, has_valid] = 1.0 / np.sqrt(
-                        sum_label_weights[has_valid]
-                    )
-
-                    # For parameters with no valid labels, keep them masked (error=0)
-                    out_labels[out_idx, ~has_valid] = 0.0
-                    out_errors[out_idx, ~has_valid] = 0.0
-
-                    # Combine flags (OR across observations)
-                    out_flags[out_idx] = np.bitwise_or.reduce(
-                        data.label_flags[indices], axis=0
-                    )
-
-                    # SNR of stacked spectrum (approximate)
-                    out_snr[out_idx] = np.sqrt(np.sum(obs_snr**2))
-                else:
-                    # Inconsistent - take highest SNR
-                    n_highest_snr += 1
-                    best_idx = indices[np.argmax(obs_snr)]
-                    out_flux[out_idx] = data.flux[best_idx]
-                    out_ivar[out_idx] = data.ivar[best_idx]
-                    out_snr[out_idx] = data.snr[best_idx]
-                    out_labels[out_idx] = data.labels[best_idx]
-                    out_errors[out_idx] = data.label_errors[best_idx]
-                    out_flags[out_idx] = data.label_flags[best_idx]
-
-                # Common metadata (from first observation)
-                out_gaia_ids[out_idx] = data.gaia_ids[indices[0]]
-                out_ra[out_idx] = data.ra[indices[0]]
-                out_dec[out_idx] = data.dec[indices[0]]
-
-            out_idx += 1
-
-        # Log statistics
-        n_with_dups = sum(1 for indices in id_to_indices.values() if len(indices) > 1)
-        if n_with_dups > 0:
-            print(
-                f"  Deduplication: {n_with_dups} stars with duplicates "
-                f"({n_stacked} stacked, {n_highest_snr} took highest SNR)"
-            )
-
-        return CatalogueData(
-            gaia_ids=out_gaia_ids,
-            ra=out_ra,
-            dec=out_dec,
-            flux=out_flux,
-            ivar=out_ivar,
-            wavelength=data.wavelength,
-            snr=out_snr,
-            labels=out_labels,
-            label_errors=out_errors,
-            label_flags=out_flags,
             survey_name=data.survey_name,
             label_source=data.label_source,
         )
@@ -1208,8 +1763,6 @@ class CatalogueLoader:
     def load_merged_for_training(
         self,
         surveys: list[str],
-        smart_deduplicate: bool = True,
-        chi2_threshold: float = 2.0,
         label_source: str = "apogee",
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
@@ -1230,11 +1783,13 @@ class CatalogueLoader:
         provided, returns labels and masks for each source, enabling union-style
         training with per-source loss masking.
 
+        Note:
+            This method requires a pre-deduplicated catalogue. If duplicates are
+            found, an error is raised with instructions to run the deduplication
+            script: scripts/create_deduplicated_catalogue.py
+
         Args:
             surveys: List of survey names to load and merge.
-            smart_deduplicate: If True (default), use consistency-checking
-                deduplication. If False, simply take the first observation.
-            chi2_threshold: Threshold for reduced chi-squared in smart dedup.
             label_source: Primary label source to use for combined labels.
                 Used when label_sources is None (single-source mode).
             max_flag_bits: Maximum flag bits allowed (0 = highest quality).
@@ -1281,8 +1836,6 @@ class CatalogueLoader:
         # Load merged data
         merged = self.load_merged(
             surveys=surveys,
-            smart_deduplicate=smart_deduplicate,
-            chi2_threshold=chi2_threshold,
             label_source=label_source,
         )
 
@@ -1310,14 +1863,12 @@ class CatalogueLoader:
         # Single-source mode: return single y array
         if label_sources is None:
             # Create 3-channel label data: [values, errors, mask]
-            # Apply flag filtering to label mask
+            # Apply flag filtering to label mask (vectorized)
             if max_flag_bits >= 0:
                 # Count bits set in each flag
-                flag_bits = np.zeros(merged.n_stars, dtype=int)
-                for i in range(11):
-                    flag_bits += np.bitwise_count(
-                        merged.primary_flags[:, i].astype(np.uint64)
-                    )
+                flag_bits = np.sum(
+                    np.bitwise_count(merged.primary_flags.astype(np.uint64)), axis=1
+                )
                 flag_ok = flag_bits <= max_flag_bits
             else:
                 flag_ok = np.ones(merged.n_stars, dtype=bool)
@@ -1403,22 +1954,32 @@ class CatalogueLoader:
                         int(gid): i for i, gid in enumerate(merged.gaia_ids)
                     }
 
-                    # Map label source data to merged structure
-                    for i, gid in enumerate(source_gaia_ids):
-                        gid_int = int(gid)
-                        if gid_int in merged_id_to_idx:
-                            idx = merged_id_to_idx[gid_int]
-                            values[idx] = source_values[i]
-                            errors[idx] = source_errors[i]
-                            flags[idx] = source_flags[i]
-                            # Star has labels if at least one error is positive
-                            has_labels[idx] = np.any(source_errors[i] > 0)
+                    # Map label source data to merged structure (vectorized)
+                    source_gaia_ids_int = source_gaia_ids.astype(np.int64)
+                    # Find which source IDs exist in merged set
+                    valid_source_mask = np.isin(source_gaia_ids_int, merged.gaia_ids)
+                    valid_source_idx = np.where(valid_source_mask)[0]
+                    valid_source_gids = source_gaia_ids_int[valid_source_mask]
 
-                # Apply flag filtering
+                    # Get merged indices for matching IDs
+                    merged_idx = np.array(
+                        [merged_id_to_idx[int(gid)] for gid in valid_source_gids],
+                        dtype=np.intp,
+                    )
+
+                    # Bulk copy
+                    values[merged_idx] = source_values[valid_source_idx]
+                    errors[merged_idx] = source_errors[valid_source_idx]
+                    flags[merged_idx] = source_flags[valid_source_idx]
+                    has_labels[merged_idx] = np.any(
+                        source_errors[valid_source_idx] > 0, axis=1
+                    )
+
+                # Apply flag filtering (vectorized)
                 if max_flag_bits >= 0:
-                    flag_bits = np.zeros(n_stars, dtype=int)
-                    for i in range(n_params):
-                        flag_bits += np.bitwise_count(flags[:, i].astype(np.uint64))
+                    flag_bits = np.sum(
+                        np.bitwise_count(flags.astype(np.uint64)), axis=1
+                    )
                     flag_ok = flag_bits <= max_flag_bits
                 else:
                     flag_ok = np.ones(n_stars, dtype=bool)
@@ -1456,5 +2017,10 @@ class CatalogueLoader:
             for survey in surveys:
                 if survey not in f["surveys"]:
                     raise ValueError(f"Survey '{survey}' not in catalogue")
-                result[survey] = f["surveys"][survey]["wavelength"].shape[0]
+                survey_grp = f["surveys"][survey]
+                n_wavelengths = survey_grp["wavelength"].shape[0]
+                # LAMOST MRS has 2 arms that get concatenated, so double the count
+                if "spectra" in survey_grp:
+                    n_wavelengths *= 2
+                result[survey] = n_wavelengths
         return result
