@@ -4,7 +4,8 @@ from dorothy.config.schema import (
     CombinationMode,
     DataConfig,
     ExperimentConfig,
-    MaskingConfig,
+    InputMaskingConfig,
+    LabelMaskingConfig,
     ModelConfig,
     MultiHeadModelConfig,
     SchedulerConfig,
@@ -19,6 +20,7 @@ __all__ = [
     "MultiHeadModelConfig",
     "CombinationMode",
     "TrainingConfig",
-    "MaskingConfig",
+    "LabelMaskingConfig",
+    "InputMaskingConfig",
     "SchedulerConfig",
 ]

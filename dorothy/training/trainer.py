@@ -42,7 +42,6 @@ from dorothy.config.schema import (
     SchedulerType,
 )
 from dorothy.data.augmentation import (
-    DynamicBlockMasking,
     DynamicInputMasking,
     DynamicLabelMasking,
 )
@@ -343,12 +342,10 @@ class Trainer:
         # Normalizer will be fitted during training
         self.normalizer: LabelNormalizer | None = None
 
-        # Augmentation will be created during fit() if configured
-        self._augmentation: DynamicBlockMasking | None = None
-
         # Dynamic masking for hierarchical label/input augmentation
         self._label_masking: DynamicLabelMasking | None = None
         self._input_masking: DynamicInputMasking | None = None
+        self._survey_wavelengths: dict[str, int] | None = None
 
     def _resolve_device(self, device: str) -> torch.device:
         """Resolve the device string to a torch.device."""
@@ -509,7 +506,6 @@ class Trainer:
         X_val: np.ndarray | torch.Tensor,
         y_val: np.ndarray | torch.Tensor,
         normalize_labels: bool = True,
-        augmentation: DynamicBlockMasking | None = None,
     ) -> TrainingHistory:
         """
         Train the model.
@@ -528,9 +524,6 @@ class Trainer:
                 and transforms both train and validation labels to normalized space.
                 Normalization is applied to channels 0-1 (values and errors),
                 channel 2 (mask) is preserved unchanged.
-            augmentation: Optional DynamicBlockMasking augmentation to apply during
-                training. If None but config.masking.enabled is True, creates one
-                from config.
 
         Returns:
             TrainingHistory with loss curves and metrics.
@@ -581,19 +574,25 @@ class Trainer:
                 [val_labels_norm, val_errors_norm, y_val_np[:, 2, :]], axis=1
             )
 
-        # Create augmentation from config if not provided
-        if augmentation is None and self.config.masking.enabled:
-            augmentation = DynamicBlockMasking(
-                min_fraction=self.config.masking.min_fraction,
-                max_fraction=self.config.masking.max_fraction,
-                fraction_choices=self.config.masking.fraction_choices,
-                min_block_size=self.config.masking.min_block_size,
-                max_block_size=self.config.masking.max_block_size,
+        # Create input masking from config if enabled
+        # For single-survey, we wrap tensor as dict and use DynamicInputMasking
+        if self.config.input_masking.enabled:
+            # Get n_wavelengths from input shape
+            n_wavelengths = (
+                X_train.shape[2]
+                if isinstance(X_train, (np.ndarray, torch.Tensor))
+                else X_train.shape[2]
             )
-            logger.info(f"Created augmentation from config: {augmentation}")
-
-        # Store augmentation for use in training
-        self._augmentation = augmentation
+            self._survey_wavelengths = {"default": n_wavelengths}
+            self._input_masking = DynamicInputMasking(
+                p_survey_min=1.0,  # Always keep single survey
+                p_survey_max=1.0,
+                f_min_override=self.config.input_masking.f_min_override,
+                f_max=self.config.input_masking.f_max,
+                p_block_min=self.config.input_masking.p_block_min,
+                p_block_max=self.config.input_masking.p_block_max,
+            )
+            logger.info(f"Created input masking: {self._input_masking}")
 
         # Create label masking from config if enabled
         if self.config.label_masking.enabled:
@@ -646,8 +645,8 @@ class Trainer:
 
         start_time = time.time()
         logger.info(f"Starting training for {n_epochs} epochs")
-        if self._augmentation is not None:
-            logger.info("Dynamic block masking augmentation enabled for training")
+        if self._input_masking is not None:
+            logger.info("Dynamic input masking enabled for training")
 
         # Initialize grokking metric tracking
         initial_weight_norms = self._compute_weight_norms()
@@ -862,9 +861,13 @@ class Trainer:
             X_batch = X_shuffled[start:end].to(self.device)
             y_batch = y_shuffled[start:end].to(self.device)
 
-            # Apply augmentation if available (training only)
-            if self._augmentation is not None:
-                X_batch = self._augmentation(X_batch)
+            # Apply input masking if available (training only)
+            if self._input_masking is not None:
+                X_batch_dict = {"default": X_batch}
+                X_batch_dict = self._input_masking(
+                    X_batch_dict, self._survey_wavelengths
+                )
+                X_batch = X_batch_dict["default"]
 
             # Apply label masking if available (training only)
             if self._label_masking is not None:

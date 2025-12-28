@@ -48,12 +48,12 @@ training:
     div_factor: 25.0                      # Initial LR = max_lr / div_factor
     final_div_factor: 10000.0             # Final LR = initial_lr / final_div_factor
 
-# Optional dynamic block masking for robustness (disabled by default)
-masking:
+# Optional dynamic input masking for robustness (disabled by default)
+input_masking:
   enabled: false
-  min_fraction: 0.1                       # Minimum fraction of wavelengths to mask
-  max_fraction: 0.3                       # Maximum fraction of wavelengths to mask
-  min_block_size: 5                       # Minimum size of each masked block
+  f_max: 0.3                              # Maximum fraction of wavelengths to mask
+  p_block_min: 0.7                        # Min probability of keeping each block
+  p_block_max: 0.9                        # Max probability of keeping each block
 
 # Output configuration
 output_dir: ./outputs

@@ -19,7 +19,6 @@ from dorothy.config.schema import (
     DataConfig,
     ExperimentConfig,
     LossType,
-    MaskingConfig,
     ModelConfig,
     NormalizationType,
     SchedulerConfig,
@@ -238,54 +237,6 @@ class TestTrainingConfig:
         # Too large rejected
         with pytest.raises(ValidationError):
             TrainingConfig(scatter_floor=2.0)
-
-
-class TestMaskingConfig:
-    """Tests for MaskingConfig validation."""
-
-    def test_disabled_by_default(self):
-        """Test that masking is disabled by default."""
-        config = MaskingConfig()
-        assert config.enabled is False
-
-    def test_block_size_validation(self):
-        """Test that min_block_size is valid."""
-        # Valid configuration
-        config = MaskingConfig(min_block_size=10, max_block_size=100)
-        assert config.min_block_size == 10
-        assert config.max_block_size == 100
-
-        # Invalid: min_block_size < 1
-        with pytest.raises(ValidationError):
-            MaskingConfig(min_block_size=0)
-
-    def test_fraction_validation(self):
-        """Test min_fraction <= max_fraction."""
-        # Valid fraction range
-        config = MaskingConfig(min_fraction=0.2, max_fraction=0.5)
-        assert config.min_fraction == 0.2
-        assert config.max_fraction == 0.5
-
-        # Invalid: min > max
-        with pytest.raises(ValidationError) as exc_info:
-            MaskingConfig(min_fraction=0.6, max_fraction=0.4)
-
-        assert "must be <=" in str(exc_info.value)
-
-        # Valid: full range allowed
-        config = MaskingConfig(min_fraction=0.0, max_fraction=1.0)
-        assert config.min_fraction == 0.0
-        assert config.max_fraction == 1.0
-
-    def test_fraction_choices_validation(self):
-        """Test fraction_choices validation."""
-        # Valid fraction choices
-        config = MaskingConfig(fraction_choices=[0.1, 0.3, 0.5])
-        assert config.fraction_choices == [0.1, 0.3, 0.5]
-
-        # Invalid: fraction choice > 1
-        with pytest.raises(ValidationError):
-            MaskingConfig(fraction_choices=[0.1, 1.5])
 
 
 class TestExperimentConfig:

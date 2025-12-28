@@ -468,68 +468,6 @@ class TrainingConfig(BaseModel):
     )
 
 
-class MaskingConfig(BaseModel):
-    """Configuration for dynamic block masking augmentation.
-
-    Masking is a training-time augmentation that randomly masks contiguous
-    blocks of the input spectrum to improve model robustness to missing data.
-    This simulates real-world scenarios where portions of spectra may be
-    unavailable due to bad pixels, cosmic rays, or atmospheric absorption.
-
-    The augmentation works on 3-channel input [flux | error | mask] and updates
-    the mask channel by combining the original mask with random block masks.
-
-    Attributes:
-        enabled: Whether to apply block masking during training.
-        min_fraction: Minimum fraction of wavelengths to mask (0.0 to 1.0).
-        max_fraction: Maximum fraction of wavelengths to mask (0.0 to 1.0).
-        fraction_choices: Optional list of specific fractions to choose from.
-            If provided, min_fraction and max_fraction are ignored.
-        min_block_size: Minimum size of each masked block.
-        max_block_size: Maximum size of each masked block. If None, defaults
-            to n_wavelengths // 2 at runtime.
-    """
-
-    enabled: bool = Field(
-        default=False, description="Enable block masking augmentation"
-    )
-    min_fraction: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=1.0,
-        description="Minimum fraction of wavelengths to mask",
-    )
-    max_fraction: float = Field(
-        default=0.8,
-        ge=0.0,
-        le=1.0,
-        description="Maximum fraction of wavelengths to mask",
-    )
-    fraction_choices: list[float] | None = Field(
-        default=None,
-        description="Optional list of specific fractions to choose from",
-    )
-    min_block_size: int = Field(
-        default=5, ge=1, description="Minimum size of each masked block"
-    )
-    max_block_size: int | None = Field(
-        default=None, ge=1, description="Maximum size of each masked block"
-    )
-
-    @model_validator(mode="after")
-    def validate_fractions(self) -> MaskingConfig:
-        """Validate fraction parameters."""
-        if self.fraction_choices is not None:
-            if not all(0 <= f <= 1 for f in self.fraction_choices):
-                raise ValueError("All fraction_choices must be between 0 and 1")
-        elif self.min_fraction > self.max_fraction:
-            raise ValueError(
-                f"min_fraction ({self.min_fraction}) must be <= "
-                f"max_fraction ({self.max_fraction})"
-            )
-        return self
-
-
 class LabelMaskingConfig(BaseModel):
     """Configuration for dynamic label masking during training.
 
@@ -703,7 +641,8 @@ class ExperimentConfig(BaseModel):
         model: Standard MLP configuration (for single-survey training).
         multi_head_model: Multi-head MLP configuration (for multi-survey training).
         training: Training process configuration.
-        masking: Optional masking configuration for robustness.
+        label_masking: Dynamic label masking configuration for robustness.
+        input_masking: Dynamic input masking configuration for robustness.
         output_dir: Directory for saving outputs (checkpoints, logs).
         seed: Random seed for reproducibility.
         device: Device to use for training ("cuda", "cpu", or "auto").
@@ -723,10 +662,6 @@ class ExperimentConfig(BaseModel):
     training: TrainingConfig = Field(
         default_factory=TrainingConfig,
         description="Training configuration",
-    )
-    masking: MaskingConfig = Field(
-        default_factory=MaskingConfig,
-        description="Legacy block masking configuration (for single-survey training)",
     )
     label_masking: LabelMaskingConfig = Field(
         default_factory=LabelMaskingConfig,

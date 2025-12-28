@@ -1,7 +1,6 @@
 """Data loading, normalization, and preprocessing utilities."""
 
 from dorothy.data.augmentation import (
-    DynamicBlockMasking,
     DynamicInputMasking,
     DynamicLabelMasking,
 )
@@ -49,7 +48,6 @@ __all__ = [
     "LabelNormalizer",
     "ParameterStats",
     # Augmentation
-    "DynamicBlockMasking",
     "DynamicInputMasking",
     "DynamicLabelMasking",
 ]

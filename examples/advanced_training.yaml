@@ -47,14 +47,12 @@ training:
     div_factor: 25.0
     final_div_factor: 10000.0
 
-# Enable dynamic block masking for robustness to missing data
-masking:
+# Enable dynamic input masking for robustness to missing data
+input_masking:
   enabled: true
-  min_fraction: 0.1                       # Minimum fraction of wavelengths to mask
-  max_fraction: 0.3                       # Maximum fraction of wavelengths to mask
-  min_block_size: 20                      # Minimum size of each masked block
-  max_block_size: 200                     # Maximum size of each masked block
-  # fraction_choices: [0.1, 0.2, 0.3]    # Optional: specific fractions to choose from
+  f_max: 0.3                              # Maximum fraction of wavelengths to mask
+  p_block_min: 0.7                        # Min probability of keeping each block
+  p_block_max: 0.9                        # Max probability of keeping each block
 
 output_dir: ./outputs/robust_experiments
 seed: 42

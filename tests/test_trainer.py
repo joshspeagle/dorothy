@@ -20,8 +20,8 @@ import torch
 from dorothy.config.schema import (
     DataConfig,
     ExperimentConfig,
+    InputMaskingConfig,
     LossType,
-    MaskingConfig,
     ModelConfig,
     SchedulerConfig,
     SchedulerType,
@@ -718,11 +718,11 @@ class TestTrainerAugmentation:
                 epochs=3,
                 batch_size=16,
             ),
-            masking=MaskingConfig(
+            input_masking=InputMaskingConfig(
                 enabled=True,
-                min_fraction=0.1,
-                max_fraction=0.3,
-                min_block_size=5,
+                f_max=0.3,
+                p_block_min=0.7,
+                p_block_max=0.9,
             ),
         )
 
@@ -754,46 +754,42 @@ class TestTrainerAugmentation:
 
         return X, y
 
-    def test_fit_with_augmentation_from_config(
+    def test_fit_with_input_masking_from_config(
         self, augmentation_config, three_channel_data
     ):
-        """Test training with augmentation created from config."""
+        """Test training with input masking created from config."""
         trainer = Trainer(augmentation_config)
         X, y = three_channel_data
 
-        # Augmentation should be created from config
+        # Input masking should be created from config
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
-        assert trainer._augmentation is not None
+        assert trainer._input_masking is not None
         assert len(history.train_losses) == 3
 
-    def test_fit_with_explicit_augmentation(
+    def test_fit_with_input_masking_disabled(
         self, augmentation_config, three_channel_data
     ):
-        """Test training with explicitly provided augmentation."""
-        from dorothy.data.augmentation import DynamicBlockMasking
-
-        # Disable config-based augmentation
-        augmentation_config.masking.enabled = False
+        """Test training with input masking disabled."""
+        # Disable config-based input masking
+        augmentation_config.input_masking.enabled = False
 
         trainer = Trainer(augmentation_config)
         X, y = three_channel_data
 
-        # Provide explicit augmentation
-        aug = DynamicBlockMasking(min_fraction=0.2, max_fraction=0.4)
-        history = trainer.fit(X[:80], y[:80], X[80:], y[80:], augmentation=aug)
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
-        assert trainer._augmentation is aug
+        assert trainer._input_masking is None
         assert len(history.train_losses) == 3
 
-    def test_augmentation_applied_to_training_only(
+    def test_input_masking_applied_to_training_only(
         self, augmentation_config, three_channel_data
     ):
-        """Test that augmentation is applied during training but not validation."""
+        """Test that input masking is applied during training but not validation."""
         trainer = Trainer(augmentation_config)
         X, y = three_channel_data
 
-        # Track whether augmentation is called during training vs validation
+        # Track whether masking is called during training vs validation
         # We can verify by checking that training runs without errors
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
@@ -824,15 +820,16 @@ class TestTrainerMaskingAndAugmentation:
                 epochs=3,
                 batch_size=16,
             ),
-            masking=MaskingConfig(
+            input_masking=InputMaskingConfig(
                 enabled=True,
-                min_fraction=0.1,
-                max_fraction=0.3,
+                f_max=0.3,
+                p_block_min=0.7,
+                p_block_max=0.9,
             ),
         )
 
-    def test_fit_with_both_masks_and_augmentation(self, full_masking_config):
-        """Test training with both label masks and spectral augmentation."""
+    def test_fit_with_both_masks_and_input_masking(self, full_masking_config):
+        """Test training with both label masks and input masking."""
         trainer = Trainer(full_masking_config)
         rng = np.random.default_rng(42)
 
@@ -864,7 +861,7 @@ class TestTrainerMaskingAndAugmentation:
             y[80:],
         )
 
-        assert trainer._augmentation is not None
+        assert trainer._input_masking is not None
         assert len(history.train_losses) == 3
         assert all(np.isfinite(history.train_losses))
         assert all(np.isfinite(history.val_losses))
