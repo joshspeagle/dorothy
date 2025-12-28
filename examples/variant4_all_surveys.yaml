@@ -1,14 +1,16 @@
 # DOROTHY Training Configuration - Variant 4
-# All Available Surveys -> Single Label Source Output
-# BOSS + DESI + LAMOST LRS + LAMOST MRS spectra -> APOGEE labels
+# All Surveys Input -> Single Label Source Output
+# DESI + BOSS + LAMOST LRS + LAMOST MRS -> APOGEE
+#
+# This variant tests training with all available surveys using APOGEE labels.
 
 name: variant4_all_surveys
 
 data:
   catalogue_path: data/super_catalogue_clean.h5
   surveys:
-    - boss
     - desi
+    - boss
     - lamost_lrs
     - lamost_mrs
   label_sources:
@@ -17,8 +19,8 @@ data:
   val_ratio: 0.2
   max_flag_bits: 0
 
-# Multi-head MLP for multi-survey training
-# survey_wavelengths is auto-populated from the catalogue
+# Multi-head MLP for multi-survey, multi-labelset training
+# survey_wavelengths and label_sources are auto-populated
 multi_head_model:
   latent_dim: 256
   encoder_hidden: [1024, 512]
