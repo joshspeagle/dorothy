@@ -68,9 +68,21 @@ def load_boss_data(base_path: Path) -> dict:
     # Create flags (all zeros since we don't have per-parameter flags in the npy)
     flags = np.zeros((n_stars, 11), dtype=np.uint8)
 
-    # BOSS wavelength grid: 3650-10300 Angstroms, 4506 bins
-    # This is an approximation based on the typical BOSS wavelength coverage
-    wavelength = np.linspace(3650, 10300, n_wavelengths).astype(np.float32)
+    # BOSS wavelength grid: log-linear dispersion (constant velocity spacing)
+    # SDSS/BOSS uses: wavelength = 10**(coeff0 + coeff1 * pixel_index)
+    # Fiducial grid is 4800 pixels, masked to 3650-10300 A gives ~4506 pixels
+    coeff0 = np.log10(3500.26)  # log10(wavelength) at pixel 0
+    coeff1 = 1e-4  # log10 dispersion per pixel
+    n_fiducial = 4800
+    loglam_fiducial = coeff0 + coeff1 * np.arange(n_fiducial)
+    wavelength_fiducial = 10**loglam_fiducial
+    mask = (wavelength_fiducial > 3650) & (wavelength_fiducial < 10300)
+    wavelength = wavelength_fiducial[mask].astype(np.float32)
+
+    if len(wavelength) != n_wavelengths:
+        print(
+            f"  Warning: BOSS wavelength has {len(wavelength)} pixels, expected {n_wavelengths}"
+        )
 
     # Compute SNR from ivar (approximate: mean of sqrt(ivar * flux^2) where ivar > 0)
     flux = X[:, 0, :].astype(np.float32)

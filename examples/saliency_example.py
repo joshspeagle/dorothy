@@ -172,8 +172,13 @@ def load_spectrum_from_catalogue(
         error = np.where(ivar > 0, 1.0 / np.sqrt(ivar), 0.0).astype(np.float32)
         mask = (ivar > 0).astype(np.float32)
 
-        # Load metadata
-        gaia_id = int(f["metadata/gaia_id"][index])
+        # Get gaia_id from the aligned labels (spectra and labels are 1:1 by index)
+        label_key = f"apogee_{survey}"
+        if f"labels/{label_key}/gaia_id" in f:
+            gaia_id = int(f[f"labels/{label_key}/gaia_id"][index])
+        else:
+            # Fallback to metadata (for backwards compatibility)
+            gaia_id = int(f["metadata/gaia_id"][index])
 
     # Stack into input tensor
     X = torch.tensor(np.stack([flux, error, mask], axis=0), dtype=torch.float32)
@@ -185,6 +190,7 @@ def load_labels_from_catalogue(
     catalogue_path: Path,
     survey: str,
     gaia_id: int,
+    index: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
     """Load labels for a given Gaia ID from the super-catalogue.
 
@@ -192,6 +198,7 @@ def load_labels_from_catalogue(
         catalogue_path: Path to HDF5 catalogue.
         survey: Survey name (e.g., "boss", "desi").
         gaia_id: Gaia DR3 source ID to look up.
+        index: Optional direct index (spectra and labels are aligned 1:1).
 
     Returns:
         Tuple of (label_values, label_errors) or (None, None) if not found.
@@ -203,6 +210,13 @@ def load_labels_from_catalogue(
         if f"labels/{label_key}" not in f:
             return None, None
 
+        # If index provided, use it directly (spectra and labels are aligned)
+        if index is not None:
+            label_values = f[f"labels/{label_key}/values"][index]
+            label_errors = f[f"labels/{label_key}/errors"][index]
+            return label_values.astype(np.float32), label_errors.astype(np.float32)
+
+        # Otherwise search by gaia_id
         label_gaia_ids = f[f"labels/{label_key}/gaia_id"][:]
         label_values = f[f"labels/{label_key}/values"][:]
         label_errors = f[f"labels/{label_key}/errors"][:]
@@ -304,9 +318,9 @@ def main():
         )
         print(f"  Gaia DR3 {gaia_id}")
 
-        # Load labels for this object
+        # Load labels for this object (use index since spectra and labels are aligned)
         label_values, label_errors = load_labels_from_catalogue(
-            args.catalogue, args.survey, gaia_id
+            args.catalogue, args.survey, gaia_id, index=args.index
         )
         if label_values is not None:
             print("  Labels loaded from catalogue")

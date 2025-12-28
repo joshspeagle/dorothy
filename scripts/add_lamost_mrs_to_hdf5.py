@@ -15,6 +15,7 @@ Data sources:
     - data/raw/lamost_mrs/X_lamost_mrs2.npy: (71245, 4, 3375) spectra
     - data/raw/lamost_mrs/y_lamost_mrs2.npy: (71245, 22) labels
     - data/raw/lamost_mrs/apogee_ids_lamost_mrs2.npy: (71245,) IDs
+    - data/raw/lamost_mrs/lamost_mrs_training2.fits: WAVELENGTH_B/R for correct grids
 
 Usage:
     python scripts/add_lamost_mrs_to_hdf5.py [--output data/super_catalogue.h5]
@@ -27,6 +28,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+from astropy.io import fits
 
 
 def load_lamost_mrs_data(base_path: Path) -> dict:
@@ -62,11 +64,24 @@ def load_lamost_mrs_data(base_path: Path) -> dict:
     # Create flags (all zeros)
     flags = np.zeros((n_stars, 11), dtype=np.uint8)
 
-    # LAMOST MRS wavelength grid (approximate)
-    # Blue arm: ~4950-5350 Angstroms
-    # Red arm: ~6300-6800 Angstroms
-    # Combined/resampled to common grid
-    wavelength = np.linspace(4950, 6800, n_wavelengths).astype(np.float32)
+    # LAMOST MRS wavelength grids: separate blue and red arms with ~960 A gap
+    # Blue arm: 4950-5350 A (3375 pts), Red arm: 6310-6800 A (3248 pts, padded to 3375)
+    fits_path = mrs_path / "lamost_mrs_training2.fits"
+    if fits_path.exists():
+        with fits.open(fits_path) as hdul:
+            wavelength_b = hdul["WAVELENGTH_B"].data["WAVELENGTH_B"].astype(np.float32)
+            wavelength_r = hdul["WAVELENGTH_R"].data["WAVELENGTH_R"].astype(np.float32)
+        print(
+            f"  Blue wavelength from FITS: {len(wavelength_b)} pts, {wavelength_b[0]:.2f}-{wavelength_b[-1]:.2f} A"
+        )
+        print(
+            f"  Red wavelength from FITS: {len(wavelength_r)} pts, {wavelength_r[0]:.2f}-{wavelength_r[-1]:.2f} A"
+        )
+    else:
+        # Fallback: approximate log-linear grids
+        print("  Warning: FITS file not found, using approximate wavelength grids")
+        wavelength_b = np.linspace(4950, 5350, 3375).astype(np.float32)
+        wavelength_r = np.linspace(6310, 6800, 3248).astype(np.float32)
 
     # For MRS, channels are typically [flux_B, ivar_B, flux_R, ivar_R]
     # or similar arrangement. Store all 4 channels.
@@ -91,7 +106,8 @@ def load_lamost_mrs_data(base_path: Path) -> dict:
 
     return {
         "spectra": X,  # Full 4-channel array
-        "wavelength": wavelength,
+        "wavelength_b": wavelength_b,  # Blue arm wavelength
+        "wavelength_r": wavelength_r,  # Red arm wavelength
         "snr": snr,
         "labels": labels,
         "errors": errors,
@@ -133,12 +149,18 @@ def add_to_hdf5(output_path: Path, mrs_data: dict) -> None:
                 compression="gzip",
                 compression_opts=4,
             )
-            mrs_grp.create_dataset("wavelength", data=mrs_data["wavelength"])
+            # Store separate wavelength arrays for blue and red arms
+            mrs_grp.create_dataset("wavelength_b", data=mrs_data["wavelength_b"])
+            mrs_grp.create_dataset("wavelength_r", data=mrs_data["wavelength_r"])
             mrs_grp.create_dataset("snr", data=mrs_data["snr"])
 
-            # Add metadata about channel layout
+            # Add metadata about channel layout and wavelength structure
             mrs_grp.attrs["n_channels"] = mrs_data["n_channels"]
             mrs_grp.attrs["channel_names"] = ["flux_B", "ivar_B", "flux_R", "ivar_R"]
+            mrs_grp.attrs["wavelength_note"] = (
+                "Blue and red arms have separate wavelength arrays. "
+                "Blue: 4950-5350 A, Red: 6310-6800 A with ~960 A gap."
+            )
 
             # Update survey_names attribute
             current_surveys = list(f.attrs.get("survey_names", []))
@@ -148,8 +170,11 @@ def add_to_hdf5(output_path: Path, mrs_data: dict) -> None:
 
             print(
                 f"  Added LAMOST MRS survey: {n_stars} spectra, "
-                f"{mrs_data['n_channels']} channels, "
-                f"{len(mrs_data['wavelength'])} wavelength bins"
+                f"{mrs_data['n_channels']} channels"
+            )
+            print(
+                f"    Blue: {len(mrs_data['wavelength_b'])} wavelength bins, "
+                f"Red: {len(mrs_data['wavelength_r'])} wavelength bins"
             )
 
         # Add LAMOST MRS-specific APOGEE labels

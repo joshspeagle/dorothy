@@ -774,6 +774,22 @@ def plot_saliency_heatmap(
         ("Fisher Importance (relative)", fisher_normalized, cmap_fisher, 0, 1),
     ]
 
+    # Compute wavelength tick positions and labels
+    # Use np.interp to map between pixel indices and wavelengths
+    wavelength = result.wavelength
+    pixel_indices = np.arange(len(wavelength))
+    wl_min, wl_max = wavelength.min(), wavelength.max()
+
+    # Choose nice round tick values (multiples of 500 Å)
+    tick_spacing = 500
+    first_tick = int(np.ceil(wl_min / tick_spacing) * tick_spacing)
+    last_tick = int(np.floor(wl_max / tick_spacing) * tick_spacing)
+    tick_wavelengths = np.arange(first_tick, last_tick + 1, tick_spacing)
+
+    # Use np.interp to find pixel positions for these wavelengths
+    tick_positions = np.interp(tick_wavelengths, wavelength, pixel_indices)
+    tick_labels = [f"{int(wl)}" for wl in tick_wavelengths]
+
     for ax, (title, data, cmap, vmin, vmax) in zip(axes, panel_data, strict=False):
         # Apply mask - set masked columns to NaN for visualization
         data_masked = data.copy()
@@ -781,30 +797,32 @@ def plot_saliency_heatmap(
 
         norm = Normalize(vmin=vmin, vmax=vmax)
 
-        # Plot heatmap
+        # Plot heatmap using pixel indices (no extent - use pixel coordinates)
         im = ax.imshow(
             data_masked,
             aspect="auto",
             cmap=cmap,
             norm=norm,
-            extent=[
-                result.wavelength.min(),
-                result.wavelength.max(),
-                n_params * 2 - 0.5,
-                -0.5,
-            ],
             interpolation="nearest",
         )
+
+        # Set y-axis limits to match previous behavior
+        ax.set_ylim(n_params * 2 - 0.5, -0.5)
+
+        # Set x-axis ticks using actual wavelength values
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels)
+        ax.set_xlim(0, n_wavelengths - 1)
 
         # Add horizontal black lines between each parameter group (every 2 rows)
         for i in range(1, n_params):
             ax.axhline(y=2 * i - 0.5, color="black", linewidth=0.8, zorder=5)
 
-        # Add masked region overlays
+        # Add masked region overlays (using pixel coordinates)
         for start, end in _find_masked_regions(result.mask):
             ax.axvspan(
-                result.wavelength[start],
-                result.wavelength[min(end, n_wavelengths - 1)],
+                start,
+                min(end, n_wavelengths - 1),
                 alpha=0.5,
                 color="gray",
                 zorder=10,

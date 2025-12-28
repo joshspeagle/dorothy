@@ -11,6 +11,7 @@ Data sources:
     - data/raw/lamost_lrs/X_lamost.npy: (140765, 2, 3473) spectra [flux, ivar]
     - data/raw/lamost_lrs/y_lamost.npy: (140765, 22) labels [11 params + 11 errors]
     - data/raw/lamost_lrs/apogee_ids_lamost.npy: (140765,) APOGEE 2MASS IDs
+    - data/raw/lamost_lrs/lamost_training.fits: WAVELENGTH extension for correct grid
 
 Usage:
     python scripts/add_lamost_lrs_to_hdf5.py [--output data/super_catalogue.h5]
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+from astropy.io import fits
 
 
 def load_lamost_lrs_data(base_path: Path) -> dict:
@@ -53,8 +55,29 @@ def load_lamost_lrs_data(base_path: Path) -> dict:
     # Create flags (all zeros since we don't have per-parameter flags in the npy)
     flags = np.zeros((n_stars, 11), dtype=np.uint8)
 
-    # LAMOST LRS wavelength grid: approximately 3690-9100 Angstroms, 3473 bins
-    wavelength = np.linspace(3690, 9100, n_wavelengths).astype(np.float32)
+    # LAMOST LRS wavelength grid: read from FITS file (log-linear, ~4000-8898 A)
+    fits_path = lamost_path / "lamost_training.fits"
+    if fits_path.exists():
+        with fits.open(fits_path) as hdul:
+            wavelength = hdul["WAVELENGTH"].data["WAVELENGTH"].astype(np.float32)
+        print(
+            f"  Wavelength from FITS: {len(wavelength)} pts, {wavelength[0]:.2f}-{wavelength[-1]:.2f} A"
+        )
+    else:
+        # Fallback: compute log-linear grid (LAMOST uses COEFF0=3.5682, COEFF1=0.0001)
+        print("  Warning: FITS file not found, computing log-linear wavelength")
+        coeff0, coeff1 = 3.5682, 0.0001
+        n_native = 3901
+        loglam = coeff0 + coeff1 * np.arange(n_native)
+        wave_full = 10**loglam
+        # Subset to 3629-9750 A as done in original preprocessing
+        mask = (wave_full > 3629) & (wave_full < 9750)
+        wavelength = wave_full[mask].astype(np.float32)
+
+    if len(wavelength) != n_wavelengths:
+        print(
+            f"  Warning: wavelength has {len(wavelength)} pts, expected {n_wavelengths}"
+        )
 
     # Convert to float32 and extract flux/ivar
     flux = X[:, 0, :].astype(np.float32)
