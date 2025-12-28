@@ -41,7 +41,11 @@ from dorothy.config.schema import (
     OptimizerType,
     SchedulerType,
 )
-from dorothy.data.augmentation import DynamicBlockMasking
+from dorothy.data.augmentation import (
+    DynamicBlockMasking,
+    DynamicInputMasking,
+    DynamicLabelMasking,
+)
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.inference.evaluator import Evaluator
@@ -342,6 +346,10 @@ class Trainer:
         # Augmentation will be created during fit() if configured
         self._augmentation: DynamicBlockMasking | None = None
 
+        # Dynamic masking for hierarchical label/input augmentation
+        self._label_masking: DynamicLabelMasking | None = None
+        self._input_masking: DynamicInputMasking | None = None
+
     def _resolve_device(self, device: str) -> torch.device:
         """Resolve the device string to a torch.device."""
         if device == "auto":
@@ -586,6 +594,16 @@ class Trainer:
 
         # Store augmentation for use in training
         self._augmentation = augmentation
+
+        # Create label masking from config if enabled
+        if self.config.label_masking.enabled:
+            self._label_masking = DynamicLabelMasking(
+                p_labelset_min=self.config.label_masking.p_labelset_min,
+                p_labelset_max=self.config.label_masking.p_labelset_max,
+                p_label_min=self.config.label_masking.p_label_min,
+                p_label_max=self.config.label_masking.p_label_max,
+            )
+            logger.info(f"Created label masking: {self._label_masking}")
 
         # Convert to tensors (y is now 3-channel: [values, errors, mask])
         X_train = self._to_tensor(X_train)
@@ -847,6 +865,10 @@ class Trainer:
             # Apply augmentation if available (training only)
             if self._augmentation is not None:
                 X_batch = self._augmentation(X_batch)
+
+            # Apply label masking if available (training only)
+            if self._label_masking is not None:
+                y_batch = self._label_masking(y_batch)
 
             # Forward pass with mixed precision (AMP)
             self.optimizer.zero_grad()
@@ -1253,6 +1275,35 @@ class Trainer:
         patience_counter = 0
         rng = np.random.default_rng(self.config.seed)
 
+        # Create label masking from config if enabled
+        if self.config.label_masking.enabled:
+            self._label_masking = DynamicLabelMasking(
+                p_labelset_min=self.config.label_masking.p_labelset_min,
+                p_labelset_max=self.config.label_masking.p_labelset_max,
+                p_label_min=self.config.label_masking.p_label_min,
+                p_label_max=self.config.label_masking.p_label_max,
+            )
+            logger.info(f"Created label masking: {self._label_masking}")
+
+        # Create input masking from config if enabled
+        # Build survey wavelengths dict from X_train tensors
+        survey_wavelengths = {
+            survey: X_train_tensors[survey].shape[2] for survey in survey_names
+        }
+        if self.config.input_masking.enabled:
+            self._input_masking = DynamicInputMasking(
+                p_survey_min=self.config.input_masking.p_survey_min,
+                p_survey_max=self.config.input_masking.p_survey_max,
+                f_min_override=self.config.input_masking.f_min_override,
+                f_max=self.config.input_masking.f_max,
+                p_block_min=self.config.input_masking.p_block_min,
+                p_block_max=self.config.input_masking.p_block_max,
+            )
+            # Store survey wavelengths for use in training loop
+            self._survey_wavelengths = survey_wavelengths
+            logger.info(f"Created input masking: {self._input_masking}")
+            logger.info(f"Survey wavelengths: {survey_wavelengths}")
+
         start_time = time.time()
         logger.info(f"Starting multi-survey training for {n_epochs} epochs")
         logger.info(f"Surveys: {survey_names}")
@@ -1484,6 +1535,14 @@ class Trainer:
                 for survey, arr in has_data.items()
             }
             y_batch = y[batch_idx].to(self.device)
+
+            # Apply input masking if enabled (training only)
+            if self._input_masking is not None:
+                X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+
+            # Apply label masking if enabled (training only)
+            if self._label_masking is not None:
+                y_batch = self._label_masking(y_batch)
 
             # Forward pass through multi-survey model
             self.optimizer.zero_grad()
@@ -1865,6 +1924,35 @@ class Trainer:
         patience_counter = 0
         rng = np.random.default_rng(self.config.seed)
 
+        # Create label masking from config if enabled
+        if self.config.label_masking.enabled:
+            self._label_masking = DynamicLabelMasking(
+                p_labelset_min=self.config.label_masking.p_labelset_min,
+                p_labelset_max=self.config.label_masking.p_labelset_max,
+                p_label_min=self.config.label_masking.p_label_min,
+                p_label_max=self.config.label_masking.p_label_max,
+            )
+            logger.info(f"Created label masking: {self._label_masking}")
+
+        # Create input masking from config if enabled
+        # Build survey wavelengths dict from data
+        survey_wavelengths = {
+            survey: len(data.wavelengths[survey]) for survey in data.surveys
+        }
+        if self.config.input_masking.enabled:
+            self._input_masking = DynamicInputMasking(
+                p_survey_min=self.config.input_masking.p_survey_min,
+                p_survey_max=self.config.input_masking.p_survey_max,
+                f_min_override=self.config.input_masking.f_min_override,
+                f_max=self.config.input_masking.f_max,
+                p_block_min=self.config.input_masking.p_block_min,
+                p_block_max=self.config.input_masking.p_block_max,
+            )
+            # Store survey wavelengths for use in training loop
+            self._survey_wavelengths = survey_wavelengths
+            logger.info(f"Created input masking: {self._input_masking}")
+            logger.info(f"Survey wavelengths: {survey_wavelengths}")
+
         start_time = time.time()
         logger.info(f"Starting sparse multi-survey training for {n_epochs} epochs")
         logger.info(f"Surveys: {survey_names}")
@@ -2053,6 +2141,14 @@ class Trainer:
             X_batch, has_data_batch, y_batch = self._build_batch_from_sparse(
                 data, global_indices
             )
+
+            # Apply input masking if enabled (training only)
+            if self._input_masking is not None:
+                X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+
+            # Apply label masking if enabled (training only)
+            if self._label_masking is not None:
+                y_batch = self._label_masking(y_batch)
 
             # Forward pass
             self.optimizer.zero_grad()
@@ -2581,6 +2677,35 @@ class Trainer:
         patience_counter = 0
         rng = np.random.default_rng(self.config.seed)
 
+        # Create label masking from config if enabled
+        if self.config.label_masking.enabled:
+            self._label_masking = DynamicLabelMasking(
+                p_labelset_min=self.config.label_masking.p_labelset_min,
+                p_labelset_max=self.config.label_masking.p_labelset_max,
+                p_label_min=self.config.label_masking.p_label_min,
+                p_label_max=self.config.label_masking.p_label_max,
+            )
+            logger.info(f"Created label masking: {self._label_masking}")
+
+        # Create input masking from config if enabled
+        # Build survey wavelengths dict from X_train tensors
+        survey_wavelengths = {
+            survey: X_train_tensors[survey].shape[2] for survey in survey_names
+        }
+        if self.config.input_masking.enabled:
+            self._input_masking = DynamicInputMasking(
+                p_survey_min=self.config.input_masking.p_survey_min,
+                p_survey_max=self.config.input_masking.p_survey_max,
+                f_min_override=self.config.input_masking.f_min_override,
+                f_max=self.config.input_masking.f_max,
+                p_block_min=self.config.input_masking.p_block_min,
+                p_block_max=self.config.input_masking.p_block_max,
+            )
+            # Store survey wavelengths for use in training loop
+            self._survey_wavelengths = survey_wavelengths
+            logger.info(f"Created input masking: {self._input_masking}")
+            logger.info(f"Survey wavelengths: {survey_wavelengths}")
+
         start_time = time.time()
         logger.info(f"Starting multi-labelset training for {n_epochs} epochs")
         logger.info(f"Surveys: {list(X_train.keys())}")
@@ -2852,6 +2977,17 @@ class Trainer:
                 for survey, arr in has_data.items()
             }
 
+            # Apply input masking if enabled (training only)
+            if self._input_masking is not None:
+                X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+
+            # Extract all label batches and apply label masking
+            y_batch_dict = {
+                source: y[source][batch_idx].to(self.device) for source in label_sources
+            }
+            if self._label_masking is not None:
+                y_batch_dict = self._label_masking(y_batch_dict)
+
             # Compute loss for each label source
             self.optimizer.zero_grad()
 
@@ -2859,7 +2995,7 @@ class Trainer:
             batch_weights = []
 
             for source in label_sources:
-                y_batch = y[source][batch_idx].to(self.device)
+                y_batch = y_batch_dict[source]
                 has_labels_batch = has_labels[source][batch_idx].to(self.device)
 
                 # Get predictions for this label source's output head

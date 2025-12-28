@@ -530,6 +530,163 @@ class MaskingConfig(BaseModel):
         return self
 
 
+class LabelMaskingConfig(BaseModel):
+    """Configuration for dynamic label masking during training.
+
+    Label masking is a training-time augmentation that randomly masks labels
+    to improve model robustness when not all labels are available. This uses
+    a hierarchical scheme:
+
+    1. Labelset level: Which label sources (apogee, galah, etc.) to include
+    2. Label level: Which parameters (teff, logg, feh, etc.) within each set
+
+    All probabilities are sampled fresh per batch from uniform ranges to ensure
+    the model sees diverse masking conditions during training.
+
+    A guaranteed keeper mechanism ensures at least one labelset and one label
+    per labelset are always kept, preventing complete masking.
+
+    Attributes:
+        enabled: Whether to apply label masking during training.
+        p_labelset_min: Minimum probability of keeping each labelset.
+        p_labelset_max: Maximum probability of keeping each labelset.
+        p_label_min: Minimum probability of keeping each label within kept sets.
+        p_label_max: Maximum probability of keeping each label within kept sets.
+    """
+
+    enabled: bool = Field(
+        default=False, description="Enable label masking augmentation"
+    )
+    p_labelset_min: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum probability of keeping each labelset (sampled per batch)",
+    )
+    p_labelset_max: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Maximum probability of keeping each labelset (sampled per batch)",
+    )
+    p_label_min: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum probability of keeping each label (sampled per batch)",
+    )
+    p_label_max: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Maximum probability of keeping each label (sampled per batch)",
+    )
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> LabelMaskingConfig:
+        """Validate probability ranges."""
+        if self.p_labelset_min > self.p_labelset_max:
+            raise ValueError(
+                f"p_labelset_min ({self.p_labelset_min}) must be <= "
+                f"p_labelset_max ({self.p_labelset_max})"
+            )
+        if self.p_label_min > self.p_label_max:
+            raise ValueError(
+                f"p_label_min ({self.p_label_min}) must be <= "
+                f"p_label_max ({self.p_label_max})"
+            )
+        return self
+
+
+class InputMaskingConfig(BaseModel):
+    """Configuration for dynamic input (spectrum) masking during training.
+
+    Input masking is a training-time augmentation that randomly masks portions
+    of input spectra to improve model robustness. This uses a hierarchical scheme:
+
+    1. Survey level: Which surveys to include (for multi-survey training)
+    2. Block level: Which wavelength blocks within each kept survey
+
+    Block sizes are sampled log-uniformly to explore all scales from single
+    pixels up to large spectral regions. All probabilities are sampled fresh
+    per batch from uniform ranges.
+
+    A guaranteed keeper mechanism ensures at least one survey and one block
+    per survey are always kept, preventing complete masking.
+
+    Attributes:
+        enabled: Whether to apply input masking during training.
+        p_survey_min: Minimum probability of keeping each survey.
+        p_survey_max: Maximum probability of keeping each survey.
+        f_min_override: Optional override for minimum block size fraction.
+            If None, defaults to 1/N_wavelengths (single pixel).
+        f_max: Maximum block size as fraction of spectrum (default 0.5).
+        p_block_min: Minimum probability of keeping each block.
+        p_block_max: Maximum probability of keeping each block.
+    """
+
+    enabled: bool = Field(
+        default=False, description="Enable input masking augmentation"
+    )
+    p_survey_min: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum probability of keeping each survey (sampled per batch)",
+    )
+    p_survey_max: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Maximum probability of keeping each survey (sampled per batch)",
+    )
+    f_min_override: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Override for minimum block size fraction. "
+        "If None, defaults to 1/N_wavelengths (single pixel).",
+    )
+    f_max: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Maximum block size as fraction of spectrum",
+    )
+    p_block_min: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum probability of keeping each block (sampled per batch)",
+    )
+    p_block_max: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Maximum probability of keeping each block (sampled per batch)",
+    )
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> InputMaskingConfig:
+        """Validate probability and fraction ranges."""
+        if self.p_survey_min > self.p_survey_max:
+            raise ValueError(
+                f"p_survey_min ({self.p_survey_min}) must be <= "
+                f"p_survey_max ({self.p_survey_max})"
+            )
+        if self.p_block_min > self.p_block_max:
+            raise ValueError(
+                f"p_block_min ({self.p_block_min}) must be <= "
+                f"p_block_max ({self.p_block_max})"
+            )
+        if self.f_min_override is not None and self.f_min_override > self.f_max:
+            raise ValueError(
+                f"f_min_override ({self.f_min_override}) must be <= "
+                f"f_max ({self.f_max})"
+            )
+        return self
+
+
 class ExperimentConfig(BaseModel):
     """Top-level configuration for a DOROTHY experiment.
 
@@ -569,7 +726,15 @@ class ExperimentConfig(BaseModel):
     )
     masking: MaskingConfig = Field(
         default_factory=MaskingConfig,
-        description="Masking configuration",
+        description="Legacy block masking configuration (for single-survey training)",
+    )
+    label_masking: LabelMaskingConfig = Field(
+        default_factory=LabelMaskingConfig,
+        description="Dynamic label masking configuration",
+    )
+    input_masking: InputMaskingConfig = Field(
+        default_factory=InputMaskingConfig,
+        description="Dynamic input masking configuration",
     )
     output_dir: Path = Field(default=Path("./outputs"), description="Output directory")
     seed: int = Field(default=42, ge=0, description="Random seed")

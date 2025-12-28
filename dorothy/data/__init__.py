@@ -1,6 +1,10 @@
 """Data loading, normalization, and preprocessing utilities."""
 
-from dorothy.data.augmentation import DynamicBlockMasking
+from dorothy.data.augmentation import (
+    DynamicBlockMasking,
+    DynamicInputMasking,
+    DynamicLabelMasking,
+)
 from dorothy.data.catalogue_loader import (
     PARAMETER_NAMES,
     SURVEY_LABEL_MAP,
@@ -46,4 +50,6 @@ __all__ = [
     "ParameterStats",
     # Augmentation
     "DynamicBlockMasking",
+    "DynamicInputMasking",
+    "DynamicLabelMasking",
 ]

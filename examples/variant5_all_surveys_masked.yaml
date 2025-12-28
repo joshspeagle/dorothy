@@ -1,0 +1,77 @@
+# DOROTHY Training Configuration - Variant 5
+# All Surveys Input -> Single Label Source Output with Dynamic Masking
+# DESI + BOSS + LAMOST LRS + LAMOST MRS -> APOGEE
+#
+# This variant builds on variant4 by enabling dynamic masking to improve
+# robustness. The model learns to handle incomplete spectral coverage and
+# missing wavelength regions, which is common in real observations.
+
+name: variant5_all_surveys_masked
+
+data:
+  catalogue_path: data/super_catalogue_clean.h5
+  surveys:
+    - desi
+    - boss
+    - lamost_lrs
+    - lamost_mrs
+  label_sources:
+    - apogee
+  train_ratio: 0.7
+  val_ratio: 0.2
+  max_flag_bits: 0
+
+# Multi-head MLP for multi-survey training
+# survey_wavelengths and label_sources are auto-populated
+multi_head_model:
+  latent_dim: 256
+  encoder_hidden: [1024, 512]
+  trunk_hidden: [512, 256]
+  output_hidden: [64]
+  combination_mode: concat
+  normalization: layernorm
+  activation: gelu
+  dropout: 0.0
+
+training:
+  epochs: 100
+  batch_size: 512
+  learning_rate: 0.001
+  loss: heteroscedastic
+  gradient_clip: 10.0
+  scatter_floor: 0.01
+  save_every: 0
+  optimizer:
+    type: adamw
+    weight_decay: 0.01
+  scheduler:
+    type: one_cycle
+    max_lr: 0.001
+    pct_start: 0.3
+    div_factor: 100.0
+    final_div_factor: 1.0
+
+# Dynamic label masking: randomly mask individual stellar parameters
+# With single label source, only label-level masking applies (no labelset masking)
+# This forces the network to learn correlations between parameters
+label_masking:
+  enabled: true
+  p_labelset_min: 0.3   # Not used with single labelset, but included for clarity
+  p_labelset_max: 1.0
+  p_label_min: 0.3      # Keep 30-100% of labels per batch
+  p_label_max: 1.0
+
+# Dynamic input masking: hierarchically mask surveys and wavelength blocks
+# Survey-level masking ensures robustness to missing survey data
+# Block-level masking simulates gaps, bad pixels, and partial coverage
+input_masking:
+  enabled: true
+  p_survey_min: 0.3     # Keep 30-100% of surveys per batch
+  p_survey_max: 1.0
+  f_max: 0.5            # Block sizes up to 50% of spectrum (log-uniform)
+  p_block_min: 0.3      # Keep 30-100% of blocks per batch
+  p_block_max: 1.0
+
+output_dir: outputs
+seed: 42
+device: auto

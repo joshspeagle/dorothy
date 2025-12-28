@@ -45,6 +45,23 @@ training:
     div_factor: 100.0
     final_div_factor: 1.0
 
+# Dynamic masking: randomly mask labels during training to improve robustness
+label_masking:
+  enabled: false
+  p_labelset_min: 0.3   # Min prob of keeping each labelset
+  p_labelset_max: 1.0   # Max prob of keeping each labelset
+  p_label_min: 0.3      # Min prob of keeping each label
+  p_label_max: 1.0      # Max prob of keeping each label
+
+# Dynamic masking: randomly mask input spectrum blocks during training
+input_masking:
+  enabled: false
+  p_survey_min: 0.3     # Min prob of keeping each survey
+  p_survey_max: 1.0     # Max prob of keeping each survey
+  f_max: 0.5            # Max block size as fraction of spectrum
+  p_block_min: 0.3      # Min prob of keeping each block
+  p_block_max: 1.0      # Max prob of keeping each block
+
 output_dir: outputs
 seed: 42
 device: auto

@@ -49,6 +49,20 @@ training:
     div_factor: 100.0
     final_div_factor: 1.0
 
+# Dynamic label masking (disabled for single-label baseline)
+label_masking:
+  enabled: false
+
+# Dynamic input masking: mask surveys and wavelength blocks for robustness
+# Especially useful when training on multiple surveys with overlapping wavelengths
+input_masking:
+  enabled: false
+  p_survey_min: 0.3
+  p_survey_max: 1.0
+  f_max: 0.5
+  p_block_min: 0.3
+  p_block_max: 1.0
+
 output_dir: outputs
 seed: 42
 device: auto

@@ -57,6 +57,25 @@ training:
     div_factor: 100.0
     final_div_factor: 1.0
 
+# Dynamic label masking: hierarchically mask labelsets and individual labels
+# Forces the network to learn robust predictions even with incomplete label data
+label_masking:
+  enabled: true
+  p_labelset_min: 0.5   # Min prob of keeping each labelset (apogee, galah)
+  p_labelset_max: 1.0   # Max prob of keeping each labelset
+  p_label_min: 0.5      # Min prob of keeping each label (teff, logg, etc.)
+  p_label_max: 1.0      # Max prob of keeping each label
+
+# Dynamic input masking: hierarchically mask surveys and wavelength blocks
+# Forces the network to learn robust predictions with incomplete spectral data
+input_masking:
+  enabled: true
+  p_survey_min: 0.5     # Min prob of keeping each survey (lamost_lrs, lamost_mrs)
+  p_survey_max: 1.0     # Max prob of keeping each survey
+  f_max: 0.5            # Max block size as fraction of spectrum (log-uniform sampling)
+  p_block_min: 0.5      # Min prob of keeping each wavelength block
+  p_block_max: 1.0      # Max prob of keeping each block
+
 output_dir: outputs
 seed: 42
 device: auto
