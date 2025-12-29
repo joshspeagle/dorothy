@@ -74,11 +74,18 @@ def get_lamost_lrs_wavelength(fits_path: Path) -> np.ndarray:
     return wavelength
 
 
-def get_lamost_mrs_wavelengths(fits_path: Path) -> tuple[np.ndarray, np.ndarray]:
+def get_lamost_mrs_wavelengths(
+    fits_path: Path, target_length: int = 3375
+) -> tuple[np.ndarray, np.ndarray]:
     """Read LAMOST MRS wavelengths from training FITS file.
+
+    The spectra are stored with both arms padded to the same length (3375),
+    but the red wavelength array from the FITS file only has 3248 elements.
+    This function pads the red wavelengths to match the spectra shape.
 
     Args:
         fits_path: Path to lamost_mrs_training2.fits
+        target_length: Target length for each arm (default: 3375)
 
     Returns:
         Tuple of (wavelength_blue, wavelength_red) arrays in Angstroms
@@ -86,6 +93,16 @@ def get_lamost_mrs_wavelengths(fits_path: Path) -> tuple[np.ndarray, np.ndarray]
     with fits.open(fits_path) as hdul:
         wavelength_b = hdul["WAVELENGTH_B"].data["WAVELENGTH_B"].astype(np.float32)
         wavelength_r = hdul["WAVELENGTH_R"].data["WAVELENGTH_R"].astype(np.float32)
+
+    # Pad red wavelength to match spectra shape (extrapolate beyond last value)
+    if len(wavelength_r) < target_length:
+        # Calculate step size from last two wavelengths
+        step = wavelength_r[-1] - wavelength_r[-2]
+        n_pad = target_length - len(wavelength_r)
+        # Extrapolate beyond the last wavelength
+        pad_values = wavelength_r[-1] + step * np.arange(1, n_pad + 1)
+        wavelength_r = np.concatenate([wavelength_r, pad_values.astype(np.float32)])
+
     return wavelength_b, wavelength_r
 
 
@@ -176,35 +193,89 @@ def fix_wavelengths(
 
         # LAMOST MRS - needs special handling for dual wavelength arrays
         if "lamost_mrs" in f["surveys"]:
-            old_wave = f["surveys/lamost_mrs/wavelength"][:]
-            print(
-                f"LAMOST MRS current: {len(old_wave)} pts, {old_wave[0]:.2f} - {old_wave[-1]:.2f} A"
-            )
-            print("  (This is WRONG - single linear array spanning gap)")
-            print("LAMOST MRS correct:")
-            print(
-                f"  Blue: {len(mrs_wave_b)} pts, {mrs_wave_b[0]:.2f} - {mrs_wave_b[-1]:.2f} A"
-            )
-            print(
-                f"  Red: {len(mrs_wave_r)} pts, {mrs_wave_r[0]:.2f} - {mrs_wave_r[-1]:.2f} A"
-            )
+            mrs_grp = f["surveys/lamost_mrs"]
 
-            if not dry_run:
-                # Delete old single wavelength array
-                del f["surveys/lamost_mrs/wavelength"]
-
-                # Create new wavelength arrays for each arm
-                f["surveys/lamost_mrs"].create_dataset("wavelength_b", data=mrs_wave_b)
-                f["surveys/lamost_mrs"].create_dataset("wavelength_r", data=mrs_wave_r)
-
-                # Update attributes to document the change
-                f["surveys/lamost_mrs"].attrs["wavelength_note"] = (
-                    "Blue and red arms have separate wavelength arrays. "
-                    "Blue: 4950-5350 A, Red: 6310-6800 A with ~960 A gap."
+            # Check if already has separate wavelength arrays
+            if "wavelength_b" in mrs_grp and "wavelength_r" in mrs_grp:
+                old_wave_b = mrs_grp["wavelength_b"][:]
+                old_wave_r = mrs_grp["wavelength_r"][:]
+                print(
+                    f"LAMOST MRS Blue current: {len(old_wave_b)} pts, "
+                    f"{old_wave_b[0]:.2f} - {old_wave_b[-1]:.2f} A"
                 )
                 print(
-                    "  -> Updated! (replaced single array with wavelength_b and wavelength_r)"
+                    f"LAMOST MRS Red current: {len(old_wave_r)} pts, "
+                    f"{old_wave_r[0]:.2f} - {old_wave_r[-1]:.2f} A"
                 )
+                print("LAMOST MRS correct:")
+                print(
+                    f"  Blue: {len(mrs_wave_b)} pts, {mrs_wave_b[0]:.2f} - {mrs_wave_b[-1]:.2f} A"
+                )
+                print(
+                    f"  Red: {len(mrs_wave_r)} pts, {mrs_wave_r[0]:.2f} - {mrs_wave_r[-1]:.2f} A"
+                )
+
+                # Check spectra shape to verify expected wavelength count
+                if "spectra" in mrs_grp:
+                    spectra_shape = mrs_grp["spectra"].shape
+                    expected_per_arm = spectra_shape[2]
+                    print(
+                        f"  Spectra shape: {spectra_shape}, expected {expected_per_arm} per arm"
+                    )
+
+                if not dry_run:
+                    # Update if lengths don't match
+                    if len(old_wave_b) != len(mrs_wave_b):
+                        del mrs_grp["wavelength_b"]
+                        mrs_grp.create_dataset("wavelength_b", data=mrs_wave_b)
+                        print(
+                            f"  -> Updated wavelength_b ({len(old_wave_b)} -> {len(mrs_wave_b)})"
+                        )
+                    else:
+                        mrs_grp["wavelength_b"][:] = mrs_wave_b
+                        print("  -> Updated wavelength_b values")
+
+                    if len(old_wave_r) != len(mrs_wave_r):
+                        del mrs_grp["wavelength_r"]
+                        mrs_grp.create_dataset("wavelength_r", data=mrs_wave_r)
+                        print(
+                            f"  -> Updated wavelength_r ({len(old_wave_r)} -> {len(mrs_wave_r)})"
+                        )
+                    else:
+                        mrs_grp["wavelength_r"][:] = mrs_wave_r
+                        print("  -> Updated wavelength_r values")
+
+            elif "wavelength" in mrs_grp:
+                # Old format with single array
+                old_wave = mrs_grp["wavelength"][:]
+                print(
+                    f"LAMOST MRS current: {len(old_wave)} pts, {old_wave[0]:.2f} - {old_wave[-1]:.2f} A"
+                )
+                print("  (This is WRONG - single linear array spanning gap)")
+                print("LAMOST MRS correct:")
+                print(
+                    f"  Blue: {len(mrs_wave_b)} pts, {mrs_wave_b[0]:.2f} - {mrs_wave_b[-1]:.2f} A"
+                )
+                print(
+                    f"  Red: {len(mrs_wave_r)} pts, {mrs_wave_r[0]:.2f} - {mrs_wave_r[-1]:.2f} A"
+                )
+
+                if not dry_run:
+                    # Delete old single wavelength array
+                    del mrs_grp["wavelength"]
+
+                    # Create new wavelength arrays for each arm
+                    mrs_grp.create_dataset("wavelength_b", data=mrs_wave_b)
+                    mrs_grp.create_dataset("wavelength_r", data=mrs_wave_r)
+
+                    # Update attributes to document the change
+                    mrs_grp.attrs["wavelength_note"] = (
+                        "Blue and red arms have separate wavelength arrays. "
+                        "Blue: 4950-5350 A, Red: 6310-6800 A with ~960 A gap."
+                    )
+                    print(
+                        "  -> Updated! (replaced single array with wavelength_b and wavelength_r)"
+                    )
             print()
 
         # DESI - verify it's already correct

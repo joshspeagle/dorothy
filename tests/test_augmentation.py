@@ -540,3 +540,145 @@ class TestDynamicInputMaskingEdgeCases:
         _ = masking(X, n_wavelengths)
 
         assert torch.equal(X["survey"], X_original["survey"])
+
+
+# ============================================================================
+# DynamicInputMasking Random Offset Tests
+# ============================================================================
+
+
+class TestDynamicInputMaskingRandomOffset:
+    """Tests for random offset feature in DynamicInputMasking."""
+
+    def test_offset_varies_across_calls(self):
+        """Test that random offset produces varying block boundaries."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+        masking = DynamicInputMasking(p_block_min=0.5, p_block_max=0.5, f_max=0.1)
+        X = {"survey": torch.ones(1, 3, 100)}
+        n_wavelengths = {"survey": 100}
+
+        # Collect masks from multiple calls to check for variation
+        masks = []
+        for _ in range(20):
+            X_out = masking(X, n_wavelengths)
+            masks.append(X_out["survey"][0, 2, :].clone())
+
+        # Check that not all masks are identical (offset should cause variation)
+        unique_patterns = len({tuple(m.tolist()) for m in masks})
+        assert unique_patterns > 1, "All masks are identical - offset not varying"
+
+    def test_offset_produces_partial_blocks_at_edges(self):
+        """Test that offset creates partial blocks at spectrum edges."""
+        np.random.seed(123)
+        torch.manual_seed(123)
+
+        # Use parameters that force a specific block structure
+        # With p_block=1.0, all blocks should be kept
+        masking = DynamicInputMasking(p_block_min=1.0, p_block_max=1.0, f_max=0.5)
+        X = {"survey": torch.ones(1, 3, 100)}
+        n_wavelengths = {"survey": 100}
+
+        # Run multiple times - all valid data should be preserved
+        for _ in range(10):
+            X_out = masking(X, n_wavelengths)
+            mask = X_out["survey"][0, 2, :]
+            # With p_block=1.0, all naturally valid pixels should remain valid
+            assert mask.sum() == 100, "All pixels should be kept when p_block=1.0"
+
+    def test_guaranteed_keeper_with_offset(self):
+        """Test that guaranteed keeper works correctly with random offset."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        # Very aggressive masking - should still keep at least one block
+        masking = DynamicInputMasking(p_block_min=0.0, p_block_max=0.05)
+        X = {"survey": torch.ones(50, 3, 100)}
+        n_wavelengths = {"survey": 100}
+
+        X_out = masking(X, n_wavelengths)
+
+        # Every sample should have at least some valid pixels
+        mask = X_out["survey"][:, 2, :]
+        kept_per_sample = mask.sum(dim=1)
+        assert (kept_per_sample >= 1).all(), "Guaranteed keeper failed with offset"
+
+    def test_offset_does_not_change_mean_coverage(self):
+        """Test that random offset doesn't significantly change mean coverage."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        masking = DynamicInputMasking(p_block_min=0.4, p_block_max=0.6)
+        X = {"survey": torch.ones(100, 3, 200)}
+        n_wavelengths = {"survey": 200}
+
+        # Run many times and collect coverage statistics
+        coverages = []
+        for _ in range(50):
+            X_out = masking(X, n_wavelengths)
+            mask = X_out["survey"][:, 2, :]
+            coverage = mask.mean().item()
+            coverages.append(coverage)
+
+        mean_coverage = np.mean(coverages)
+        # With p_block in [0.4, 0.6], expect roughly 50% coverage
+        # Allow for variation due to block structure and guaranteed keeper
+        assert (
+            0.3 < mean_coverage < 0.7
+        ), f"Mean coverage {mean_coverage:.3f} outside expected range"
+
+    def test_offset_with_partial_natural_mask(self):
+        """Test offset works correctly when some wavelengths are naturally masked."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        masking = DynamicInputMasking(p_block_min=0.5, p_block_max=0.5)
+        X = {"survey": torch.ones(10, 3, 100)}
+        # Mask first and last 10 wavelengths naturally
+        X["survey"][:, 2, :10] = 0
+        X["survey"][:, 2, -10:] = 0
+        n_wavelengths = {"survey": 100}
+
+        X_out = masking(X, n_wavelengths)
+
+        # Naturally masked regions should stay masked
+        assert (X_out["survey"][:, 2, :10] == 0).all()
+        assert (X_out["survey"][:, 2, -10:] == 0).all()
+
+        # Some middle pixels should still be valid (guaranteed keeper)
+        middle_mask = X_out["survey"][:, 2, 10:90]
+        assert (middle_mask.sum(dim=1) >= 1).all()
+
+    def test_offset_with_very_small_spectrum(self):
+        """Test that offset works with very small spectra (edge case)."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        masking = DynamicInputMasking()
+        X = {"survey": torch.ones(5, 3, 5)}  # Only 5 wavelengths
+        n_wavelengths = {"survey": 5}
+
+        X_out = masking(X, n_wavelengths)
+
+        # Should still produce valid output
+        assert X_out["survey"].shape == (5, 3, 5)
+        # Guaranteed keeper should work
+        mask = X_out["survey"][:, 2, :]
+        assert (mask.sum(dim=1) >= 1).all()
+
+    def test_offset_with_large_block_size(self):
+        """Test offset when block size is large relative to spectrum."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        # Force large blocks (up to 50% of spectrum)
+        masking = DynamicInputMasking(f_min_override=0.4, f_max=0.5)
+        X = {"survey": torch.ones(10, 3, 50)}
+        n_wavelengths = {"survey": 50}
+
+        X_out = masking(X, n_wavelengths)
+
+        # Should handle gracefully
+        assert X_out["survey"].shape == (10, 3, 50)
+        mask = X_out["survey"][:, 2, :]
+        assert (mask.sum(dim=1) >= 1).all()

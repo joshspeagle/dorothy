@@ -415,6 +415,15 @@ class DynamicInputMasking:
         """
         Apply block-based wavelength masking to a single survey (vectorized).
 
+        Uses random offset to shift block boundaries, creating partial blocks
+        at the beginning and end of the spectrum. This prevents the model from
+        learning fixed positional patterns.
+
+        Example with N=100, block_size=50, offset=20:
+            Without offset: Block 0: [0:50], Block 1: [50:100] (2 blocks)
+            With offset=20: Block 0 (partial): [0:30], Block 1: [30:80],
+                            Block 2 (partial): [80:100] (3 blocks)
+
         Args:
             X: Tensor of shape (batch, 3, N_wavelengths).
             N: Number of wavelengths in this survey.
@@ -437,7 +446,18 @@ class DynamicInputMasking:
         log_f = np.random.uniform(np.log(f_min), np.log(self.f_max))
         f = np.exp(log_f)
         block_size = max(1, int(np.ceil(f * N)))
-        n_blocks = int(np.ceil(N / block_size))
+
+        # Sample random offset in [0, block_size) to shift block boundaries
+        offset = np.random.randint(0, block_size)
+
+        # With offset, we need to account for the shifted structure:
+        # - First partial block: [0, block_size - offset) if offset > 0
+        # - Full blocks in the middle
+        # - Last partial block: remainder
+        # Total blocks = ceil((N + offset) / block_size)
+        total_length = offset + N
+        n_blocks = int(np.ceil(total_length / block_size))
+        post_pad = n_blocks * block_size - total_length
 
         # Sample p_keep for blocks
         p_keep_block = np.random.uniform(self.p_block_min, self.p_block_max)
@@ -445,12 +465,9 @@ class DynamicInputMasking:
         # Get natural mask
         mask = X[:, 2, :]  # (batch, N)
 
-        # Pad to multiple of block_size if needed
-        pad_size = n_blocks * block_size - N
-        if pad_size > 0:
-            mask_padded = torch.nn.functional.pad(mask, (0, pad_size), value=0)
-        else:
-            mask_padded = mask
+        # Pad mask: add `offset` zeros at front, then pad to multiple of block_size
+        # This naturally shifts the block boundaries
+        mask_padded = torch.nn.functional.pad(mask, (offset, post_pad), value=0)
 
         # Reshape to (batch, n_blocks, block_size) and check if any valid per block
         mask_blocks = mask_padded.view(batch_size, n_blocks, block_size)
@@ -481,9 +498,12 @@ class DynamicInputMasking:
         keep_block = keep_block | ~any_block_available.unsqueeze(1)
 
         # Expand block mask to wavelength mask
-        # (batch, n_blocks) -> (batch, n_blocks, block_size) -> (batch, N)
-        wavelength_keep = keep_block.unsqueeze(2).expand(-1, -1, block_size)
-        wavelength_keep = wavelength_keep.reshape(batch_size, -1)[:, :N]
+        # (batch, n_blocks) -> (batch, n_blocks, block_size) -> (batch, padded_length)
+        wavelength_keep_padded = keep_block.unsqueeze(2).expand(-1, -1, block_size)
+        wavelength_keep_padded = wavelength_keep_padded.reshape(batch_size, -1)
+
+        # Extract the original N wavelengths (skip the offset padding at front)
+        wavelength_keep = wavelength_keep_padded[:, offset : offset + N]
 
         # Apply masking
         X_out = X.clone()

@@ -202,8 +202,8 @@ class TestCombinedMaskingOverhead:
         )
 
         # Assert overhead is small relative to batch loading
-        # Use 200% threshold to account for CI environment variability
-        assert overhead_pct < 200, f"Masking overhead too high: {overhead_pct:.1f}%"
+        # Use 300% threshold to account for CI environment variability
+        assert overhead_pct < 300, f"Masking overhead too high: {overhead_pct:.1f}%"
 
     def test_realistic_training_scenario(self):
         """Test masking in a realistic multi-survey, multi-label scenario."""

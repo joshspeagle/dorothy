@@ -175,7 +175,11 @@ See [docs/super_catalogue.md](docs/super_catalogue.md) for the complete schema a
 
 ## Saliency Analysis
 
-Visualize which wavelengths are most important for each stellar parameter prediction:
+Visualize which wavelengths are most important for each stellar parameter prediction. DOROTHY provides two complementary approaches:
+
+### Gradient-Based Saliency
+
+Computes sensitivity maps using the Jacobian of model outputs with respect to inputs, weighted by Fisher information:
 
 ```python
 from dorothy.analysis import SaliencyAnalyzer, plot_parameter_saliency
@@ -190,7 +194,29 @@ result = analyzer.compute_saliency(X, wavelength, survey="boss")
 fig = plot_parameter_saliency(result, "teff", output_path="teff_saliency.png")
 ```
 
-The saliency analyzer computes gradient-based sensitivity maps using Fisher information weighting. See `examples/saliency_example.py` for complete usage.
+See `examples/saliency_example.py` for complete usage.
+
+### Ablation-Based Saliency
+
+Measures importance by masking contiguous spectral blocks and observing prediction changes. Supports averaging over multiple block sizes weighted by the training distribution (1/b weighting):
+
+```python
+from dorothy.analysis import AblationSaliencyAnalyzer, plot_ablation_parameter_saliency
+
+analyzer = AblationSaliencyAnalyzer(model, device="cuda")
+
+# Use training distribution weighting (recommended)
+result = analyzer.compute_saliency(
+    X, wavelength, survey="boss",
+    use_training_distribution=True,
+    n_block_sizes=21,
+    f_max=0.5
+)
+
+fig = plot_ablation_parameter_saliency(result, "teff", output_path="teff_ablation.png")
+```
+
+See `examples/ablation_saliency_example.py` for complete usage.
 
 ## CLI Commands
 

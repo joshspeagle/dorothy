@@ -77,6 +77,17 @@ def _simplify_layer_name(name: str) -> str:
     return name
 
 
+def _safe_legend(ax) -> None:
+    """Add legend to axis only if there are labeled artists.
+
+    This avoids the matplotlib warning:
+    "No artists with labels found to put in legend."
+    """
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend()
+
+
 def _try_import_matplotlib():
     """Try to import matplotlib, return None if not available."""
     try:
@@ -146,7 +157,7 @@ def plot_loss_curves(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
     ax.set_title("Loss Curves")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
 
     # Learning rate - may be per-step or per-epoch
@@ -723,7 +734,7 @@ def plot_metrics_evolution(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("RMSE")
     ax.set_title("RMSE Evolution During Training")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
 
     # Z-score scatter evolution (if available)
@@ -736,7 +747,7 @@ def plot_metrics_evolution(
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Z-score Robust Scatter")
         ax.set_title("Uncertainty Calibration Evolution")
-        ax.legend()
+        _safe_legend(ax)
         ax.grid(True, alpha=0.3)
     else:
         # Fall back to validation loss if z-scores unavailable
@@ -818,7 +829,7 @@ def plot_per_survey_loss_curves(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Validation Loss")
     ax.set_title("Per-Survey Validation Loss")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
 
     # Right: Relative loss (survey / overall) - shows which surveys are harder
@@ -839,7 +850,7 @@ def plot_per_survey_loss_curves(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Relative Loss (Survey / Overall)")
     ax.set_title("Survey Difficulty (>1 = harder)")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
 
     plt.suptitle("Per-Survey Training Progress", fontsize=12)
@@ -921,7 +932,7 @@ def plot_per_survey_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("RMSE (normalized)")
     ax.set_title("RMSE by Survey")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     # Robust scatter by survey (top-right)
@@ -945,7 +956,7 @@ def plot_per_survey_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("Robust Scatter (normalized)")
     ax.set_title("Scatter/Precision by Survey")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     # Bias by survey (bottom-left)
@@ -970,7 +981,7 @@ def plot_per_survey_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("Bias (normalized)")
     ax.set_title("Bias by Survey (pred - true)")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     # MAE by survey (bottom-right)
@@ -992,7 +1003,7 @@ def plot_per_survey_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("MAE (normalized)")
     ax.set_title("MAE by Survey")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.suptitle(
@@ -1077,7 +1088,7 @@ def plot_per_survey_metrics_evolution(
         ax.set_xlabel("Epoch")
         ax.set_ylabel("RMSE (normalized)")
         ax.set_title(f"{param_names[param_idx]} RMSE Evolution")
-        ax.legend()
+        _safe_legend(ax)
         ax.grid(True, alpha=0.3)
 
     plt.suptitle("Per-Survey RMSE Evolution by Parameter", fontsize=12)
@@ -1154,7 +1165,7 @@ def plot_per_labelset_loss_curves(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Validation Loss")
     ax.set_title("Per-Labelset Validation Loss")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
 
     # Right: Relative loss (labelset / overall)
@@ -1175,7 +1186,7 @@ def plot_per_labelset_loss_curves(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Relative Loss (Labelset / Overall)")
     ax.set_title("Labelset Difficulty (>1 = harder)")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
 
     plt.suptitle("Per-Labelset (Output Head) Training Progress", fontsize=12)
@@ -1257,7 +1268,7 @@ def plot_per_labelset_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("RMSE (normalized)")
     ax.set_title("RMSE by Labelset")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     # Robust scatter by labelset (top-right)
@@ -1281,7 +1292,7 @@ def plot_per_labelset_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("Robust Scatter (normalized)")
     ax.set_title("Scatter/Precision by Labelset")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     # Bias by labelset (bottom-left)
@@ -1306,7 +1317,7 @@ def plot_per_labelset_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("Bias (normalized)")
     ax.set_title("Bias by Labelset (pred - true)")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     # MAE by labelset (bottom-right)
@@ -1328,7 +1339,7 @@ def plot_per_labelset_metrics(
     ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("MAE (normalized)")
     ax.set_title("MAE by Labelset")
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.suptitle(
@@ -1413,7 +1424,7 @@ def plot_per_labelset_metrics_evolution(
         ax.set_xlabel("Epoch")
         ax.set_ylabel("RMSE (normalized)")
         ax.set_title(f"{param_names[param_idx]} RMSE Evolution")
-        ax.legend()
+        _safe_legend(ax)
         ax.grid(True, alpha=0.3)
 
     plt.suptitle("Per-Labelset (Output Head) RMSE Evolution by Parameter", fontsize=12)

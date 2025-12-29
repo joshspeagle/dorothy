@@ -33,7 +33,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 |--------|------|----------|-------------|
 | FITS Loader | `dorothy/data/fits_loader.py` | 94% | Load FITS files, normalize spectra |
 | Catalogue Loader | `dorothy/data/catalogue_loader.py` | 79% | Multi-survey HDF5 super-catalogue |
-| Augmentation | `dorothy/data/augmentation.py` | 97% | Dynamic block masking for training |
+| Augmentation | `dorothy/data/augmentation.py` | 97% | Dynamic input/label masking for training robustness |
 
 ### Inference & Analysis
 
@@ -42,7 +42,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 | Predictor | `dorothy/inference/predictor.py` | 87% | Model loading, batch prediction |
 | Evaluator | `dorothy/inference/evaluator.py` | 89% | Comprehensive metrics (RMSE, MAE, z-scores) |
 | k-NN Anomaly | `dorothy/analysis/knn_anomaly.py` | 100% | Embedding-based anomaly detection |
-| Saliency Analysis | `dorothy/analysis/saliency.py` | 95% | Gradient-based saliency maps for interpretability |
+| Saliency Analysis | `dorothy/analysis/saliency.py` | 95% | Gradient and ablation-based saliency maps for interpretability |
 
 ### User Interface
 
@@ -94,7 +94,7 @@ dorothy/
 │   ├── analysis/
 │   │   ├── __init__.py
 │   │   ├── knn_anomaly.py      # k-NN anomaly detection
-│   │   └── saliency.py         # Gradient-based saliency analysis
+│   │   └── saliency.py         # Gradient and ablation-based saliency analysis
 │   │
 │   ├── visualization/
 │   │   ├── __init__.py
@@ -136,7 +136,8 @@ dorothy/
 │   ├── variant3_multi_labelset.yaml  # Multi-label heads
 │   ├── variant4_all_surveys.yaml     # All surveys, single label
 │   ├── variant5_all_surveys_masked.yaml  # All surveys with masking
-│   └── saliency_example.py           # Saliency analysis demo
+│   ├── saliency_example.py           # Gradient saliency analysis demo
+│   └── ablation_saliency_example.py  # Ablation saliency analysis demo
 │
 ├── docs/
 │   └── super_catalogue.md      # HDF5 catalogue documentation
@@ -299,8 +300,10 @@ model:
 8. **has_data masks**: Critical for multi-survey training - indicates which surveys a star has spectra from
 9. **gaia_id alignment**: All data aligned by Gaia DR3 source ID for cross-matching
 10. **TrainingHistory**: Contains per-survey and per-labelset metrics for visualization
-11. **Saliency analysis**: Use `SaliencyAnalyzer` from `dorothy.analysis` for gradient-based interpretability
-12. **TODO**: Implement ablation-based saliency metrics to complement gradient-based maps
+11. **Saliency analysis**: Two complementary approaches in `dorothy.analysis`:
+    - `SaliencyAnalyzer`: Gradient-based (Jacobian) saliency maps
+    - `AblationSaliencyAnalyzer`: Sliding window ablation with training-distribution weighting
+12. **DynamicInputMasking**: Uses random offset to shift block boundaries, preventing fixed positional patterns
 
 ## Super-Catalogue Schema
 

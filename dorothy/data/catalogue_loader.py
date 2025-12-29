@@ -988,9 +988,14 @@ class CatalogueLoader:
         else:
             raise ValueError(f"Survey '{survey}' has no flux or spectra data")
 
-        wavelength = survey_grp["wavelength"][:]
-        if storage_format == "spectra":
-            wavelength = np.tile(wavelength, 2)
+        # Load wavelength array(s)
+        if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
+            # LAMOST MRS has separate blue/red wavelength arrays
+            wavelength = np.concatenate(
+                [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
+            )
+        else:
+            wavelength = survey_grp["wavelength"][:]
 
         # Load metadata arrays (small compared to spectra)
         snr = survey_grp["snr"][:]
@@ -2018,9 +2023,13 @@ class CatalogueLoader:
                 if survey not in f["surveys"]:
                     raise ValueError(f"Survey '{survey}' not in catalogue")
                 survey_grp = f["surveys"][survey]
-                n_wavelengths = survey_grp["wavelength"].shape[0]
-                # LAMOST MRS has 2 arms that get concatenated, so double the count
-                if "spectra" in survey_grp:
-                    n_wavelengths *= 2
+                # LAMOST MRS has separate blue/red wavelength arrays
+                if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
+                    n_wavelengths = (
+                        survey_grp["wavelength_b"].shape[0]
+                        + survey_grp["wavelength_r"].shape[0]
+                    )
+                else:
+                    n_wavelengths = survey_grp["wavelength"].shape[0]
                 result[survey] = n_wavelengths
         return result

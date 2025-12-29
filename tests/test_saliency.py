@@ -17,9 +17,13 @@ import torch
 import torch.nn as nn
 
 from dorothy.analysis.saliency import (
+    AblationSaliencyAnalyzer,
+    AblationSaliencyResult,
     SaliencyAnalyzer,
     SaliencyResult,
     _find_masked_regions,
+    plot_ablation_parameter_saliency,
+    plot_ablation_saliency_heatmap,
     plot_parameter_saliency,
     plot_saliency_heatmap,
 )
@@ -495,3 +499,464 @@ class TestWithMultiHeadMLP:
         assert result_desi.survey == "desi"
         assert result_boss.jacobian_mean_flux.shape[1] == 100
         assert result_desi.jacobian_mean_flux.shape[1] == 150
+
+
+# =============================================================================
+# Ablation Saliency Tests
+# =============================================================================
+
+
+class TestAblationSaliencyResult:
+    """Tests for the AblationSaliencyResult dataclass."""
+
+    def test_basic_creation(self):
+        """Test that AblationSaliencyResult can be created."""
+        n_wavelengths = 100
+        n_params = 11
+
+        result = AblationSaliencyResult(
+            survey="boss",
+            wavelength=np.linspace(3600, 9000, n_wavelengths).astype(np.float32),
+            spectrum=np.random.randn(n_wavelengths).astype(np.float32),
+            spectrum_error=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            mask=np.ones(n_wavelengths, dtype=bool),
+            block_size=50,
+            delta_mu=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            delta_mu_total=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            delta_sigma=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            delta_sigma_total=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            fisher_weighted=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            fisher_weighted_total=np.abs(np.random.randn(n_wavelengths)).astype(
+                np.float32
+            ),
+            predictions=np.random.randn(n_params).astype(np.float32),
+            uncertainties=np.abs(np.random.randn(n_params)).astype(np.float32) + 0.01,
+            parameter_names=[
+                "teff",
+                "logg",
+                "fe_h",
+                "mg_fe",
+                "c_fe",
+                "si_fe",
+                "ni_fe",
+                "al_fe",
+                "ca_fe",
+                "n_fe",
+                "mn_fe",
+            ],
+        )
+
+        assert result.survey == "boss"
+        assert len(result.wavelength) == n_wavelengths
+        assert result.delta_mu.shape == (n_params, n_wavelengths)
+        assert result.delta_sigma.shape == (n_params, n_wavelengths)
+        assert result.block_size == 50
+
+    def test_get_param_index(self):
+        """Test parameter index lookup."""
+        n = 100
+        result = AblationSaliencyResult(
+            survey="boss",
+            wavelength=np.zeros(n, dtype=np.float32),
+            spectrum=np.zeros(n, dtype=np.float32),
+            spectrum_error=np.zeros(n, dtype=np.float32),
+            mask=np.ones(n, dtype=bool),
+            block_size=50,
+            delta_mu=np.zeros((11, n), dtype=np.float32),
+            delta_mu_total=np.zeros(n, dtype=np.float32),
+            delta_sigma=np.zeros((11, n), dtype=np.float32),
+            delta_sigma_total=np.zeros(n, dtype=np.float32),
+            fisher_weighted=np.zeros((11, n), dtype=np.float32),
+            fisher_weighted_total=np.zeros(n, dtype=np.float32),
+            predictions=np.zeros(11, dtype=np.float32),
+            uncertainties=np.ones(11, dtype=np.float32),
+            parameter_names=[
+                "teff",
+                "logg",
+                "fe_h",
+                "mg_fe",
+                "c_fe",
+                "si_fe",
+                "ni_fe",
+                "al_fe",
+                "ca_fe",
+                "n_fe",
+                "mn_fe",
+            ],
+        )
+
+        assert result.get_param_index("teff") == 0
+        assert result.get_param_index("fe_h") == 2
+        assert result.get_param_index("mn_fe") == 10
+
+    def test_block_size_list(self):
+        """Test that block_size can be a list (for training distribution mode)."""
+        n = 100
+        result = AblationSaliencyResult(
+            survey="boss",
+            wavelength=np.zeros(n, dtype=np.float32),
+            spectrum=np.zeros(n, dtype=np.float32),
+            spectrum_error=np.zeros(n, dtype=np.float32),
+            mask=np.ones(n, dtype=bool),
+            block_size=[10, 25, 50],  # Multiple block sizes
+            delta_mu=np.zeros((11, n), dtype=np.float32),
+            delta_mu_total=np.zeros(n, dtype=np.float32),
+            delta_sigma=np.zeros((11, n), dtype=np.float32),
+            delta_sigma_total=np.zeros(n, dtype=np.float32),
+            fisher_weighted=np.zeros((11, n), dtype=np.float32),
+            fisher_weighted_total=np.zeros(n, dtype=np.float32),
+            predictions=np.zeros(11, dtype=np.float32),
+            uncertainties=np.ones(11, dtype=np.float32),
+            parameter_names=["p" + str(i) for i in range(11)],
+        )
+
+        assert result.block_size == [10, 25, 50]
+
+
+class TestAblationSaliencyAnalyzer:
+    """Tests for AblationSaliencyAnalyzer."""
+
+    @pytest.fixture
+    def simple_model(self):
+        """Create a simple linear model for testing."""
+        return SimpleLinearModel(n_wavelengths=100, n_params=11)
+
+    @pytest.fixture
+    def analyzer(self, simple_model):
+        """Create an analyzer with the simple model."""
+        return AblationSaliencyAnalyzer(simple_model, device="cpu", batch_size=16)
+
+    def test_initialization(self, analyzer):
+        """Test analyzer initialization."""
+        assert analyzer.device == torch.device("cpu")
+        assert len(analyzer.parameter_names) == 11
+        assert analyzer.scatter_floor == 0.01
+        assert analyzer.batch_size == 16
+
+    def test_compute_saliency_shape(self, analyzer):
+        """Test that compute_saliency returns correct shapes."""
+        n_wavelengths = 100
+        X = torch.randn(3, n_wavelengths)
+        X[2, :] = 1.0  # All valid
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+
+        result = analyzer.compute_saliency(X, wavelength, survey="test", block_size=10)
+
+        assert result.delta_mu.shape == (11, n_wavelengths)
+        assert result.delta_mu_total.shape == (n_wavelengths,)
+        assert result.fisher_weighted.shape == (11, n_wavelengths)
+        assert result.fisher_weighted_total.shape == (n_wavelengths,)
+        assert result.predictions.shape == (11,)
+        assert result.uncertainties.shape == (11,)
+
+    def test_fisher_nonnegative_deltas_signed(self, analyzer):
+        """Test that Fisher is non-negative while deltas are signed."""
+        n_wavelengths = 100
+        X = torch.randn(3, n_wavelengths)
+        X[2, :] = 1.0  # All valid
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+
+        result = analyzer.compute_saliency(X, wavelength, survey="test", block_size=10)
+
+        # Fisher importance should always be non-negative (squared terms)
+        assert np.all(result.fisher_weighted >= 0)
+        assert np.all(result.fisher_weighted_total >= 0)
+
+        # Delta-mu and delta-sigma are signed (can be positive or negative)
+        # Just check they have valid shape and are finite
+        assert result.delta_mu.shape == (11, n_wavelengths)
+        assert result.delta_sigma.shape == (11, n_wavelengths)
+        assert np.all(np.isfinite(result.delta_mu))
+        assert np.all(np.isfinite(result.delta_sigma))
+
+    def test_masked_pixels_zero_importance(self, analyzer):
+        """Test that naturally masked pixels have zero importance."""
+        n_wavelengths = 100
+        X = torch.randn(3, n_wavelengths)
+        X[2, :] = 1.0  # Start with all valid
+        X[2, 40:60] = 0.0  # Mask a region
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+
+        result = analyzer.compute_saliency(X, wavelength, survey="test", block_size=10)
+
+        # Masked pixels should have zero importance
+        assert np.all(result.delta_mu[:, 40:60] == 0)
+        assert np.all(result.fisher_weighted[:, 40:60] == 0)
+
+    def test_block_size_affects_results(self, analyzer):
+        """Test that different block sizes produce different results."""
+        n_wavelengths = 100
+        X = torch.randn(3, n_wavelengths)
+        X[2, :] = 1.0
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+
+        result_small = analyzer.compute_saliency(
+            X, wavelength, survey="test", block_size=5
+        )
+        result_large = analyzer.compute_saliency(
+            X, wavelength, survey="test", block_size=25
+        )
+
+        # Results should differ (not identical)
+        assert not np.allclose(result_small.delta_mu, result_large.delta_mu)
+
+    def test_training_distribution_mode(self, analyzer):
+        """Test averaging over training block size distribution."""
+        n_wavelengths = 100
+        X = torch.randn(3, n_wavelengths)
+        X[2, :] = 1.0
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+
+        result = analyzer.compute_saliency(
+            X,
+            wavelength,
+            survey="test",
+            use_training_distribution=True,
+            n_block_sizes=5,  # Use fewer for speed
+            f_max=0.3,
+        )
+
+        # block_size should be a list when using training distribution
+        assert isinstance(result.block_size, list)
+        assert len(result.block_size) > 1
+
+        # Results should still be valid (deltas are signed, fisher is non-negative)
+        assert result.delta_mu.shape == (11, n_wavelengths)
+        assert np.all(np.isfinite(result.delta_mu))
+        assert np.all(result.fisher_weighted >= 0)
+
+    def test_large_block_size(self, analyzer):
+        """Test with block size larger than spectrum."""
+        n_wavelengths = 100
+        X = torch.randn(3, n_wavelengths)
+        X[2, :] = 1.0
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+
+        # Block size >= spectrum length should return zeros
+        result = analyzer.compute_saliency(X, wavelength, survey="test", block_size=150)
+
+        assert np.all(result.delta_mu == 0)
+        assert np.all(result.fisher_weighted == 0)
+
+
+class TestAblationWithMultiHeadMLP:
+    """Tests with the actual MultiHeadMLP model."""
+
+    @pytest.fixture
+    def multi_head_model(self):
+        """Create a MultiHeadMLP model for testing."""
+        from dorothy.models import MultiHeadMLP
+
+        return MultiHeadMLP(
+            survey_configs={"boss": 100, "desi": 150},
+            n_parameters=11,
+            latent_dim=32,
+            encoder_hidden=[64],
+            trunk_hidden=[32],
+            output_hidden=[16],
+        )
+
+    def test_ablation_with_multihead(self, multi_head_model):
+        """Test ablation saliency with MultiHeadMLP."""
+        analyzer = AblationSaliencyAnalyzer(
+            multi_head_model, device="cpu", batch_size=16
+        )
+
+        X_boss = torch.randn(3, 100)
+        X_boss[2, :] = 1.0
+        wavelength = np.linspace(3600, 9000, 100).astype(np.float32)
+
+        result = analyzer.compute_saliency(
+            X_boss, wavelength, survey="boss", block_size=10
+        )
+
+        assert result.survey == "boss"
+        assert result.delta_mu.shape == (11, 100)
+        assert np.isfinite(result.delta_mu).all()
+
+    def test_ablation_different_surveys(self, multi_head_model):
+        """Test that different surveys work correctly."""
+        analyzer = AblationSaliencyAnalyzer(
+            multi_head_model, device="cpu", batch_size=16
+        )
+
+        X_boss = torch.randn(3, 100)
+        X_boss[2, :] = 1.0
+        X_desi = torch.randn(3, 150)
+        X_desi[2, :] = 1.0
+        wavelength_boss = np.linspace(3600, 9000, 100).astype(np.float32)
+        wavelength_desi = np.linspace(3600, 9800, 150).astype(np.float32)
+
+        result_boss = analyzer.compute_saliency(
+            X_boss, wavelength_boss, survey="boss", block_size=10
+        )
+        result_desi = analyzer.compute_saliency(
+            X_desi, wavelength_desi, survey="desi", block_size=10
+        )
+
+        assert result_boss.survey == "boss"
+        assert result_desi.survey == "desi"
+        assert result_boss.delta_mu.shape[1] == 100
+        assert result_desi.delta_mu.shape[1] == 150
+
+
+class TestAblationVisualization:
+    """Tests for ablation visualization functions."""
+
+    @pytest.fixture
+    def sample_result(self):
+        """Create a sample AblationSaliencyResult for testing."""
+        n_wavelengths = 100
+        n_params = 11
+
+        return AblationSaliencyResult(
+            survey="boss",
+            wavelength=np.linspace(3600, 9000, n_wavelengths).astype(np.float32),
+            spectrum=np.random.randn(n_wavelengths).astype(np.float32) + 1.0,
+            spectrum_error=np.abs(np.random.randn(n_wavelengths)).astype(np.float32)
+            * 0.1
+            + 0.01,
+            mask=np.ones(n_wavelengths, dtype=bool),
+            block_size=50,
+            delta_mu=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            delta_mu_total=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            delta_sigma=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            delta_sigma_total=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            fisher_weighted=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            fisher_weighted_total=np.abs(np.random.randn(n_wavelengths)).astype(
+                np.float32
+            ),
+            predictions=np.array(
+                [5000, 4.0, -0.5, 0.1, 0.05, 0.1, 0.05, 0.1, 0.05, 0.1, 0.05],
+                dtype=np.float32,
+            ),
+            uncertainties=np.array(
+                [50, 0.1, 0.05, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+                dtype=np.float32,
+            ),
+            parameter_names=[
+                "teff",
+                "logg",
+                "fe_h",
+                "mg_fe",
+                "c_fe",
+                "si_fe",
+                "ni_fe",
+                "al_fe",
+                "ca_fe",
+                "n_fe",
+                "mn_fe",
+            ],
+        )
+
+    def test_plot_ablation_parameter_saliency_runs(self, sample_result):
+        """Test that plot_ablation_parameter_saliency runs without error."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig = plot_ablation_parameter_saliency(sample_result, "teff")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_plot_ablation_parameter_saliency_saves(self, sample_result):
+        """Test that plot saves to file."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "test_ablation.png"
+            fig = plot_ablation_parameter_saliency(
+                sample_result, "fe_h", output_path=output_path
+            )
+            assert output_path.exists()
+            plt.close(fig)
+
+    def test_plot_with_masked_regions(self, sample_result):
+        """Test plotting with masked regions."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        sample_result.mask[30:40] = False
+        sample_result.mask[70:80] = False
+
+        fig = plot_ablation_parameter_saliency(sample_result, "teff")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_plot_with_list_block_size(self):
+        """Test plotting when block_size is a list."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        n_wavelengths = 100
+        n_params = 11
+
+        result = AblationSaliencyResult(
+            survey="boss",
+            wavelength=np.linspace(3600, 9000, n_wavelengths).astype(np.float32),
+            spectrum=np.random.randn(n_wavelengths).astype(np.float32) + 1.0,
+            spectrum_error=np.abs(np.random.randn(n_wavelengths)).astype(np.float32)
+            * 0.1
+            + 0.01,
+            mask=np.ones(n_wavelengths, dtype=bool),
+            block_size=[10, 25, 50],  # List of block sizes
+            delta_mu=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            delta_mu_total=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            delta_sigma=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            delta_sigma_total=np.abs(np.random.randn(n_wavelengths)).astype(np.float32),
+            fisher_weighted=np.abs(np.random.randn(n_params, n_wavelengths)).astype(
+                np.float32
+            ),
+            fisher_weighted_total=np.abs(np.random.randn(n_wavelengths)).astype(
+                np.float32
+            ),
+            predictions=np.zeros(n_params, dtype=np.float32),
+            uncertainties=np.ones(n_params, dtype=np.float32),
+            parameter_names=["p" + str(i) for i in range(n_params)],
+        )
+
+        fig = plot_ablation_parameter_saliency(result, "p0")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_plot_ablation_saliency_heatmap_runs(self, sample_result):
+        """Test that plot_ablation_saliency_heatmap runs without error."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig = plot_ablation_saliency_heatmap(sample_result)
+        assert fig is not None
+        plt.close(fig)
+
+    def test_plot_ablation_saliency_heatmap_saves(self, sample_result):
+        """Test that heatmap saves to file."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "test_ablation_heatmap.png"
+            fig = plot_ablation_saliency_heatmap(sample_result, output_path=output_path)
+            assert output_path.exists()
+            plt.close(fig)
