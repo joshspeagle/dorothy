@@ -142,7 +142,8 @@ dorothy/
 │   └── ablation_saliency_example.py  # Ablation saliency analysis demo
 │
 ├── docs/
-│   └── super_catalogue.md      # HDF5 catalogue documentation
+│   ├── super_catalogue.md      # HDF5 catalogue documentation
+│   └── line_spread_functions.md # Survey LSF/resolution specifications
 │
 └── d5martin/                   # Original notebooks (reference, gitignored)
 ```
@@ -310,6 +311,7 @@ model:
 12. **DynamicInputMasking**: Uses random offset to shift block boundaries, preventing fixed positional patterns
 13. **Evaluate command**: Uses `evaluate_on_test_set()` from `evaluation_utils.py` to ensure metrics match training validation exactly. Saves data split indices (`data_split.pkl`) during training for reproducible evaluation.
 14. **Normalized vs Physical space**: Evaluation reports metrics in both spaces - normalized for comparison with training validation, physical for interpretability
+15. **Line Spread Functions**: Survey-specific LSF/resolution documented in `docs/line_spread_functions.md`. DESI provides resolution matrices; BOSS provides Gaussian σ (wdisp); LAMOST uses approximate Gaussian with R≈1800 (LRS) or R=7500 (MRS)
 
 ## Super-Catalogue Schema
 
