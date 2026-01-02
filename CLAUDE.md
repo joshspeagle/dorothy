@@ -10,7 +10,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 |--------|-------|
 | Package Version | 0.1.0 |
 | Python | >=3.10 |
-| Tests | 618 passing |
+| Tests | 653 passing |
 | Test Coverage | 88% overall |
 | Refactoring Stage | Complete |
 
@@ -41,6 +41,7 @@ Deep learning framework for inferring stellar parameters from spectroscopic data
 |--------|------|----------|-------------|
 | Predictor | `dorothy/inference/predictor.py` | 87% | Model loading, batch prediction |
 | Evaluator | `dorothy/inference/evaluator.py` | 89% | Comprehensive metrics (RMSE, MAE, z-scores) |
+| Evaluation Utils | `dorothy/inference/evaluation_utils.py` | 95% | Shared evaluation pipeline matching training validation |
 | k-NN Anomaly | `dorothy/analysis/knn_anomaly.py` | 100% | Embedding-based anomaly detection |
 | Saliency Analysis | `dorothy/analysis/saliency.py` | 95% | Gradient and ablation-based saliency maps for interpretability |
 
@@ -89,7 +90,8 @@ dorothy/
 │   ├── inference/
 │   │   ├── __init__.py
 │   │   ├── predictor.py        # Model loading and prediction
-│   │   └── evaluator.py        # Comprehensive metrics evaluation
+│   │   ├── evaluator.py        # Comprehensive metrics evaluation
+│   │   └── evaluation_utils.py # Shared evaluation pipeline (matches training)
 │   │
 │   ├── analysis/
 │   │   ├── __init__.py
@@ -111,7 +113,7 @@ dorothy/
 │   ├── add_lamost_mrs_to_hdf5.py
 │   └── add_gaia_ids_to_hdf5.py
 │
-├── tests/                      # Test suite (618 tests)
+├── tests/                      # Test suite (653 tests)
 │   ├── test_augmentation.py
 │   ├── test_catalogue_loader.py
 │   ├── test_cli.py
@@ -165,6 +167,8 @@ ruff check dorothy/ tests/
 dorothy train config.yaml                    # Train a model
 dorothy predict --checkpoint ./model --input data.fits --output predictions.csv
 dorothy info ./model                         # Show checkpoint info
+dorothy evaluate ./model                     # Evaluate on held-out test set
+dorothy evaluate ./model --output results.json --format json  # Save results
 ```
 
 ## Architecture
@@ -304,6 +308,8 @@ model:
     - `SaliencyAnalyzer`: Gradient-based (Jacobian) saliency maps
     - `AblationSaliencyAnalyzer`: Sliding window ablation with training-distribution weighting
 12. **DynamicInputMasking**: Uses random offset to shift block boundaries, preventing fixed positional patterns
+13. **Evaluate command**: Uses `evaluate_on_test_set()` from `evaluation_utils.py` to ensure metrics match training validation exactly. Saves data split indices (`data_split.pkl`) during training for reproducible evaluation.
+14. **Normalized vs Physical space**: Evaluation reports metrics in both spaces - normalized for comparison with training validation, physical for interpretability
 
 ## Super-Catalogue Schema
 

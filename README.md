@@ -229,12 +229,36 @@ dorothy predict --checkpoint ./model --input data.fits --output predictions.csv
 
 # Show model info
 dorothy info ./model
+
+# Evaluate on held-out test set
+dorothy evaluate ./model
+
+# Evaluate with options
+dorothy evaluate ./model --model final_model.pth  # Use final instead of best model
+dorothy evaluate ./model --output results.json --format json  # Save as JSON
+dorothy evaluate ./model --output results.md --format markdown  # Save as Markdown
 ```
+
+### Evaluate Command
+
+The `evaluate` command computes metrics on the held-out test set (10% of data by default). It uses the exact same evaluation pipeline as training validation, ensuring consistent z-score metrics.
+
+**Output includes:**
+
+- **Normalized space metrics**: Comparable to training validation (z_scatter ~1.0 for well-calibrated uncertainties)
+- **Physical space metrics**: Interpretable units (e.g., Teff RMSE in K, [Fe/H] RMSE in dex)
+
+**Metrics computed:**
+
+- RMSE, Bias, Standard Deviation
+- MAE, Median Offset, Robust Scatter (IQR-based)
+- Z-score calibration (z_median, z_scatter)
+- Predicted uncertainty percentiles (p16, p50, p84)
 
 ## Testing
 
 ```bash
-# Run all tests (618 tests)
+# Run all tests (653 tests)
 pytest tests/ -v
 
 # Run with coverage (88% coverage)
@@ -274,7 +298,7 @@ dorothy/
 │   ├── models/          # Neural network architectures
 │   ├── losses/          # Loss functions
 │   ├── training/        # Training loop
-│   ├── inference/       # Prediction and evaluation
+│   ├── inference/       # Prediction, evaluation, and test set metrics
 │   ├── analysis/        # Anomaly detection, saliency analysis
 │   ├── visualization/   # Training plots
 │   └── cli/             # Command-line interface
