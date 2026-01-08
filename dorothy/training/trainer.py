@@ -1727,9 +1727,14 @@ class Trainer:
 
                 # Transfer has_data
                 buf["has_data"][:batch_size] = torch.from_numpy(has_data)
-                has_data_batch[survey] = buf["has_data"][:batch_size].to(
-                    self.device, non_blocking=True
-                )
+                # On CPU, .to() returns the same tensor (not a copy), causing buffer
+                # aliasing issues when collecting batches in validation. Clone to fix.
+                if self.device.type == "cpu":
+                    has_data_batch[survey] = buf["has_data"][:batch_size].clone()
+                else:
+                    has_data_batch[survey] = buf["has_data"][:batch_size].to(
+                        self.device, non_blocking=True
+                    )
             else:
                 # Fallback path: original CPU-based approach
                 flux_batch = np.zeros((batch_size, n_wave), dtype=np.float32)
@@ -1763,7 +1768,12 @@ class Trainer:
             if use_optimized:
                 label_buf = self._sparse_batch_buffers["labels"]
                 label_buf[:batch_size] = torch.from_numpy(data.labels[global_indices])
-                y_batch = label_buf[:batch_size].to(self.device, non_blocking=True)
+                # On CPU, .to() returns the same tensor (not a copy), causing buffer
+                # aliasing issues when collecting batches in validation. Clone to fix.
+                if self.device.type == "cpu":
+                    y_batch = label_buf[:batch_size].clone()
+                else:
+                    y_batch = label_buf[:batch_size].to(self.device, non_blocking=True)
             else:
                 y_batch = torch.from_numpy(data.labels[global_indices]).to(self.device)
 

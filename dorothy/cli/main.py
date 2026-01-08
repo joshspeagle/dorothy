@@ -319,7 +319,12 @@ def cmd_train(args: argparse.Namespace) -> int:
         return 1
 
     print(f"Experiment: {config.name}")
-    print(f"Device: {config.device}")
+    resolved_device = config.device
+    if resolved_device == "auto":
+        import torch
+
+        resolved_device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Device: {resolved_device}")
     print(f"Output: {config.get_output_path()}")
     print(f"Surveys: {config.data.surveys}")
     print(f"Label sources: {config.data.label_sources}")
