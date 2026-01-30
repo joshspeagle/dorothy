@@ -673,8 +673,8 @@ class ExperimentConfig(BaseModel):
     )
     output_dir: Path = Field(default=Path("./outputs"), description="Output directory")
     seed: int = Field(default=42, ge=0, description="Random seed")
-    device: Literal["cuda", "cpu", "auto"] = Field(
-        default="auto", description="Compute device"
+    device: Literal["cuda", "cpu", "mps", "auto"] = Field(
+        default="auto", description="Compute device (mps for Apple Silicon)"
     )
 
     @property

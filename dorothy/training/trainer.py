@@ -350,7 +350,12 @@ class Trainer:
     def _resolve_device(self, device: str) -> torch.device:
         """Resolve the device string to a torch.device."""
         if device == "auto":
-            return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if torch.cuda.is_available():
+                return torch.device("cuda")
+            elif torch.backends.mps.is_available():
+                return torch.device("mps")
+            else:
+                return torch.device("cpu")
         return torch.device(device)
 
     def _set_seeds(self, seed: int) -> None:
