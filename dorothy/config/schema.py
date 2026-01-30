@@ -114,8 +114,8 @@ class DataConfig(BaseModel):
     )
     max_flag_bits: int = Field(
         default=0,
-        ge=0,
-        description="Maximum allowed flag bits (0=highest quality)",
+        ge=-1,
+        description="Maximum allowed flag bits (0=highest quality, -1=allow all with per-param masking)",
     )
     duplicate_labels: dict[str, str] | None = Field(
         default=None,

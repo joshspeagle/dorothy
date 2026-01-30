@@ -16,14 +16,11 @@ The super-catalogue is an HDF5 file that provides:
 ### Building the Catalogue
 
 ```bash
-# Basic build
-python scripts/build_catalogue.py --config scripts/catalogue_config.yaml
+# Build from pre-cross-matched FITS files in data/raw_catalogues/
+python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
 
-# Dry run (validate config, report what would be done)
-python scripts/build_catalogue.py --config scripts/catalogue_config.yaml --dry-run
-
-# Build with specific surveys only
-python scripts/build_catalogue.py --config scripts/catalogue_config.yaml --surveys desi boss
+# Dry run (print statistics only)
+python scripts/build_catalogue_v2.py --dry-run
 ```
 
 ### Loading the Catalogue

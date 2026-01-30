@@ -42,13 +42,18 @@ PARAMETER_NAMES = [
     "mn_fe",
 ]
 
-# Mapping from survey names to their label group names
+# Mapping from survey names to their label group names (v1 schema)
+# For v2 schema, labels are stored directly as /labels/apogee/ and /labels/galah/
+# The loader automatically detects schema version and uses appropriate label groups.
 SURVEY_LABEL_MAP = {
     "boss": "apogee_boss",
     "lamost_lrs": "apogee_lamost_lrs",
     "lamost_mrs": "apogee_lamost_mrs",
     "desi": "apogee_desi",
 }
+
+# Available label sources (for v2 schema)
+LABEL_SOURCES = ["apogee", "galah"]
 
 
 @dataclass
@@ -584,14 +589,15 @@ class CatalogueLoader:
             available_labels = list(f["labels"].keys())
 
             # Resolve label source with fallback logic
+            # Supports v1 schema (apogee_boss, etc.) and v2 schema (apogee, galah)
             if label_source is None:
-                # Auto-derive: try SURVEY_LABEL_MAP first, then fallbacks
+                # Auto-derive: try SURVEY_LABEL_MAP first (v1), then unified sources (v2)
                 mapped_source = SURVEY_LABEL_MAP.get(survey)
                 if mapped_source and mapped_source in f["labels"]:
                     label_source = mapped_source
                 else:
-                    # Try common fallbacks
-                    candidates = [f"apogee_{survey}", "apogee", "galah"]
+                    # Try v2 unified sources first, then v1 fallback pattern
+                    candidates = ["apogee", "galah", f"apogee_{survey}"]
                     for candidate in candidates:
                         if candidate in f["labels"]:
                             label_source = candidate
@@ -602,8 +608,7 @@ class CatalogueLoader:
                             f"Available: {available_labels}"
                         )
             elif label_source not in f["labels"]:
-                # User-specified source not found - try {label_source}_{survey} pattern
-                # e.g., "apogee" for survey "boss" -> try "apogee_boss"
+                # User-specified source not found - try {label_source}_{survey} pattern (v1)
                 survey_specific = f"{label_source}_{survey}"
                 if survey_specific in f["labels"]:
                     label_source = survey_specific
@@ -938,16 +943,31 @@ class CatalogueLoader:
     def _resolve_label_source(
         self, survey: str, label_source: str | None, f: h5py.File
     ) -> str:
-        """Resolve label source name with fallback logic."""
+        """
+        Resolve label source name with fallback logic.
+
+        Supports both v1 schema (per-survey label groups like 'apogee_boss')
+        and v2 schema (unified label groups like 'apogee', 'galah').
+
+        Resolution order:
+        1. If label_source specified and exists -> use it directly
+        2. If label_source specified, try {label_source}_{survey} pattern (v1)
+        3. If label_source is None:
+           a. Try SURVEY_LABEL_MAP (v1 schema)
+           b. Try 'apogee' directly (v2 schema)
+           c. Try 'galah' directly (v2 schema)
+           d. Try 'apogee_{survey}' pattern (v1 fallback)
+        """
         available_labels = list(f["labels"].keys())
 
         if label_source is None:
-            # Auto-derive: try SURVEY_LABEL_MAP first, then fallbacks
+            # Auto-derive: try multiple patterns
+            # First try v1 SURVEY_LABEL_MAP
             mapped_source = SURVEY_LABEL_MAP.get(survey)
             if mapped_source and mapped_source in f["labels"]:
                 return mapped_source
-            # Try common fallbacks
-            for candidate in [f"apogee_{survey}", "apogee", "galah"]:
+            # Then try v2 unified sources and v1 fallbacks
+            for candidate in ["apogee", "galah", f"apogee_{survey}"]:
                 if candidate in f["labels"]:
                     return candidate
             raise ValueError(
@@ -955,7 +975,7 @@ class CatalogueLoader:
                 f"Available: {available_labels}"
             )
         elif label_source not in f["labels"]:
-            # Try {label_source}_{survey} pattern
+            # Try {label_source}_{survey} pattern (v1 schema)
             survey_specific = f"{label_source}_{survey}"
             if survey_specific in f["labels"]:
                 return survey_specific

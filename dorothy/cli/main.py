@@ -689,11 +689,12 @@ def cmd_train(args: argparse.Namespace) -> int:
         print(f"  Wavelength bins: {X.shape[2]}")
         print(f"  Parameters: {y.shape[2]}")
 
-        # Filter to samples with all valid labels
+        # Filter to samples with at least one valid label
         # Mask is in channel 2 of y: y[:, 2, :] is (N, n_params)
+        # The per-parameter mask handles which labels contribute to loss
         mask = y[:, 2, :]  # (N, n_params)
-        valid_samples = mask.all(axis=1)
-        print(f"  Valid samples (all labels): {valid_samples.sum():,}")
+        valid_samples = mask.any(axis=1)
+        print(f"  Valid samples (any label): {valid_samples.sum():,}")
 
         X = X[valid_samples]
         y = y[valid_samples]

@@ -5,14 +5,14 @@
 name: variant1_boss_apogee
 
 data:
-  catalogue_path: data/super_catalogue_clean.h5
+  catalogue_path: data/super_catalogue.h5
   surveys:
     - boss
   label_sources:
     - apogee
   train_ratio: 0.7
   val_ratio: 0.2
-  max_flag_bits: 0
+  max_flag_bits: -1  # Allow partial labels, per-parameter mask handles validity
 
 # Standard MLP with architecture comparable to variant2's multi-head
 # variant2 has: encoder [1024,512]->256, trunk [512,256], output [64]->22

@@ -7,59 +7,54 @@ This directory stores data files for the DOROTHY stellar parameter inference fra
 
 ```
 data/
-├── README.md              # This file
-├── super_catalogue.h5     # Unified multi-survey catalogue (built incrementally)
-└── raw/                   # Original survey data files
-    ├── apogee/            # APOGEE DR17 stellar parameters
-    │   └── allStar-dr17-synspec_rev1.fits
-    ├── boss/              # BOSS/SDSS optical spectra catalogue
-    │   └── spAll-lite-v6_1_3.fits.gz
-    ├── desi/              # DESI spectroscopic data
-    │   └── DESI.fits
-    ├── galah/             # GALAH DR4 stellar parameters
-    │   └── galah_dr4_allstar_240705.fits
-    ├── lamost_lrs/        # LAMOST Low Resolution Spectrograph
-    │   └── lamost_training.fits
-    └── lamost_mrs/        # LAMOST Medium Resolution Spectrograph
-        ├── lamost_mrs_training.fits
-        └── lamost_mrs_training2.fits
+├── README.md                     # This file
+├── super_catalogue.h5            # Unified multi-survey, multi-label catalogue (v2)
+├── raw_catalogues/               # Pre-cross-matched training FITS files
+│   ├── BOSSxAPOGEE_training.fits
+│   ├── BOSSxGALAH_training.fits
+│   ├── DESIxAPOGEE_training.fits
+│   ├── DESIxGALAH_training.fits
+│   ├── LAMOST_LRSxAPOGEE_training.fits
+│   ├── LAMOST_LRSxGALAH_training.fits
+│   ├── LAMOST_MRSxAPOGEE.fits
+│   └── LAMOST_MRSxGALAH.fits
+├── raw/                          # Reference survey catalogues
+│   ├── apogee/                   # APOGEE DR17 stellar parameters
+│   ├── boss/                     # BOSS/SDSS optical spectra catalogue
+│   ├── desi/                     # DESI spectroscopic data
+│   ├── galah/                    # GALAH DR4 stellar parameters
+│   ├── lamost_lrs/               # LAMOST LRS spectra
+│   ├── lamost_mrs/               # LAMOST MRS spectra
+│   └── DEPRECATED.md             # Note about legacy .npy files
+└── archive/                      # Archived v1 catalogues
+    ├── super_catalogue_v1.h5
+    └── super_catalogue_v1_clean.h5
 ```
 
-## Super-Catalogue
+## Super-Catalogue (v2)
 
-The unified HDF5 super-catalogue (`super_catalogue.h5`) is built incrementally using individual scripts per survey. Each script loads pre-computed training arrays from `data/raw/` and adds them to the HDF5 file.
+The unified HDF5 super-catalogue (`super_catalogue.h5`) contains multi-survey spectra with both APOGEE and GALAH stellar parameter labels.
 
 ### Building the Catalogue
 
-Run scripts in order (each adds one survey):
-
 ```bash
-# 1. BOSS (creates initial HDF5)
-python scripts/add_boss_to_hdf5.py
+# Build from pre-cross-matched FITS files
+python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
 
-# 2. LAMOST LRS
-python scripts/add_lamost_lrs_to_hdf5.py
-
-# 3. LAMOST MRS
-python scripts/add_lamost_mrs_to_hdf5.py
-
-# 4. DESI
-python scripts/add_desi_to_hdf5.py
-
-# 5. Add Gaia DR3 IDs (replaces 2MASS IDs)
-python scripts/add_gaia_ids_to_hdf5.py
+# Dry run (print statistics only)
+python scripts/build_catalogue_v2.py --dry-run
 ```
 
-### Current Status
+### Current Status (v2)
 
-| Survey | Script | Spectra | Unique Stars | Shape | Status |
-|--------|--------|---------|--------------|-------|--------|
-| BOSS | `add_boss_to_hdf5.py` | 12,152 | 11,465 | (2, 4506) | ✅ Added |
-| LAMOST LRS | `add_lamost_lrs_to_hdf5.py` | 140,765 | 119,355 | (2, 3473) | ✅ Added |
-| LAMOST MRS | `add_lamost_mrs_to_hdf5.py` | 71,245 | 58,266 | (4, 3375) | ✅ Added |
-| DESI | `add_desi_to_hdf5.py` | 1,421 | 1,308 | (7650,) | ✅ Added |
+| Survey | APOGEE Stars | GALAH Stars | Wavelengths |
+|--------|-------------|-------------|-------------|
+| BOSS | 10,693 | 1,370 | 4,506 |
+| DESI | 38,732 | 24,106 | 7,650 |
+| LAMOST LRS | 140,765 | 57,764 | 3,473 |
+| LAMOST MRS | 71,245 | 25,001 | 3,375 (blue) + 3,248 (red) |
 
-**Total**: 225,583 spectra from 155,889 unique stars (some overlap between surveys)
+**Total**: ~250k unique stars (union across all surveys and label sources)
 
 ### Loading the Catalogue
 
@@ -69,86 +64,67 @@ from dorothy.data import CatalogueLoader
 loader = CatalogueLoader("data/super_catalogue.h5")
 loader.info()  # Print catalogue summary
 
-# Load BOSS spectra (auto-selects APOGEE labels for BOSS)
-data = loader.load(survey="boss")
+# Load single survey with APOGEE labels
+data = loader.load(survey="boss", label_source="apogee")
 print(f"Loaded {data.n_stars} stars")
 
-# Get training-ready arrays (2-channel spectra, labels, errors, mask)
-X, y, y_err, mask = loader.load_for_training(survey="boss")
+# Load single survey with GALAH labels
+data = loader.load(survey="desi", label_source="galah")
 
-# Load multiple surveys (stars observed by both BOSS and LAMOST)
-data = loader.load_multi(
-    surveys=["boss", "lamost_lrs"],
-    mode="intersection"  # Only stars in both surveys
+# Multi-survey sparse loading (memory efficient)
+sparse = loader.load_merged_sparse(
+    surveys=["boss", "desi", "lamost_lrs", "lamost_mrs"],
+    label_sources=["apogee"]
 )
-print(f"Common stars: {data['boss'].n_stars}")
+print(f"Total stars: {sparse.n_total}")
+
+# Multi-survey, multi-label loading
+sparse = loader.load_merged_sparse(
+    surveys=["boss", "desi"],
+    label_sources=["apogee", "galah"]
+)
 ```
 
-## Pre-computed Training Data
+## Raw Catalogues (data/raw_catalogues/)
 
-Training arrays are pre-computed on `eridanus.astro.utoronto.ca` and stored in `data/raw/`. These include:
-- Normalized spectra (flux + ivar channels)
-- APOGEE labels (11 parameters + 11 errors, normalized)
-- Cross-match IDs
+Pre-cross-matched FITS files combining survey spectra with stellar parameter labels.
+These files are the source data for building the super-catalogue.
 
-| Survey | Directory | Files | Spectra |
-|--------|-----------|-------|---------|
-| BOSS | `data/raw/boss/` | `X_BOSS.npy`, `y_BOSS.npy`, `APOGEE_ids.npy` | 12,152 |
-| LAMOST LRS | `data/raw/lamost_lrs/` | `X_lamost.npy`, `y_lamost.npy`, `apogee_ids_lamost.npy` | 140,765 |
-| LAMOST MRS | `data/raw/lamost_mrs/` | `X_lamost_mrs2.npy`, `y_lamost_mrs2.npy`, `apogee_ids_lamost_mrs2.npy` | 71,245 |
-| DESI | `data/raw/desi/` | `DESI.fits`, `y_BOSS_compare.npy`, `APOGEE_ids.npy` | 1,421 |
+| File | Survey | Labels | Stars | Size |
+|------|--------|--------|-------|------|
+| BOSSxAPOGEE_training.fits | BOSS | APOGEE | 10,693 | 0.8 GB |
+| BOSSxGALAH_training.fits | BOSS | GALAH | 1,370 | 0.1 GB |
+| DESIxAPOGEE_training.fits | DESI | APOGEE | 38,732 | 4.6 GB |
+| DESIxGALAH_training.fits | DESI | GALAH | 24,106 | 2.8 GB |
+| LAMOST_LRSxAPOGEE_training.fits | LAMOST LRS | APOGEE | 140,765 | 8.0 GB |
+| LAMOST_LRSxGALAH_training.fits | LAMOST LRS | GALAH | 57,764 | 3.1 GB |
+| LAMOST_MRSxAPOGEE.fits | LAMOST MRS | APOGEE | 71,245 | 7.2 GB |
+| LAMOST_MRSxGALAH.fits | LAMOST MRS | GALAH | 25,001 | 2.5 GB |
 
-## Quality Cuts
+Each FITS file contains:
+- `SPECTRA` / `SPECTRA_B`, `SPECTRA_R`: Spectral flux
+- `SPEC_IVAR` / `SPEC_IVAR_B`, `SPEC_IVAR_R`: Inverse variance
+- `WAVELENGTH` / `WAVELENGTH_B`, `WAVELENGTH_R`: Wavelength grid
+- `APOGEE` or `GALAH`: Full label catalogue with all stellar parameters
+- `GAIA_ID`: Gaia DR3 source IDs
 
-### APOGEE Labels (applied during cross-match on server)
-- `STARFLAG == 0` (no issues)
-- `ASPCAPFLAG == 0` (good ASPCAP solution)
-- `SNR > 50` (high signal-to-noise)
-- Valid parameters: `Teff > 0`, `logg > -5`, `[Fe/H] > -10`
+## Schema Versions
 
-### Survey-Specific Cuts
-- **BOSS**: `ZWARNING == 0`, `SN_MEDIAN > 10`
-- **LAMOST LRS**: `snrg > 20` or `snri > 20`
-- **LAMOST MRS**: `snr > 20` per arm
-- **DESI**: `ZWARN == 0`, `TSNR2_LRG > 0`
+### v2 (Current)
+- Unified label groups: `/labels/apogee/`, `/labels/galah/`
+- Supports both APOGEE and GALAH labels
+- Built from `raw_catalogues/` FITS files
+- Labels in physical units (normalized at training time)
 
-## Known Limitations
-
-1. **Duplicate observations**: Some surveys contain multiple spectra per star (repeat observations). Use `CatalogueLoader.load_multi(deduplicate=True)` to keep only one observation per star.
-   - BOSS: 687 duplicates (12,152 spectra for 11,465 unique stars)
-   - LAMOST LRS: 21,410 duplicates (140,765 spectra for 119,355 unique stars)
-   - LAMOST MRS: 12,980 duplicates (71,245 spectra for 58,266 unique stars)
-   - DESI: 113 duplicates (1,421 spectra for 1,308 unique stars)
-2. **DESI data is limited**: Only ~1,421 stars available locally (vs. full DESI release)
-3. **GALAH not yet cross-matched**: GALAH DR4 catalogues are available but not yet integrated
-4. **Cross-survey overlap**: Stars observed by multiple surveys can be loaded together using `load_multi(mode="intersection")`
-5. **LAMOST MRS batch files overlap**: `X_lamost_mrs.npy` is fully contained in `X_lamost_mrs2.npy`, so only batch 2 is used
-6. **One star without Gaia ID**: LAMOST MRS has 1 star that couldn't be matched to Gaia DR3
+### v1 (Archived)
+- Per-survey label groups: `/labels/apogee_boss/`, `/labels/apogee_desi/`, etc.
+- APOGEE labels only (no GALAH)
+- Built from legacy `.npy` files in `raw/`
+- Archived in `data/archive/`
 
 ## Gaia DR3 IDs
 
-The super-catalogue uses Gaia DR3 source IDs (int64) as the primary identifier for cross-matching stars across surveys. These were derived from APOGEE DR17's `GAIAEDR3_SOURCE_ID` column via the 2MASS IDs in the original training files.
-
-Cross-survey overlap (unique stars observed in both surveys):
-| Survey 1 | Survey 2 | Common Stars |
-|----------|----------|--------------|
-| BOSS | LAMOST LRS | 2,062 |
-| BOSS | LAMOST MRS | 539 |
-| BOSS | DESI | 1,308 |
-| LAMOST LRS | LAMOST MRS | 30,915 |
-| LAMOST LRS | DESI | 431 |
-| LAMOST MRS | DESI | 110 |
-
-## Raw Data Files
-
-| Survey | File | Size | Description |
-|--------|------|------|-------------|
-| APOGEE | `allStar-dr17-synspec_rev1.fits` | 3.7 GB | DR17 stellar parameters + Gaia IDs |
-| BOSS | `spAll-lite-v6_1_3.fits.gz` | 613 MB | SDSS-V optical spectra catalogue |
-| DESI | `DESI.fits` | 167 MB | DESI training cube |
-| GALAH | `galah_dr4_allstar_240705.fits` | 723 MB | DR4 stellar parameters + Gaia IDs |
-| LAMOST LRS | `lamost_training.fits` | 7.7 GB | Low-res optical training data |
-| LAMOST MRS | `lamost_mrs_training*.fits` | 13 GB | Medium-res optical training data |
+The super-catalogue uses Gaia DR3 source IDs (int64) as the primary identifier for cross-matching stars across surveys and label sources.
 
 ## Data Sources
 
@@ -164,13 +140,14 @@ Cross-survey overlap (unique stars observed in both surveys):
 
 - All data files are excluded from git via `.gitignore`
 - Large files (>100 MB) should never be committed
-- The `d5martin/` folder contains legacy data from original notebooks (reference only)
 - Model checkpoints are saved to experiment-specific output directories, not here
+- Legacy scripts are archived in `scripts/legacy/`
 
 ## Storage Requirements
 
 | Category | Size |
 |----------|------|
-| Raw survey data | ~26 GB |
-| Super-catalogue | ~5-10 GB (estimated) |
-| **Total** | **~35 GB** |
+| Raw catalogues (raw_catalogues/) | ~29 GB |
+| Super-catalogue (super_catalogue.h5) | ~15-20 GB |
+| Reference data (raw/) | ~26 GB |
+| **Total** | **~70 GB** |

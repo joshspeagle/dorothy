@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,11 +24,18 @@ jobs:
         run: |
           pip install black ruff
 
-      - name: Check formatting with black
-        run: black --check dorothy/ tests/
+      - name: Format with black
+        run: black dorothy/ tests/
 
-      - name: Lint with ruff
-        run: ruff check dorothy/ tests/
+      - name: Fix with ruff
+        run: ruff check --fix dorothy/ tests/
+
+      - name: Commit formatting changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-format with black and ruff"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
 
   test:
     runs-on: ubuntu-latest

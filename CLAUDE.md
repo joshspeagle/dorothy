@@ -107,11 +107,15 @@ dorothy/
 │       └── main.py             # Command-line interface
 │
 ├── scripts/                    # Catalogue building scripts
-│   ├── add_boss_to_hdf5.py
-│   ├── add_desi_to_hdf5.py
-│   ├── add_lamost_lrs_to_hdf5.py
-│   ├── add_lamost_mrs_to_hdf5.py
-│   └── add_gaia_ids_to_hdf5.py
+│   ├── build_catalogue_v2.py   # Main catalogue builder (v2)
+│   ├── create_deduplicated_catalogue.py
+│   └── legacy/                 # Deprecated v1 scripts
+│       ├── add_boss_to_hdf5.py
+│       ├── add_desi_to_hdf5.py
+│       ├── add_lamost_lrs_to_hdf5.py
+│       ├── add_lamost_mrs_to_hdf5.py
+│       ├── add_gaia_ids_to_hdf5.py
+│       └── fix_wavelengths.py
 │
 ├── tests/                      # Test suite (653 tests)
 │   ├── test_augmentation.py
@@ -312,8 +316,10 @@ model:
 13. **Evaluate command**: Uses `evaluate_on_test_set()` from `evaluation_utils.py` to ensure metrics match training validation exactly. Saves data split indices (`data_split.pkl`) during training for reproducible evaluation.
 14. **Normalized vs Physical space**: Evaluation reports metrics in both spaces - normalized for comparison with training validation, physical for interpretability
 15. **Line Spread Functions**: Survey-specific LSF/resolution documented in `docs/line_spread_functions.md`. DESI provides resolution matrices; BOSS provides Gaussian σ (wdisp); LAMOST uses approximate Gaussian with R≈1800 (LRS) or R=7500 (MRS)
+16. **Catalogue versions**: v1 catalogues (APOGEE-only) are archived in `data/archive/`. Current v2 supports both APOGEE and GALAH labels with unified label groups.
+17. **Raw data sources**: Training data comes from pre-cross-matched FITS files in `data/raw_catalogues/`, not the legacy `.npy` files in `data/raw/`.
 
-## Super-Catalogue Schema
+## Super-Catalogue Schema (v2)
 
 ```
 super_catalogue.h5
@@ -333,18 +339,26 @@ super_catalogue.h5
 
 See `docs/super_catalogue.md` for complete documentation.
 
-## Catalogue Building Scripts
+## Catalogue Building
 
-Located in `scripts/`:
+### Current Pipeline (v2)
+
+```bash
+# Build from pre-cross-matched FITS files in data/raw_catalogues/
+python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
+
+# Dry run (print statistics only)
+python scripts/build_catalogue_v2.py --dry-run
+```
 
 | Script | Purpose |
 |--------|---------|
-| `add_boss_to_hdf5.py` | Load BOSS spectra (4506 wavelengths) |
-| `add_desi_to_hdf5.py` | Load DESI spectra (7650 wavelengths) |
-| `add_lamost_lrs_to_hdf5.py` | Load LAMOST LRS (3473 wavelengths) |
-| `add_lamost_mrs_to_hdf5.py` | Load LAMOST MRS (dual-arm) |
-| `add_gaia_ids_to_hdf5.py` | Cross-match with Gaia DR3 |
+| `build_catalogue_v2.py` | Build unified multi-survey, multi-label catalogue |
 | `create_deduplicated_catalogue.py` | Remove duplicate entries from catalogue |
+
+### Legacy Pipeline (v1) - Deprecated
+
+Scripts in `scripts/legacy/` built APOGEE-only catalogues from `.npy` files. See `scripts/legacy/README.md` for details.
 
 ## CI/CD and Code Quality
 

@@ -3,17 +3,12 @@
 # LAMOST LRS + LAMOST MRS -> APOGEE + GALAH labels
 #
 # This variant tests multi-survey sparse training with LAMOST's larger
-# datasets (LRS ~100K+ stars, MRS dual-arm spectra).
-#
-# NOTE: If GALAH labels don't exist in the catalogue, use:
-#   duplicate_labels:
-#     galah: apogee
-# This copies APOGEE labels to create "fake" GALAH labels for testing.
+# datasets (LRS ~100K+ stars, MRS dual-arm spectra) and both label sources.
 
 name: variant3_multi_labelset
 
 data:
-  catalogue_path: data/super_catalogue_clean.h5
+  catalogue_path: data/super_catalogue.h5
   surveys:
     - lamost_lrs
     - lamost_mrs
@@ -22,10 +17,7 @@ data:
     - galah
   train_ratio: 0.7
   val_ratio: 0.2
-  max_flag_bits: 0
-  # Duplicate APOGEE labels as GALAH for testing (remove when real GALAH data exists)
-  duplicate_labels:
-    galah: apogee
+  max_flag_bits: -1  # Allow partial labels, per-parameter mask handles validity
 
 # Multi-head MLP for multi-survey, multi-labelset training
 # survey_wavelengths and label_sources are auto-populated
