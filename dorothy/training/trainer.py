@@ -1847,8 +1847,23 @@ class Trainer:
             logger.info(f"Fitted label normalizer on {len(train_labels)} samples")
 
             # Normalize primary labels (train and val)
-            all_labels = y_labels[:, 0, :]
-            all_errors = y_labels[:, 1, :]
+            # Must handle masked (zero) values to avoid log10(0) = -inf for Teff
+            all_labels = y_labels[:, 0, :].copy()
+            all_errors = y_labels[:, 1, :].copy()
+            all_mask = y_labels[:, 2, :]
+
+            # Replace masked values with safe defaults before transform
+            for param_idx in range(all_labels.shape[1]):
+                invalid = all_mask[:, param_idx] == 0
+                if invalid.any():
+                    valid_primary = y_train_mask[:, param_idx] > 0
+                    if valid_primary.any():
+                        median_val = np.median(train_labels[valid_primary, param_idx])
+                    else:
+                        median_val = 5000.0 if param_idx == 0 else 0.0
+                    all_labels[invalid, param_idx] = median_val
+                    all_errors[invalid, param_idx] = 0.1
+
             all_labels_norm, all_errors_norm = self.normalizer.transform(
                 all_labels, all_errors
             )
@@ -1856,10 +1871,32 @@ class Trainer:
             y_labels[:, 1, :] = all_errors_norm
 
             # Also normalize all label sources in labels_dict
+            # Must handle masked (zero) values to avoid log10(0) = -inf for Teff
             if y_labels_dict is not None:
                 for source in y_labels_dict:
-                    source_labels = y_labels_dict[source][:, 0, :]
-                    source_errors = y_labels_dict[source][:, 1, :]
+                    source_labels = y_labels_dict[source][:, 0, :].copy()
+                    source_errors = y_labels_dict[source][:, 1, :].copy()
+                    source_mask = y_labels_dict[source][:, 2, :]
+
+                    # Replace masked values with safe defaults before transform
+                    # For Teff (index 0), must avoid zeros to prevent log10(0)
+                    for param_idx in range(source_labels.shape[1]):
+                        invalid = source_mask[:, param_idx] == 0
+                        if invalid.any():
+                            # Use median from primary labels for this parameter
+                            valid_primary = y_train_mask[:, param_idx] > 0
+                            if valid_primary.any():
+                                median_val = np.median(
+                                    train_labels[valid_primary, param_idx]
+                                )
+                            else:
+                                # Fallback: use a safe default (5000K for Teff, 0 otherwise)
+                                median_val = 5000.0 if param_idx == 0 else 0.0
+                            source_labels[invalid, param_idx] = median_val
+                            source_errors[invalid, param_idx] = (
+                                0.1  # Safe default error
+                            )
+
                     norm_labels, norm_errors = self.normalizer.transform(
                         source_labels, source_errors
                     )

@@ -157,6 +157,13 @@ GALAH_COLUMNS = {
     ],
 }
 
+# APOGEE ASPCAPFLAG bit positions for parameter-specific flags
+# Reference: https://www.sdss4.org/dr17/irspec/apogee-bitmasks/
+# We only flag teff/logg if their specific warning/error bits are set,
+# NOT for unrelated warnings like VMICRO_WARN or N_M_WARN
+ASPCAPFLAG_TEFF_BITS = (1 << 0) | (1 << 16)  # TEFF_WARN | TEFF_BAD
+ASPCAPFLAG_LOGG_BITS = (1 << 1) | (1 << 17)  # LOGG_WARN | LOGG_BAD
+
 
 def get_gaia_id_column(data: np.ndarray) -> str:
     """Determine the Gaia ID column name from the data."""
@@ -238,8 +245,16 @@ def extract_apogee_labels(
 
     for i, col in enumerate(APOGEE_COLUMNS["flag"]):
         if col is None:
+            # For teff/logg, use only parameter-specific ASPCAPFLAG bits
             if aspcapflag is not None:
-                flags[:, i] = (aspcapflag != 0).astype(np.uint8)
+                if i == 0:  # TEFF - use only TEFF_WARN (bit 0) and TEFF_BAD (bit 16)
+                    flags[:, i] = ((aspcapflag & ASPCAPFLAG_TEFF_BITS) != 0).astype(
+                        np.uint8
+                    )
+                elif i == 1:  # LOGG - use only LOGG_WARN (bit 1) and LOGG_BAD (bit 17)
+                    flags[:, i] = ((aspcapflag & ASPCAPFLAG_LOGG_BITS) != 0).astype(
+                        np.uint8
+                    )
         elif col in label_data.dtype.names:
             flags[:, i] = (label_data[col] != 0).astype(np.uint8)
 
@@ -519,9 +534,7 @@ def build_catalogue(
 
             survey_grp = surveys_grp.create_group(survey)
             if survey == "lamost_mrs":
-                survey_grp.create_dataset(
-                    "spectra", data=out_spectra, compression="gzip", compression_opts=4
-                )
+                survey_grp.create_dataset("spectra", data=out_spectra, compression=None)
                 survey_grp.create_dataset("wavelength_b", data=wavelength_b)
                 survey_grp.create_dataset("wavelength_r", data=wavelength_r)
                 survey_grp.attrs["n_channels"] = 4
@@ -532,12 +545,8 @@ def build_catalogue(
                     "ivar_r",
                 ]
             else:
-                survey_grp.create_dataset(
-                    "flux", data=out_flux, compression="gzip", compression_opts=4
-                )
-                survey_grp.create_dataset(
-                    "ivar", data=out_ivar, compression="gzip", compression_opts=4
-                )
+                survey_grp.create_dataset("flux", data=out_flux, compression=None)
+                survey_grp.create_dataset("ivar", data=out_ivar, compression=None)
                 survey_grp.create_dataset("wavelength", data=wavelength)
             survey_grp.create_dataset("snr", data=out_snr)
 
@@ -627,8 +636,8 @@ def build_catalogue(
             t0_write = time.time()
 
             label_grp = labels_grp.create_group(label_source)
-            label_grp.create_dataset("values", data=values, compression="gzip")
-            label_grp.create_dataset("errors", data=errors, compression="gzip")
+            label_grp.create_dataset("values", data=values, compression=None)
+            label_grp.create_dataset("errors", data=errors, compression=None)
             label_grp.create_dataset("flags", data=flags)
             label_grp.create_dataset("gaia_id", data=all_gaia_ids)
 

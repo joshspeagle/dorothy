@@ -74,9 +74,12 @@ super_catalogue.h5
 │   ├── lamost_lrs/
 │   │   ├── flux, ivar, wavelength, snr
 │   └── lamost_mrs/
-│       ├── flux_b, ivar_b, wavelength_b   # Blue arm
-│       ├── flux_r, ivar_r, wavelength_r   # Red arm
+│       ├── spectra                        # (N, 4, 3375) float32 - 4 channels: [flux_b, ivar_b, flux_r, ivar_r]
+│       ├── wavelength_b                   # (3375,) float32 - Blue arm wavelengths
+│       ├── wavelength_r                   # (3248,) float32 - Red arm wavelengths (shorter than blue)
 │       └── snr                            # (N,) float32
+│       # Note: spectra array is padded to max(3375, 3248)=3375 for all channels
+│       # When loading, trim flux_r/ivar_r to first 3248 pixels to match wavelength_r
 │
 ├── labels/                                # All arrays have N_TOTAL rows
 │   ├── apogee/
@@ -128,25 +131,47 @@ The catalogue stores 11 stellar parameters (same order in both APOGEE and GALAH)
 
 ## Quality Flags
 
-### APOGEE Flags (uint8)
+Flags are stored as binary values (0 = valid, 1 = flagged) derived from source bitmasks. The `flags` array has shape `(N, 11)` with one flag per stellar parameter per star.
 
-| Bit | Name | Description |
-|-----|------|-------------|
-| 0 | GRIDEDGE_BAD | PARAMFLAG bit 0 |
-| 1 | CALRANGE_BAD | PARAMFLAG bit 1 |
-| 2 | OTHER_BAD | PARAMFLAG bit 2 |
-| 3 | TEFF_CUT | PARAMFLAG bit 6 |
-| 4 | PARAM_SPECIFIC | From ASPCAPFLAG (TEFF_BAD, LOGG_BAD, etc.) |
-| 5 | VALUE_BOUNDS | Outside physical bounds |
+### APOGEE Flag Criteria
 
-### GALAH Flags (uint8)
+| Parameter | Source | Criteria |
+|-----------|--------|----------|
+| teff | ASPCAPFLAG | Bits 0 (TEFF_WARN) or 16 (TEFF_BAD) set |
+| logg | ASPCAPFLAG | Bits 1 (LOGG_WARN) or 17 (LOGG_BAD) set |
+| fe_h | FE_H_FLAG | Any bit set (nonzero) |
+| mg_fe | MG_FE_FLAG | Any bit set (nonzero) |
+| c_fe | C_FE_FLAG | Any bit set (nonzero) |
+| si_fe | SI_FE_FLAG | Any bit set (nonzero) |
+| ni_fe | NI_FE_FLAG | Any bit set (nonzero) |
+| al_fe | AL_FE_FLAG | Any bit set (nonzero) |
+| ca_fe | CA_FE_FLAG | Any bit set (nonzero) |
+| n_fe | N_FE_FLAG | Any bit set (nonzero) |
+| mn_fe | MN_FE_FLAG | Any bit set (nonzero) |
 
-| Bit | Name | Description |
-|-----|------|-------------|
-| 0 | FLAG_X_FE_NONZERO | flag_X_fe != 0 for this element |
-| 1 | VALUE_BOUNDS | Outside physical bounds |
+Additionally, flags are set to 1 if values or errors are NaN/inf.
 
-**Important**: GALAH DR4's `flag_fe_h` column is bugged and should not be used. The catalogue builder uses `flag_sp == 0` for pre-filtering.
+**Note on TEFF/LOGG**: Only parameter-specific ASPCAPFLAG bits are used. Other bits (VMICRO_WARN, N_M_WARN, etc.) do not affect TEFF/LOGG flags.
+
+Reference: [APOGEE ASPCAPFLAG Bitmask (SDSS DR17)](https://www.sdss4.org/dr17/irspec/apogee-bitmasks/)
+
+### GALAH Flag Criteria
+
+| Parameter | Source | Criteria |
+|-----------|--------|----------|
+| teff | flag_sp | Any bit set (nonzero) |
+| logg | flag_sp | Any bit set (nonzero) |
+| fe_h | flag_fe_h | Any bit set (nonzero) |
+| mg_fe | flag_mg_fe | Any bit set (nonzero) |
+| c_fe | flag_c_fe | Any bit set (nonzero) |
+| si_fe | flag_si_fe | Any bit set (nonzero) |
+| ni_fe | flag_ni_fe | Any bit set (nonzero) |
+| al_fe | flag_al_fe | Any bit set (nonzero) |
+| ca_fe | flag_ca_fe | Any bit set (nonzero) |
+| n_fe | flag_n_fe | Any bit set (nonzero) |
+| mn_fe | flag_mn_fe | Any bit set (nonzero) |
+
+Reference: [GALAH DR3 Flags](https://www.galah-survey.org/dr3/flags/)
 
 ### Using Flags
 
@@ -154,8 +179,12 @@ The catalogue stores 11 stellar parameters (same order in both APOGEE and GALAH)
 # Get stars with no flags set (highest quality)
 clean_mask = np.all(data.label_flags == 0, axis=1)
 
-# Check specific flag bit
-gridedge_bad = (data.label_flags[:, :] & (1 << 0)) != 0
+# Check specific parameter flag
+teff_flagged = data.label_flags[:, 0] > 0
+logg_flagged = data.label_flags[:, 1] > 0
+
+# Filter to only unflagged labels
+unflagged = data.filter_by_flags(max_flag_bits=0)
 ```
 
 ## Quality Cuts Applied
