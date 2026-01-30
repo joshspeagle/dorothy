@@ -323,7 +323,12 @@ def cmd_train(args: argparse.Namespace) -> int:
     if resolved_device == "auto":
         import torch
 
-        resolved_device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            resolved_device = "cuda"
+        elif torch.backends.mps.is_available():
+            resolved_device = "mps"
+        else:
+            resolved_device = "cpu"
     print(f"Device: {resolved_device}")
     print(f"Output: {config.get_output_path()}")
     print(f"Surveys: {config.data.surveys}")
@@ -1280,7 +1285,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     print("\nLoading model...")
     device = args.device
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
     print(f"  Device: {device}")
 
     # Determine model type and load accordingly

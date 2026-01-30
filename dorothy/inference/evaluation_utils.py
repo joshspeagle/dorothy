@@ -265,7 +265,12 @@ def evaluate_on_test_set(
     """
     # Resolve device
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
     if isinstance(device, str):
         device = torch.device(device)
 
@@ -411,7 +416,12 @@ def evaluate_on_dense_data(
     """
     # Resolve device
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
     if isinstance(device, str):
         device = torch.device(device)
 
@@ -564,7 +574,12 @@ def evaluate_on_single_survey_data(
     """
     # Resolve device
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
     if isinstance(device, str):
         device = torch.device(device)
 

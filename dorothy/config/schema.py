@@ -645,7 +645,7 @@ class ExperimentConfig(BaseModel):
         input_masking: Dynamic input masking configuration for robustness.
         output_dir: Directory for saving outputs (checkpoints, logs).
         seed: Random seed for reproducibility.
-        device: Device to use for training ("cuda", "cpu", or "auto").
+        device: Device to use for training ("cuda", "mps", "cpu", or "auto").
     """
 
     name: str = Field(min_length=1, max_length=100, description="Experiment name")
