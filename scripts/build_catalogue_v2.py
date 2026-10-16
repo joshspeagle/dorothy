@@ -18,6 +18,7 @@ Usage:
     python scripts/build_catalogue_v2.py
     python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
     python scripts/build_catalogue_v2.py --dry-run  # Print stats only
+    python scripts/build_catalogue_v2.py --X_H # Use [X/H] labels
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ def format_time(seconds: float) -> str:
 
 
 # 11 stellar parameters in standard order
-PARAMETER_NAMES = [
+PARAMETER_NAMES_X_FE = [
     "teff",
     "logg",
     "fe_h",
@@ -59,12 +60,25 @@ PARAMETER_NAMES = [
     "mn_fe",
 ]
 
+PARAMETER_NAMES_X_H = [
+    "teff",
+    "logg",
+    "fe_h",
+    "mg_h",
+    "c_h",
+    "si_h",
+    "ni_h",
+    "al_h",
+    "ca_h",
+    "n_h",
+    "mn_h",
+]
 # Input file mapping: (survey, label_source) -> filename
 INPUT_FILES = {
     ("boss", "apogee"): "BOSSxAPOGEE_training.fits",
     ("boss", "galah"): "BOSSxGALAH_training.fits",
-    ("desi", "apogee"): "DESIxAPOGEE_training.fits",
-    ("desi", "galah"): "DESIxGALAH_training.fits",
+    ("desi", "apogee"): "DESIxAPOGEE_training_dr1.fits",
+    ("desi", "galah"): "DESIxGALAH_training_dr1.fits",
     ("lamost_lrs", "apogee"): "LAMOST_LRSxAPOGEE_training.fits",
     ("lamost_lrs", "galah"): "LAMOST_LRSxGALAH_training.fits",
     ("lamost_mrs", "apogee"): "LAMOST_MRSxAPOGEE.fits",
@@ -114,6 +128,7 @@ APOGEE_COLUMNS = {
     ],
 }
 
+APOGEE_X_H_IDC = [None, None, None, 5, 0, 7, 19, 6, 11, 2, 16]
 # GALAH column mappings (lowercase)
 GALAH_COLUMNS = {
     "value": [
@@ -223,6 +238,7 @@ def collect_all_gaia_ids(
 
 def extract_apogee_labels(
     label_data: np.ndarray,
+    X_H: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract and format APOGEE labels to standard order."""
     n_stars = len(label_data)
@@ -231,7 +247,10 @@ def extract_apogee_labels(
     flags = np.zeros((n_stars, 11), dtype=np.uint8)
 
     for i, col in enumerate(APOGEE_COLUMNS["value"]):
-        if col in label_data.dtype.names:
+        if (X_H == True) and (APOGEE_X_H_IDC[i] != None) and ("X_H" in label_data.dtype.names):
+            values[:, i] = label_data["X_H"][:, APOGEE_X_H_IDC[i]]
+            
+        elif col in label_data.dtype.names:
             values[:, i] = label_data[col]
 
     for i, col in enumerate(APOGEE_COLUMNS["error"]):
@@ -270,6 +289,7 @@ def extract_apogee_labels(
 
 def extract_galah_labels(
     label_data: np.ndarray,
+    X_H: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract and format GALAH labels to standard order."""
     n_stars = len(label_data)
@@ -278,7 +298,10 @@ def extract_galah_labels(
     flags = np.zeros((n_stars, 11), dtype=np.uint8)
 
     for i, col in enumerate(GALAH_COLUMNS["value"]):
-        if col in label_data.dtype.names:
+        if (X_H == True) and (col[-2:] == "fe") and (col in label_data.dtype.names):
+            values[:, i] = label_data[col] + label_data["fe_h"]
+            
+        elif col in label_data.dtype.names:
             values[:, i] = label_data[col]
 
     for i, col in enumerate(GALAH_COLUMNS["error"]):
@@ -310,6 +333,7 @@ def build_catalogue(
     output_path: Path,
     verbose: bool = True,
     dry_run: bool = False,
+    X_H: bool = False,
 ) -> dict[str, Any]:
     """
     Build unified super-catalogue from raw FITS files.
@@ -344,6 +368,14 @@ def build_catalogue(
         "labels": {},
     }
 
+    if X_H:
+        print("Catalogue will be created with [X/H] labels")
+        PARAMETER_NAMES = PARAMETER_NAMES_X_H
+
+    else:
+        print("Catalogue will be created with [X/Fe] labels")
+        PARAMETER_NAMES = PARAMETER_NAMES_X_FE
+        
     if dry_run:
         print("\n[DRY RUN] Would process the following:")
         for survey in ["boss", "desi", "lamost_lrs", "lamost_mrs"]:
@@ -598,11 +630,11 @@ def build_catalogue(
                     # Extract labels
                     if label_source == "apogee":
                         file_vals, file_errs, file_flags = extract_apogee_labels(
-                            label_data
+                            label_data, X_H
                         )
                     else:
                         file_vals, file_errs, file_flags = extract_galah_labels(
-                            label_data
+                            label_data, X_H
                         )
 
                     # Find valid mappings
@@ -692,6 +724,11 @@ def main():
         help="Print statistics without creating output",
     )
     parser.add_argument(
+        "--X_H",
+        action="store_true",
+        help="Retrieve [X/H] labels instead of [X/Fe]",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -715,7 +752,7 @@ def main():
         else:
             args.output = Path.cwd() / args.output
 
-    build_catalogue(args.input_dir, args.output, args.verbose, args.dry_run)
+    build_catalogue(args.input_dir, args.output, args.verbose, args.dry_run, args.X_H)
 
 
 if __name__ == "__main__":

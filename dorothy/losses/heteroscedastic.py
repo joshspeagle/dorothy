@@ -56,7 +56,7 @@ class HeteroscedasticLoss(nn.Module):
     def __init__(
         self,
         scatter_floor: float = 0.01,
-        n_parameters: int = 11,
+        n_parameters: int = 20,
         reduction: str = "mean",
     ) -> None:
         """

@@ -1091,7 +1091,7 @@ def _recreate_data_split(config, loader):
 
         # Filter to valid samples
         mask = y[:, 2, :]
-        valid_samples = mask.all(axis=1)
+        valid_samples = mask.any(axis=1)
 
         X = X[valid_samples]
         y = y[valid_samples]
@@ -1259,7 +1259,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
             # Filter to valid samples
             mask = y[:, 2, :]
-            valid_samples = mask.all(axis=1)
+            valid_samples = mask.any(axis=1)
 
             X = X[valid_samples]
             y = y[valid_samples]
@@ -1326,6 +1326,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             activation=config.multi_head_model.activation.value,
             dropout=config.multi_head_model.dropout,
             label_sources=config.multi_head_model.label_sources,
+            head_dropout=config.multi_head_model.head_dropout,
         )
         model.load_state_dict(state_dict)
     else:
@@ -1407,7 +1408,54 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             device=device,
         )
+########## -------------------------------------------------------------########################
+        from dorothy.inference import build_batch_from_sparse, normalize_sparse_data
+        
+        data_normalized = (
+        normalize_sparse_data(sparse_data, normalizer) if normalizer is not None else data
+        )
+        model.eval()
+    
+        # Determine multi-label mode
+        label_sources = getattr(model, "label_sources", ["default"])
+        is_multi_label = len(label_sources) > 1
+        primary_label_source = label_sources[0] if is_multi_label else None
 
+
+         
+        with torch.no_grad():
+            X_batch, has_data_batch, y_batch = build_batch_from_sparse(
+                    data_normalized, test_idx, device
+                )
+
+            output = model(X_batch, has_data=has_data_batch)
+            #ADD CASE FOR MULTI-LABEL!!!
+        y_mask = y_batch['apogee'][:, 2, :].cpu().numpy()
+        y_pred = output[:, 0, :].cpu().numpy()
+        log_scatter = output[:, 1, :].cpu().numpy()
+    
+        # Compute predicted scatter (same as trainer line 2276-2278)
+        scatter_floor = config.training.scatter_floor
+        pred_scatter = np.sqrt(np.exp(2 * log_scatter) + scatter_floor**2)
+
+        
+        preds, scatter = normalizer.inverse_transform(
+            y_pred, pred_scatter 
+        )
+
+        if is_multi_label and sparse_data.labels_dict is not None:
+            y_test_phys = sparse_data.labels_dict[primary_label_source][test_idx]
+        else:
+            y_test_phys = sparse_data.labels[test_idx]
+
+        y_true_phys = y_test_phys[:, 0, :]
+        y_err_phys = y_test_phys[:, 1, :]
+
+        from dorothy.visualization import plot_pred_vs_truth, plot_histograms, residuals_plot
+        plot_path = checkpoint_path / "plots"
+        # plot_pred_vs_truth(plot_path, preds, y_true_phys, scatter, y_mask, True)
+    
+########## -------------------------------------------------------------###########################
     elif data_for_eval[0] == "dense":
         # Use shared evaluation utility that matches training validation exactly
         from dorothy.inference import evaluate_on_dense_data
@@ -1448,6 +1496,22 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             device=device,
         )
+
+
+        from dorothy.inference import Predictor
+        from dorothy.visualization import plot_pred_vs_truth, plot_histograms, residuals_plot
+
+               # Make predictions on test set
+        print("\nMaking predictions on test set...")
+        predictor = Predictor(model, normalizer, device)
+        X, y = data_for_eval[1], data_for_eval[2]
+        predictions = predictor.predict(X = X[test_idx], denormalize = True)
+        plot_path = checkpoint_path / "plots"
+      
+        plot_pred_vs_truth(plot_path, predictions.predictions, y[test_idx][:, 0, :], predictions.uncertainties, y[test_idx][:, 2, :], True)
+        plot_histograms(plot_path, predictions.predictions, y[test_idx][:, 0, :], predictions.uncertainties,  y[test_idx][:, 2, :], True)
+        residuals_plot(plot_path, predictions.predictions, y[test_idx][:, 0, :], predictions.uncertainties,  y[test_idx][:, 2, :], True)
+        print(f"\nTesting plots generated and saved in {plot_path}")
 
     # Display results
     print("\n" + "=" * 80)

@@ -48,7 +48,17 @@ DEFAULT_PARAMETER_NAMES = [
     "ca_fe",
     "n_fe",
     "mn_fe",
+    "o_fe",
+    "na_fe",
+    "k_fe",
+    "ti_fe",
+    "v_fe",
+    "cr_fe",
+    "co_fe",
+    "ba_fe",
+    "sr_fe"
 ]
+
 
 
 @dataclass
@@ -620,6 +630,7 @@ class AblationSaliencyAnalyzer:
             weights /= weights.sum()
 
             # Compute importance for each block size and accumulate weighted average
+            print(self.parameter_names)
             delta_mu_accum = np.zeros((len(self.parameter_names), N), dtype=np.float32)
             delta_sigma_accum = np.zeros(
                 (len(self.parameter_names), N), dtype=np.float32

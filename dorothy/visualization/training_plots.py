@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from dorothy.training.trainer import TrainingHistory
@@ -32,8 +32,61 @@ PARAM_DISPLAY_NAMES = [
     "[Ca/Fe]",
     "[N/Fe]",
     "[Mn/Fe]",
+    "[O/Fe]",
+    "[Na/Fe]",
+    "[K/Fe]",
+    "[Ti/Fe]",
+    "[V/Fe]",
+    "[Cr/Fe]",
+    "[Co/Fe]",
+    "[Ba/Fe]",
+    "[Sr/Fe]"
 ]
 
+
+custom_ranges = {
+        "[Fe/H]":   {'scatter': (-2.5, 1),    'residual': (-0.2, 0.2)},
+        r"$\log g$":  {'scatter': (0, 5.5),         'residual': (-0.5, 0.5)},
+        r"$T_{\rm eff}$":  {'scatter': (3000, 7000),   'residual': (-300, 300)},
+        "[Mg/Fe]":  {'scatter': (-0.3, 0.5),    'residual': (-0.3, 0.3)},
+        "[C/Fe]":   {'scatter': (-0.4, 0.4),    'residual': (-0.3, 0.3)},
+        "[Si/Fe]":  {'scatter': (-0.2, 0.4),    'residual': (-0.3, 0.3)},
+        "[Ni/Fe]":  {'scatter': (-0.15, 0.2),    'residual': (-0.3, 0.3)},
+        "[Al/Fe]":  {'scatter': (-0.4, 0.5),    'residual': (-0.3, 0.3)},
+        "[Ca/Fe]":  {'scatter': (-0.2, 0.4),    'residual': (-0.3, 0.3)},
+        "[N/Fe]":   {'scatter': (-0.3, 0.5),    'residual': (-0.3, 0.3)},
+        "[Mn/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[O/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[Na/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[K/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[Ti/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[V/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[Cr/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[Co/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[Ba/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+        "[Sr/Fe]":  {'scatter': (-0.5, 0.3),    'residual': (-0.3, 0.3)},
+    }
+
+# custom_ranges = {
+#         "[Fe/H]":   {'scatter': (-2.5, 1),    'residual': (-0.2, 0.2)},
+#         r"$\log g$":  {'scatter': (0, 5.5),         'residual': (-0.5, 0.5)},
+#         r"$T_{\rm eff}$":  {'scatter': (3000, 7000),   'residual': (-300, 300)},
+#         "[Mg/H]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[C/]":   {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Si/H]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Ni/H]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Al/H]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Ca/H]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[N/H]":   {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Mn/H]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[O/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Na/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[K/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Ti/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[V/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Cr/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#         "[Co/Fe]":  {'scatter': (-2, 1),    'residual': (-0.3, 0.3)},
+#     }
 
 def _simplify_layer_name(name: str) -> str:
     """
@@ -1198,6 +1251,226 @@ def plot_per_labelset_loss_curves(
 
     return save_path
 
+
+
+def residuals_plot(
+    output_path: Path,
+    preds: NDArray[np.float32],
+    true: NDArray[np.float32],
+    pred_unc: NDArray[np.float32],
+    mask: NDArray[np.float32],
+    unnormalized: bool = False) -> Path:
+    """
+    """
+
+    plt = _try_import_matplotlib()
+    if plt is None:
+        return None
+    from scipy.stats import mode
+    from matplotlib.colors import LinearSegmentedColormap
+        
+    colours = [
+        (1.0, 1.0, 1.0),            # White
+        (0.2, 0.85, 0.5),           # Stronger green
+        (0.0, 0.6, 0.8),            # Rich teal-blue
+        (0.0314, 0.4078, 0.6745),   # #0868AC
+        (0.0, 0.1490, 0.3176)       # #002651 navy
+    ]
+    
+    cmap = LinearSegmentedColormap.from_list("my_cmap", colours, N=256)
+    
+    #residuals 
+    fig, ax = plt.subplots(3, 4, figsize=(15, 9), sharey=False, sharex = False)
+    ax = ax.flatten()
+    for idx, param in enumerate(PARAM_DISPLAY_NAMES):
+        param_mask = mask[:, idx].astype(bool)
+        valid_idx = param_mask
+        pred_masked = preds[valid_idx, idx]
+        exp_masked = true[valid_idx, idx]
+        err_masked = pred_unc[valid_idx, idx] 
+    
+        res = exp_masked - pred_masked
+        bins = 100
+    
+        x_min, x_max = custom_ranges[param]['scatter']
+        xbin = np.linspace(x_min, x_max, bins)
+        y_min, y_max = custom_ranges[param]['residual']
+        
+        lower, upper, median, centre = [], [], [], []
+    
+        for i in range(len(xbin) - 1):
+            indices = (exp_masked >= xbin[i]) & (exp_masked < xbin[i + 1])
+            residual = res[indices]
+            if len(residual) > 0:
+                c = (xbin[i + 1] + xbin[i]) / 2
+                centre.append(c)
+                per = np.nanpercentile(residual, [25, 50, 75])
+                lower.append(per[0])
+                median.append(per[1])
+                upper.append(per[2])
+    
+        l = np.interp(xbin, centre, lower)
+        med = np.interp(xbin, centre, median)
+        u = np.interp(xbin, centre, upper)
+    
+    
+        H2, xedges2, yedges2 = np.histogram2d(exp_masked, res, bins=[xbin, np.linspace(y_min, y_max, 100)])
+        pcm = ax[idx].pcolormesh(xedges2, yedges2, H2, shading='auto', cmap=cmap)
+        ax[idx].hist2d(exp_masked, res, bins=(xbin, np.linspace(y_min, y_max, 100)), cmap=cmap)
+        ax[idx].plot(xbin, l, linestyle='--', color='black', label='25th percentile', lw=1)
+        ax[idx].plot(xbin, med, linestyle='-', color='black', label='Median', lw=1.2)
+        ax[idx].plot(xbin, u, linestyle=':', color='black', label='75th percentile', lw=1)
+    
+        ax[idx].set_xlabel(f'Expected {PARAM_DISPLAY_NAMES[idx]}')
+    
+        if (idx % 4) == 0:
+            ax[idx].set_ylabel('Residuals (Exp - Pred)')
+        #ax[idx].set_title(f'Residuals vs Expected {param.upper()} (MODEL 2)')
+        ax[idx].legend(prop={'size': 7})
+        cbar = fig.colorbar(pcm, ax=ax[idx])
+        cbar.set_label("Number of stars")
+        ax[idx].grid(True, linestyle = "--")
+    
+        plt.tight_layout()
+    
+    for j in range(idx+1, len(ax)):
+        fig.delaxes(ax[j])
+    
+    save_path = output_path / "residuals.png"
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    return save_path
+
+
+
+
+def plot_pred_vs_truth(
+    output_path: Path,
+    preds: NDArray[np.float32],
+    true: NDArray[np.float32],
+    pred_unc: NDArray[np.float32],
+    mask: NDArray[np.float32],
+    unnormalized: bool = False) -> Path:
+    """ 
+    Create prediction vs thruth scatter plots for single survey predictions (for now)
+
+    Args:
+        output_path: Directory to save the plot.
+        preds: PredictionResult object
+        true: Ground truth labels
+
+    Ouput:
+        Path to the saved plot
+    """
+
+    colours = [
+    (0.8, 1.0, 0.8),           # CCFFCC
+    (0.2, 0.85, 0.5),          # 33D980
+    (0.0, 0.6, 0.8),           # 0099CC
+    (0.0314, 0.4078, 0.6745),  # 0868AC
+    (0.0, 0.1490, 0.3176),     # 002651
+    (0.4, 0.0, 0.4)            # 660066
+]
+
+    plt = _try_import_matplotlib()
+    if plt is None:
+        return None
+        
+    from matplotlib.colors import LinearSegmentedColormap
+    from scipy.stats import mode
+
+    cmap = LinearSegmentedColormap.from_list("my_cmap", colours, N=256)
+    
+    fig, ax = plt.subplots(4, 5, figsize=(20, 15), sharey=False, sharex = False)
+    ax = ax.flatten()
+
+    for i, param in enumerate(PARAM_DISPLAY_NAMES):
+        param_mask = mask[:, i].astype(bool)
+        valid_idx = param_mask
+        pred_masked = preds[valid_idx, i]
+        exp_masked = true[valid_idx, i]
+        err_masked = pred_unc[valid_idx, i] 
+
+        x_min, x_max = custom_ranges[param]['scatter']
+        rangey = [x_min, x_max]
+        vmin, vmax = np.percentile(err_masked, 1), np.percentile(err_masked, 99)
+        sc = ax[i].scatter(exp_masked, pred_masked, s=5, alpha=0.6, c=err_masked, cmap=cmap, marker = 'o', vmin=vmin, vmax=vmax)
+        ax[i].plot(rangey, rangey, linewidth=1, c = "black", linestyle = "--")
+        if (i % 4) == 0:
+            ax[i].set_ylabel(f"DOROTHY Predictions")
+        
+        if (i == 7) or (i == 8) or (i == 9) or (i == 10):
+            ax[i].set_xlabel(f"APOGEE DR17")
+      
+        ax[i].set_xlim(rangey)
+        ax[i].set_ylim(rangey)
+
+        ax[i].minorticks_on()
+        ax[i].grid(True, linestyle=':')
+        ax[i].text(
+        0.03, 0.97,                      # (x, y) in axes coordinates
+        f"{PARAM_DISPLAY_NAMES[i]}",                   # <-- replace with your actual text
+        transform=ax[i].transAxes,      # IMPORTANT
+        fontsize=15,
+        verticalalignment="top",
+        horizontalalignment="left",
+        bbox=dict(facecolor="white", alpha=0.7, edgecolor="none")
+    )
+        cbar = fig.colorbar(sc, ax=ax[i], fraction=0.045, pad=0.02)
+        cbar.set_label("DOROTHY Predicted Uncertainty")
+        plt.tight_layout()
+    
+    #ax[i+1].axis("off")
+
+    save_path = output_path / "predicted_vs_truth_scatter.png"
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    return save_path
+
+
+def plot_histograms(
+    output_path: Path,
+    preds: NDArray[np.float32],
+    true: NDArray[np.float32],
+    pred_unc: NDArray[np.float32],
+    mask: NDArray[np.float32],
+    unnormalized: bool = False) -> Path:
+
+    plt = _try_import_matplotlib()
+    if plt is None:
+        return None
+
+    from scipy.stats import mode
+    
+    fig, ax = plt.subplots(4, 3, figsize = (15, 13))
+    ax = ax.flatten()
+    for i, param in enumerate(PARAM_DISPLAY_NAMES):
+        param_mask = mask[:, i].astype(bool)
+        valid_idx = param_mask
+        pred_masked = preds[valid_idx, i]
+        exp_masked = true[valid_idx, i]
+        err_masked = pred_unc[valid_idx, i] 
+        
+        x_min, x_max = custom_ranges[param]['scatter']
+        bins = np.linspace(x_min, x_max, 100)
+        
+        ax[i].hist(exp_masked, bins = bins, label = 'APOGEE DR17', alpha = 0.6)
+        ax[i].hist(pred_masked, bins = bins, label = 'DOROTHY PREDICTIONS', alpha = 0.6)
+        ax[i].set_xlabel(f"{param}")
+        ax[i].set_ylabel("Number of Stars")
+        ax[i].set_title(f"{param}")
+        ax[i].legend()
+
+    ax[i+1].axis("off")
+    plt.tight_layout()
+    save_path = output_path / "histograms.png"
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+  
 
 def plot_per_labelset_metrics(
     history: "TrainingHistory",

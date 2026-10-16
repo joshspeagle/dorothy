@@ -6,10 +6,10 @@
 # robustness. The model learns to handle incomplete spectral coverage and
 # missing wavelength regions, which is common in real observations.
 
-name: variant5_all_surveys_masked
+name: variant5_all_surveys_norm_new_lr
 
 data:
-  catalogue_path: data/super_catalogue.h5
+  catalogue_path: data/super_catalogue_ABUN_GALAH.h5
   surveys:
     - desi
     - boss
@@ -17,6 +17,7 @@ data:
     - lamost_mrs
   label_sources:
     - apogee
+    - galah
   train_ratio: 0.7
   val_ratio: 0.2
   max_flag_bits: -1  # Allow partial labels, per-parameter mask handles validity
@@ -25,25 +26,27 @@ data:
 # survey_wavelengths and label_sources are auto-populated
 multi_head_model:
   latent_dim: 256
-  encoder_hidden: [1024, 512]
+  encoder_hidden: [512, 256]
   trunk_hidden: [512, 256]
   output_hidden: [64]
   combination_mode: concat
   normalization: layernorm
   activation: gelu
   dropout: 0.0
+  head_dropout:
+    galah: 0
 
 training:
-  epochs: 100
+  epochs: 1500
   batch_size: 512
   learning_rate: 0.001
   loss: heteroscedastic
   gradient_clip: 10.0
   scatter_floor: 0.01
-  save_every: 0
+  save_every: 50
   optimizer:
     type: adamw
-    weight_decay: 0.01
+    weight_decay: 0.05
   scheduler:
     type: one_cycle
     max_lr: 0.001

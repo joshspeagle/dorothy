@@ -148,10 +148,23 @@ class LabelNormalizer:
             if mask is not None:
                 param_mask = mask[:, i].astype(bool)
                 values = y[param_mask, i]
-                if len(values) == 0:
-                    raise ValueError(f"All values masked for parameter {param_name}")
+                # if len(values) == 0:
+                #     raise ValueError(f"All values masked for parameter {param_name}")
             else:
                 values = y[:, i]
+
+            # Handle completely masked parameters (no valid values)
+            if len(values) == 0:
+                # Use identity normalization: median=0, iqr=1
+                # This means normalize(x) = (x - 0) / 1 = x
+                # The loss will ignore these predictions anyway since mask is all 0
+                self.stats[param_name] = ParameterStats(
+                    name=param_name,
+                    median=0.0,
+                    iqr=1.0,
+                    use_log=False,
+                )
+                continue
 
             # Check for invalid values in unmasked data
             if np.any(np.isnan(values)):

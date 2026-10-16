@@ -174,16 +174,17 @@ class AnomalyDetector:
             Self for method chaining.
         """
         from sklearn.neighbors import BallTree
+        import torch
 
         self.k = k
         self.percentile = percentile
 
         # Extract and normalize embeddings
-        embeddings = self.predictor.get_embeddings(
-            X_train,
-            layer_index=self.layer_index,
-            batch_size=batch_size,
-        )
+        with torch.no_grad():
+            embeddings = self.predictor.model._forward_single_to_trunk(
+                X_train,
+                survey = 'desi'
+            )
         self.train_embeddings = l2_normalize(embeddings)
 
         # Build BallTree for efficient queries
@@ -216,17 +217,18 @@ class AnomalyDetector:
         Raises:
             RuntimeError: If detector has not been fitted.
         """
+        import torch
         if self.tree is None or self.threshold is None:
             raise RuntimeError(
                 "Detector must be fitted before detection. Call fit() first."
             )
 
         # Extract and normalize embeddings
-        embeddings = self.predictor.get_embeddings(
-            X,
-            layer_index=self.layer_index,
-            batch_size=batch_size,
-        )
+        with torch.no_grad():
+            embeddings = self.predictor.model._forward_single_to_trunk(
+                X,
+                survey = 'desi'
+            )
         embeddings_norm = l2_normalize(embeddings)
 
         # Query k neighbors (no self-distance for new data)

@@ -57,7 +57,7 @@ def create_demo_model() -> MultiHeadMLP:
     """Create a demo model for testing without a checkpoint."""
     return MultiHeadMLP(
         survey_configs={"boss": 4506, "desi": 7650},
-        n_parameters=11,
+        n_parameters=20,
         latent_dim=64,
         encoder_hidden=[256, 128],
         trunk_hidden=[128, 64],
@@ -125,6 +125,7 @@ def load_model_from_checkpoint(
     # Extract model config
     model_config = config["multi_head_model"]
 
+    print(model_config["n_parameters"])
     # Create model
     model = MultiHeadMLP(
         survey_configs=model_config["survey_wavelengths"],
@@ -134,9 +135,11 @@ def load_model_from_checkpoint(
         trunk_hidden=model_config["trunk_hidden"],
         output_hidden=model_config["output_hidden"],
         combination_mode=model_config.get("combination_mode", "concat"),
-        normalization=model_config.get("normalization", "batchnorm"),
-        activation=model_config.get("activation", "relu"),
+        normalization=model_config.get("normalization", "layernorm"),
+        activation=model_config.get("activation", "gelu"),
         dropout=model_config.get("dropout", 0.0),
+        label_sources=model_config['label_sources'],
+        head_dropout=model_config.get("head_dropout", "galah")
     )
 
     # Load weights
@@ -173,6 +176,7 @@ def load_spectrum_from_catalogue(
         # Load spectrum data
         flux = f[f"surveys/{survey}/flux"][index]
         ivar = f[f"surveys/{survey}/ivar"][index]
+        flux, ivar = normalize_spectra(flux, ivar)
         wavelength = f[f"surveys/{survey}/wavelength"][:].astype(np.float32)
 
         # Convert ivar to error and mask
@@ -192,6 +196,17 @@ def load_spectrum_from_catalogue(
 
     return X, wavelength, gaia_id
 
+def normalize_spectra(flux, ivar):
+    """Per-star median/IQR scaling over valid pixels. flux, ivar: (N, W)."""
+    valid = np.isfinite(ivar) & (ivar > 0) & np.isfinite(flux)
+    f = np.where(valid, flux, np.nan)
+    med = np.nanmedian(f, keepdims=True)
+    q25, q75 = np.nanpercentile(f, [25, 75])
+    iqr = (q75 - q25)
+    print(iqr), print(med)
+    iqr = np.where(iqr > 0, iqr, 1.0)
+    med = np.where(np.isfinite(med), med, 0.0)
+    return (np.where(valid, flux - med, 0.0) / iqr).astype(np.float32), (ivar * iqr**2).astype(np.float32)
 
 def load_labels_from_catalogue(
     catalogue_path: Path,
@@ -211,7 +226,7 @@ def load_labels_from_catalogue(
         Tuple of (label_values, label_errors) or (None, None) if not found.
     """
     # Labels are stored as apogee_{survey}
-    label_key = f"apogee_{survey}"
+    label_key = f"apogee"
 
     with h5py.File(catalogue_path, "r") as f:
         if f"labels/{label_key}" not in f:

@@ -63,14 +63,23 @@ STELLAR_PARAMETERS = [
     "teff",  # Effective temperature (K), normalized in log10 space
     "logg",  # Surface gravity (log g)
     "fe_h",  # Iron abundance [Fe/H]
-    "mg_fe",  # Magnesium abundance [Mg/Fe]
-    "c_fe",  # Carbon abundance [C/Fe]
-    "si_fe",  # Silicon abundance [Si/Fe]
-    "ni_fe",  # Nickel abundance [Ni/Fe]
-    "al_fe",  # Aluminum abundance [Al/Fe]
-    "ca_fe",  # Calcium abundance [Ca/Fe]
-    "n_fe",  # Nitrogen abundance [N/Fe]
-    "mn_fe",  # Manganese abundance [Mn/Fe]
+    "mg_h",  # Magnesium abundance [Mg/Fe]
+    "c_h",  # Carbon abundance [C/Fe]
+    "si_h",  # Silicon abundance [Si/Fe]
+    "ni_h",  # Nickel abundance [Ni/Fe]
+    "al_h",  # Aluminum abundance [Al/Fe]
+    "ca_h",  # Calcium abundance [Ca/Fe]
+    "n_h",  # Nitrogen abundance [N/Fe]
+    "mn_h",  # Manganese abundance [Mn/Fe]
+    "o_h",
+    "na_h",
+    "k_h",
+    "ti_h",
+    "v_h",
+    "cr_h",
+    "co_h",
+    "ba_h",
+    "sr_h"
 ]
 
 
@@ -192,7 +201,7 @@ class ModelConfig(BaseModel):
         description="Number of input features (channels * wavelength_bins)",
     )
     output_features: int = Field(
-        default=22,
+        default=40,
         ge=2,
         description="Number of outputs (n_params * 2 for mean + uncertainty)",
     )
@@ -254,7 +263,7 @@ class MultiHeadModelConfig(BaseModel):
         description="Dict mapping survey names to wavelength bin counts",
     )
     n_parameters: int = Field(
-        default=11,
+        default=20,
         ge=1,
         description="Number of stellar parameters to predict",
     )
@@ -301,6 +310,13 @@ class MultiHeadModelConfig(BaseModel):
         lt=1.0,
         description="Dropout probability",
     )
+    head_dropout: dict[str, float] = Field(
+        deafult_factory = dict,
+        description = "Per label-set dropout for output heads (e.g {galah: 0.2})"
+        "If not specified, falls back to dropout",
+    )
+
+    
 
     @property
     def is_multi_label(self) -> bool:

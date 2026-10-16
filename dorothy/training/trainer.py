@@ -392,6 +392,7 @@ class Trainer:
                 activation=mh_config.activation.value,
                 dropout=mh_config.dropout,
                 label_sources=mh_config.label_sources,
+                head_dropout=mh_config.head_dropout,
             )
         return MLP.from_config(self.config.model)
 
@@ -2200,6 +2201,10 @@ class Trainer:
             # Apply input masking if enabled (training only)
             if self._input_masking is not None:
                 X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+                has_data_batch = {
+                    s: has_data_batch[s] & (X_batch[s][:, 2, :] > 0).any(dim=1)
+                    for s in has_data_batch
+                }
 
             # Apply label masking if enabled (training only)
             if self._label_masking is not None:
@@ -2469,6 +2474,9 @@ class Trainer:
                         dtype=np.float32,
                     )
                     per_labelset_metrics[source][metric_name] = metric_values
+
+        finite_losses = [v for v in per_labelset_losses.values() if np.isfinite(v)]
+        overall_loss = float(np.mean(finite_losses)) if finite_losses else loss.item()
 
         return {
             "loss": loss.item(),

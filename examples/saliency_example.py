@@ -14,8 +14,8 @@ Usage:
     # Using real data from variant5 checkpoint
     python examples/saliency_example.py \
         --checkpoint outputs/variant5_all_surveys_masked/variant5_all_surveys_masked_final \
-        --catalogue data/super_catalogue_clean.h5 \
-        --survey boss \
+        --catalogue data/super_catalogue.h5 \
+        --survey lamost_lrs \
         --index 0
 
     # Using synthetic data (demo mode)
@@ -38,6 +38,7 @@ from dorothy.analysis import (
     plot_parameter_saliency,
     plot_saliency_heatmap,
 )
+
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.models import MultiHeadMLP
 
@@ -117,7 +118,6 @@ def load_model_from_checkpoint(
 
     # Extract model config
     model_config = config["multi_head_model"]
-
     # Create model
     model = MultiHeadMLP(
         survey_configs=model_config["survey_wavelengths"],
@@ -127,9 +127,11 @@ def load_model_from_checkpoint(
         trunk_hidden=model_config["trunk_hidden"],
         output_hidden=model_config["output_hidden"],
         combination_mode=model_config.get("combination_mode", "concat"),
-        normalization=model_config.get("normalization", "batchnorm"),
-        activation=model_config.get("activation", "relu"),
+        normalization=model_config.get("normalization", "layernorm"),
+        activation=model_config.get("activation", "gelu"),
         dropout=model_config.get("dropout", 0.0),
+        label_sources=model_config['label_sources'],
+        head_dropout=model_config.get("head_dropout", "galah")
     )
 
     # Load weights
@@ -146,6 +148,18 @@ def load_model_from_checkpoint(
 
     return model, normalizer
 
+
+def normalize_spectra(flux, ivar):
+    """Per-star median/IQR scaling over valid pixels. flux, ivar: (N, W)."""
+    valid = np.isfinite(ivar) & (ivar > 0) & np.isfinite(flux)
+    f = np.where(valid, flux, np.nan)
+    med = np.nanmedian(f, keepdims=True)
+    q25, q75 = np.nanpercentile(f, [25, 75])
+    iqr = (q75 - q25)
+    print(iqr), print(med)
+    iqr = np.where(iqr > 0, iqr, 1.0)
+    med = np.where(np.isfinite(med), med, 0.0)
+    return (np.where(valid, flux - med, 0.0) / iqr).astype(np.float32), (ivar * iqr**2).astype(np.float32)
 
 def load_spectrum_from_catalogue(
     catalogue_path: Path,
@@ -164,9 +178,33 @@ def load_spectrum_from_catalogue(
     """
     with h5py.File(catalogue_path, "r") as f:
         # Load spectrum data
-        flux = f[f"surveys/{survey}/flux"][index]
-        ivar = f[f"surveys/{survey}/ivar"][index]
-        wavelength = f[f"surveys/{survey}/wavelength"][:].astype(np.float32)
+        if survey == 'lamost_mrs':
+            # LAMOST MRS: (N, 4, wavelengths) format - dual arm
+            # Spectra array is padded to max wavelength, but arms have different lengths
+            wave_b = f['surveys']['lamost_mrs']['wavelength_b'][:]
+            wave_r = f['surveys']['lamost_mrs']['wavelength_r'][:]
+
+            # Get the wavelength length of each arm
+            n_wave_b = len(wave_b)
+            n_wave_r = len(wave_r)
+
+            # Trim the flux to align it to the actual wavelengths
+            spectra = f['surveys']['lamost_mrs']['spectra']
+            flux_b = spectra[index, 0, :n_wave_b]
+            flux_r = spectra[index, 2, :n_wave_r]
+            ivar_b = spectra[index, 1, :n_wave_b]
+            ivar_r = spectra[index, 3, :n_wave_r]
+            flux = np.concatenate([flux_b, flux_r], axis=0)
+            ivar = np.concatenate([ivar_b, ivar_r], axis=0)
+            flux, ivar = normalize_spectra(flux, ivar)
+            wavelength = np.concatenate((wave_b, wave_r), axis=0)
+
+        else:
+            # Follow a normal load
+            flux = f[f"surveys/{survey}/flux"][index]
+            ivar = f[f"surveys/{survey}/ivar"][index]
+            flux, ivar = normalize_spectra(flux, ivar)
+            wavelength = f[f"surveys/{survey}/wavelength"][:].astype(np.float32)
 
         # Convert ivar to error and mask
         error = np.where(ivar > 0, 1.0 / np.sqrt(ivar), 0.0).astype(np.float32)
@@ -203,8 +241,8 @@ def load_labels_from_catalogue(
     Returns:
         Tuple of (label_values, label_errors) or (None, None) if not found.
     """
-    # Labels are stored as apogee_{survey}
-    label_key = f"apogee_{survey}"
+    # Pick the main label source
+    label_key = "apogee"
 
     with h5py.File(catalogue_path, "r") as f:
         if f"labels/{label_key}" not in f:

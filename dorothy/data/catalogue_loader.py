@@ -22,6 +22,7 @@ import gc
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+from dorothy.data.fits_loader import normalize_spectra 
 
 import h5py
 import numpy as np
@@ -32,14 +33,23 @@ PARAMETER_NAMES = [
     "teff",
     "logg",
     "fe_h",
-    "mg_fe",
-    "c_fe",
-    "si_fe",
-    "ni_fe",
-    "al_fe",
-    "ca_fe",
-    "n_fe",
-    "mn_fe",
+    "mg_h",
+    "c_h",
+    "si_h",
+    "ni_h",
+    "al_h",
+    "ca_h",
+    "n_h",
+    "mn_h",
+    "o_h",
+    "na_h",
+    "k_h",
+    "ti_h",
+    "v_h",
+    "cr_h",
+    "co_h",
+    "ba_h",
+    "sr_h"
 ]
 
 # Mapping from survey names to their label group names (v1 schema)
@@ -156,7 +166,7 @@ class CatalogueData:
         """
         # Count bits set in each flag
         flag_bits = np.zeros(len(self.gaia_ids), dtype=int)
-        for i in range(11):
+        for i in range(20):
             flag_bits += np.bitwise_count(self.label_flags[:, i].astype(np.uint64))
 
         mask = flag_bits <= max_flag_bits
@@ -753,6 +763,7 @@ class CatalogueLoader:
         # Convert ivar to sigma: sigma = 1/sqrt(ivar) where ivar > 0
         flux = data.flux
         ivar = data.ivar
+        flux, ivar = normalize_spectra(flux, ivar)
         sigma = np.zeros_like(ivar)
         valid_ivar = ivar > 0
         sigma[valid_ivar] = 1.0 / np.sqrt(ivar[valid_ivar])
@@ -1272,7 +1283,7 @@ class CatalogueLoader:
             >>> print(f"Total unique stars: {merged.n_stars}")
             >>> print(f"Coverage: {merged.get_coverage_stats()}")
         """
-        n_params = 11
+        n_params = 20
 
         with h5py.File(self.path, "r") as f:
             # PASS 1: Load metadata and identify duplicates
@@ -1457,7 +1468,7 @@ class CatalogueLoader:
             ... )
             >>> print(f"Multi-label: {sparse_data.is_multi_label()}")
         """
-        n_params = 11
+        n_params = 20
 
         with h5py.File(self.path, "r") as f:
             # =========================================================
@@ -1570,6 +1581,8 @@ class CatalogueLoader:
                 global_to_local[survey] = g2l
                 local_to_global[survey] = valid_indices.astype(np.int32)
 
+                flux, ivar = normalize_spectra(flux, ivar)
+                print("Spectra Normalized!")
                 # Store sparse arrays
                 sparse_flux[survey] = flux
                 sparse_ivar[survey] = ivar
@@ -1915,7 +1928,7 @@ class CatalogueLoader:
         y_dict: dict[str, np.ndarray] = {}
         has_labels_dict: dict[str, np.ndarray] = {}
 
-        n_params = 11
+        n_params = 20
         n_stars = merged.n_stars
 
         with h5py.File(self.path, "r") as f:

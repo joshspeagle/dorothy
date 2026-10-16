@@ -192,6 +192,45 @@ class SpectralData:
         errors = self.get_errors(apply_quality_mask)
         return np.concatenate([labels, errors], axis=1).astype(np.float32)
 
+# def normalize_spectra(flux, ivar):
+#     """Per-star median/IQR scaling over valid pixels. flux, ivar: (N, W)."""
+#     valid = np.isfinite(ivar) & (ivar > 0) & np.isfinite(flux)
+#     f = np.where(valid, flux, np.nan)
+#     med = np.nanmedian(f, axis=1, keepdims=True)
+#     q25, q75 = np.nanpercentile(f, [25, 75], axis=1)
+#     iqr = (q75 - q25)[:, None]
+#     iqr = np.where(iqr > 0, iqr, 1.0)
+#     med = np.where(np.isfinite(med), med, 0.0)
+#     return (np.where(valid, flux - med, 0.0) / iqr).astype(np.float32), (ivar * iqr**2).astype(np.float32)
+
+def normalize_spectra(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
+    """
+    Per-star median/IQR scaling over valid pixels for a batch of spectra.
+
+    Invalid pixels (non-finite flux, or non-finite / non-positive ivar) are
+    excluded from the statistics and returned with flux = 0 and ivar = 0, so
+    downstream code that derives the pixel mask from ivar > 0 treats them as
+    masked.
+
+    Args:
+        flux: Flux array of shape (n_spectra, n_wavelengths).
+        ivar: Inverse variance array of shape (n_spectra, n_wavelengths).
+
+    Returns:
+        Tuple of (normalized_flux, scaled_ivar), both float32.
+    """
+    valid = np.isfinite(ivar) & (ivar > 0) & np.isfinite(flux)
+    f = np.where(valid, flux, np.nan)
+    
+    med = np.nanmedian(f, axis=1, keepdims=True)
+    q25, q75 = np.nanpercentile(f, [25, 75], axis=1)
+
+    iqr = (q75 - q25)[:, None]
+    iqr = np.where(iqr > 0, iqr, 1.0)
+    med = np.where(np.isfinite(med), med, 0.0)
+    norm_flux = np.where(valid, (flux - med) / iqr, 0.0)
+    scaled_ivar = np.where(valid, ivar * iqr**2, 0.0)
+    return norm_flux.astype(np.float32), scaled_ivar.astype(np.float32)
 
 def normalize_spectrum(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
     """

@@ -195,7 +195,7 @@ class OutputHead(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        n_parameters: int = 11,
+        n_parameters: int = 20,
         hidden_layers: list[int] | None = None,
         normalization: str = "layernorm",
         activation: str = "gelu",
@@ -293,7 +293,7 @@ class MultiHeadMLP(nn.Module):
     def __init__(
         self,
         survey_configs: dict[str, int],
-        n_parameters: int = 11,
+        n_parameters: int = 20,
         latent_dim: int = 256,
         encoder_hidden: list[int] | None = None,
         trunk_hidden: list[int] | None = None,
@@ -303,6 +303,7 @@ class MultiHeadMLP(nn.Module):
         activation: str = "gelu",
         dropout: float = 0.0,
         label_sources: list[str] | None = None,
+        head_dropout: dict[str, float] | None = None,
     ) -> None:
         """Initialize the multi-head MLP.
 
@@ -380,6 +381,7 @@ class MultiHeadMLP(nn.Module):
 
         # Create output head(s) - one per label source
         if self.is_multi_label:
+            head_dropout = head_dropout or {}
             self.output_heads = nn.ModuleDict()
             for source in self.label_sources:
                 self.output_heads[source] = OutputHead(
@@ -388,7 +390,7 @@ class MultiHeadMLP(nn.Module):
                     hidden_layers=output_hidden,
                     normalization=normalization,
                     activation=activation,
-                    dropout=dropout,
+                    dropout=head_dropout.get(source, dropout),
                 )
             # Backward compatibility: also set output_head to first source
             self.output_head = self.output_heads[self.label_sources[0]]

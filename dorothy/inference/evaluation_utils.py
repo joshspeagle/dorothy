@@ -285,7 +285,7 @@ def evaluate_on_test_set(
     # Determine multi-label mode
     label_sources = getattr(model, "label_sources", ["default"])
     is_multi_label = len(label_sources) > 1
-    primary_label_source = label_sources[0] if is_multi_label else None
+    primary_label_source = label_sources[1] if is_multi_label else None
 
     # Collect all predictions and targets
     all_outputs = []
@@ -302,7 +302,12 @@ def evaluate_on_test_set(
             )
 
             # Forward pass
-            output = model(X_batch, has_data=has_data_batch)
+            if is_multi_label:
+                output = model.forward_for_label_source(
+                    X_batch, primary_label_source, has_data=has_data_batch
+                )
+            else:
+                output = model(X_batch, has_data=has_data_batch)
 
             all_outputs.append(output.cpu())
             # Handle multi-label mode where y_batch is a dict
