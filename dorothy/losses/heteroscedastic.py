@@ -28,6 +28,22 @@ LN_S_MIN = -10.0
 LN_S_MAX = 5.0
 
 
+def _safe_targets(
+    mu: torch.Tensor, target: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Split a (batch, 3, P) target, neutralizing masked entries.
+
+    Masked labels are replaced by the (detached) prediction and their errors
+    by 0 before any arithmetic, so non-finite values stored in masked entries
+    (e.g. log10(0) for a masked Teff) can't produce NaN losses or gradients.
+    """
+    mask = target[:, 2, :]
+    valid = mask > 0
+    y = torch.where(valid, target[:, 0, :], mu.detach())
+    sigma_label = torch.where(valid, target[:, 1, :], torch.zeros_like(mu))
+    return y, sigma_label, mask
+
+
 def predicted_scatter(ln_s: torch.Tensor, scatter_floor: float) -> torch.Tensor:
     """Convert predicted log-scatter to scatter: sqrt(exp(2 ln_s) + s_0^2).
 
@@ -155,9 +171,7 @@ class HeteroscedasticLoss(nn.Module):
 
         mu = output[:, 0, :]
         ln_s = torch.clamp(output[:, 1, :], min=LN_S_MIN, max=LN_S_MAX)
-        y = target[:, 0, :]
-        sigma_label = target[:, 1, :]
-        mask = target[:, 2, :]
+        y, sigma_label, mask = _safe_targets(mu, target)
 
         # Total variance = label variance + model scatter^2 (with floor)
         s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
@@ -244,9 +258,7 @@ class HeteroscedasticLoss(nn.Module):
         """
         self._check_shapes(output, target)
         mu = output[:, 0, :]
-        y = target[:, 0, :]
-        sigma_label = target[:, 1, :]
-        mask = target[:, 2, :]
+        y, sigma_label, mask = _safe_targets(mu, target)
 
         pred_scatter = predicted_scatter(output[:, 1, :], self.scatter_floor)
         total_variance = sigma_label**2 + pred_scatter**2
@@ -321,8 +333,8 @@ class MaskedMSELoss(nn.Module):
                 f"Expected output (batch, 2, {self.n_parameters}) and target "
                 f"(batch, 3, {self.n_parameters}), got {output.shape} and {target.shape}"
             )
-        mask = target[:, 2, :]
-        sq = (output[:, 0, :] - target[:, 0, :]) ** 2
+        y, _, mask = _safe_targets(output[:, 0, :], target)
+        sq = (output[:, 0, :] - y) ** 2
         return torch.where(mask > 0, sq * mask, torch.zeros_like(sq))
 
     def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

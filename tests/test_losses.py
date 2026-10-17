@@ -511,3 +511,31 @@ class TestHeteroscedasticLossMasking:
 
         # Gradients for unmasked samples should be non-zero
         assert (output.grad[4:, :, :] != 0).any()
+
+
+class TestNonFiniteMaskedTargets:
+    """Non-finite values in masked target entries must not produce NaNs."""
+
+    @pytest.mark.parametrize("bad", [float("-inf"), float("inf"), float("nan")])
+    def test_loss_and_gradients_finite(self, bad):
+        from dorothy.losses import MaskedMSELoss
+
+        torch.manual_seed(0)
+        output = torch.randn(4, 2, 3, requires_grad=True)
+        target = torch.zeros(4, 3, 3)
+        target[:, 0] = torch.randn(4, 3)
+        target[:, 1] = 0.1
+        target[:, 2] = 1.0
+        target[0, 0, 0] = bad  # masked entry with a non-finite value
+        target[0, 1, 0] = bad
+        target[0, 2, 0] = 0.0
+        for loss_fn in [
+            HeteroscedasticLoss(n_parameters=3),
+            MaskedMSELoss(n_parameters=3),
+        ]:
+            output.grad = None
+            loss = loss_fn(output, target)
+            loss.backward()
+            assert torch.isfinite(loss)
+            assert torch.isfinite(output.grad).all()
+            assert torch.isfinite(loss_fn.forward_detailed(output, target)["loss"])

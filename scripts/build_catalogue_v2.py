@@ -212,7 +212,8 @@ def extract_apogee_labels(
 
     For ``abundance_scale="x_h"``, uses the allStar ``X_H`` / ``X_H_ERR``
     arrays when present, otherwise [X/Fe] + [Fe/H] with errors added in
-    quadrature. Elements APOGEE does not measure are left zero and flagged.
+    quadrature. Elements APOGEE does not measure are left with value and
+    error 0 (masked, not flagged).
     """
     names = label_data.dtype.names
     n_stars = len(label_data)
@@ -237,6 +238,7 @@ def extract_apogee_labels(
         flags[:, 2] = (label_data["FE_H_FLAG"] != 0).astype(np.uint8)
 
     has_x_h = "X_H" in names
+    has_fe_h = "FE_H" in names
     for k, el in enumerate(elements):
         i = 3 + k
         col = f"{el.upper()}_FE"
@@ -254,17 +256,19 @@ def extract_apogee_labels(
                 errors[:, i] = np.hypot(x_fe_err, errors[:, 2])
         elif x_fe is not None:
             if abundance_scale == "x_h":
-                values[:, i] = x_fe + values[:, 2]
-                errors[:, i] = np.hypot(
-                    x_fe_err if x_fe_err is not None else 0.0, errors[:, 2]
-                )
-                flags[:, i] |= flags[:, 2]
+                if has_fe_h:  # Without [Fe/H], [X/H] is unknown (left masked)
+                    values[:, i] = x_fe + values[:, 2]
+                    errors[:, i] = np.hypot(
+                        x_fe_err if x_fe_err is not None else 0.0, errors[:, 2]
+                    )
+                    flags[:, i] |= flags[:, 2]
             else:
                 values[:, i] = x_fe
                 if x_fe_err is not None:
                     errors[:, i] = x_fe_err
-        else:
-            flags[:, i] = 1  # Not measured by APOGEE
+        # Elements APOGEE doesn't measure keep error 0: masked by the loader
+        # (errors > 0) without being flagged, so they don't count against
+        # max_flag_bits for every star.
 
     values, errors, flags = _finalize_labels(values, errors, flags)
     return values.astype(np.float32), errors.astype(np.float32), flags
@@ -278,7 +282,9 @@ def extract_galah_labels(
     """Extract GALAH labels in standard order (teff, logg, fe_h, abundances).
 
     For ``abundance_scale="x_h"``, abundances are [X/Fe] + [Fe/H] with errors
-    added in quadrature, and are flagged whenever [Fe/H] is flagged.
+    added in quadrature, and are flagged whenever [Fe/H] is flagged. Elements
+    GALAH does not measure are left with value and error 0 (masked, not
+    flagged).
     """
     names = label_data.dtype.names
     n_stars = len(label_data)
@@ -302,14 +308,17 @@ def extract_galah_labels(
     if "flag_fe_h" in names:
         flags[:, 2] = (label_data["flag_fe_h"] != 0).astype(np.uint8)
 
+    has_fe_h = "fe_h" in names
     for k, el in enumerate(elements):
         i = 3 + k
         col = f"{el}_fe"
         x_fe, x_fe_err = _column(label_data, col), _column(label_data, f"e_{col}")
         if f"flag_{col}" in names:
             flags[:, i] = (label_data[f"flag_{col}"] != 0).astype(np.uint8)
-        if x_fe is None:
-            flags[:, i] = 1  # Not measured by GALAH
+        if x_fe is None or (abundance_scale == "x_h" and not has_fe_h):
+            # Not measured (or [X/H] unknown without [Fe/H]): error 0, so the
+            # loader masks it without flagging
+            flags[:, i] = 0
             continue
         if abundance_scale == "x_h":
             values[:, i] = x_fe + values[:, 2]
@@ -718,8 +727,9 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/super_catalogue.h5"),
-        help="Output HDF5 file path (default: data/super_catalogue.h5)",
+        default=None,
+        help="Output HDF5 file path (default: data/super_catalogue.h5, with "
+        "_xh / _extended suffixes for [X/H] or extended builds)",
     )
     parser.add_argument(
         "--dry-run",
@@ -755,6 +765,11 @@ def main():
     )
 
     args = parser.parse_args()
+    if args.output is None:
+        suffix = ("_xh" if args.abundance_scale == "x_h" else "") + (
+            "_extended" if args.elements == "extended" else ""
+        )
+        args.output = Path(f"data/super_catalogue{suffix}.h5")
 
     # Resolve paths relative to script location if needed
     if not args.input_dir.is_absolute():

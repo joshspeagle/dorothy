@@ -156,8 +156,9 @@ def test_extended_xh_build(builder, raw_dir, tmp_path):
     np.testing.assert_allclose(g_errs[rows, mg], np.hypot(0.04, 0.03), rtol=1e-5)
     # Bad [Fe/H] propagates to derived [X/H]
     assert g_flags[rows[-1], mg] == 1 and g_flags[rows[0], mg] == 0
-    # Elements GALAH lacks (sr) are flagged
-    assert np.all(g_flags[rows, names.index("sr_h")] == 1)
+    # Elements GALAH lacks (sr) are masked via error 0, not flagged
+    assert np.all(g_flags[rows, names.index("sr_h")] == 0)
+    assert np.all(g_errs[rows, names.index("sr_h")] == 0)
 
     # APOGEE [X/H] comes straight from the X_H array (Mg is index 5)
     a_vals, a_errs, a_flags = _labels(out, "apogee")
@@ -167,8 +168,9 @@ def test_extended_xh_build(builder, raw_dir, tmp_path):
     # Ti has no TI_FE column but is in X_H (index 12): still filled
     ti = names.index("ti_h")
     np.testing.assert_allclose(a_vals[rows, ti], apogee["X_H"][:, 12], rtol=1e-5)
-    # Ba/Sr are not APOGEE elements: flagged, so the loader masks them
-    assert np.all(a_flags[rows, names.index("ba_h")] == 1)
+    # Ba/Sr are not APOGEE elements: masked via error 0, not flagged
+    assert np.all(a_flags[rows, names.index("ba_h")] == 0)
+    assert np.all(a_errs[rows, names.index("ba_h")] == 0)
 
     data = CatalogueLoader(out).load_merged_sparse(
         ["boss"], label_sources=["apogee", "galah"], max_flag_bits=-1
@@ -182,3 +184,35 @@ def test_extended_xh_build(builder, raw_dir, tmp_path):
 def test_invalid_abundance_scale(builder):
     with pytest.raises(ValueError):
         builder.get_parameter_names(abundance_scale="x_y")
+
+
+def test_unmeasured_elements_do_not_reject_stars(builder, raw_dir, tmp_path):
+    """With max_flag_bits=0, a source lacking some elements must keep its stars."""
+    out = tmp_path / "cat_ext.h5"
+    builder.build_catalogue(
+        raw_dir,
+        out,
+        verbose=False,
+        elements=builder.EXTENDED_ELEMENTS,
+        abundance_scale="x_h",
+    )
+    data = CatalogueLoader(out).load_merged_sparse(
+        ["boss"], label_sources=["apogee", "galah"], max_flag_bits=0
+    )
+    for source in ["apogee", "galah"]:
+        mask = data.labels_dict[source][:, 2, :]
+        assert mask[:, 0].sum() > 0, source  # teff survives the flag filter
+
+
+def test_xh_without_fe_h_is_masked(builder):
+    """Derived [X/H] needs [Fe/H]; without it the abundances stay masked."""
+    import numpy.lib.recfunctions as rfn
+
+    n = 4
+    data = np.zeros(
+        n, dtype=[("teff", "f8"), ("e_teff", "f8"), ("mg_fe", "f8"), ("e_mg_fe", "f8")]
+    )
+    data["teff"], data["e_teff"], data["mg_fe"], data["e_mg_fe"] = 5000, 50, 0.1, 0.05
+    data = rfn.repack_fields(data)
+    values, errors, flags = builder.extract_galah_labels(data, ["mg"], "x_h")
+    assert np.all(errors[:, 3] == 0) and np.all(flags[:, 3] == 0)
