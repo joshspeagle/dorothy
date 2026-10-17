@@ -99,6 +99,32 @@ class LabelNormalizer:
         """Number of parameters being normalized."""
         return len(self.parameters)
 
+    def _linear_blocks(self) -> list[tuple[int, int, list[float], list[float]]]:
+        """Runs of consecutive linearly scaled columns, for block transforms.
+
+        Returns ``(start, stop, medians, iqrs)`` for each run of columns
+        without log scaling whose median and IQR are Python floats. Such a
+        block is transformed at once (slicing, not fancy indexing): arithmetic
+        with arrays of those floats, in the dtype the scalar would be cast to,
+        rounds exactly like the per-column scalar arithmetic. Other columns
+        (log10 transforms, non-float stats) keep the per-column path.
+        """
+        blocks: list[tuple[int, int, list[float], list[float]]] = []
+        for i, param_name in enumerate(self.parameters):
+            stats = self.stats[param_name]
+            if stats.use_log or not (
+                type(stats.median) is float and type(stats.iqr) is float
+            ):
+                continue
+            if blocks and blocks[-1][1] == i:
+                start, _, medians, iqrs = blocks[-1]
+                blocks[-1] = (start, i + 1, medians, iqrs)
+            else:
+                blocks.append((i, i + 1, [], []))
+            blocks[-1][2].append(stats.median)
+            blocks[-1][3].append(stats.iqr)
+        return blocks
+
     def fit(
         self,
         y: np.ndarray,
@@ -258,7 +284,21 @@ class LabelNormalizer:
         y_norm = np.zeros_like(y, dtype=np.float64)
         errors_norm = np.zeros_like(y, dtype=np.float64) if errors is not None else None
 
+        # Linearly scaled columns, a block at a time: (y - median) / IQR
+        done = np.zeros(self.n_parameters, dtype=bool)
+        for start, stop, median, iqr in self._linear_blocks():
+            block = slice(start, stop)
+            values = y[:, block]
+            dtype = (values[:0] - 0.0).dtype  # as for `values - python_float`
+            y_norm[:, block] = (values - np.array(median, dtype)) / np.array(iqr, dtype)
+            if errors is not None:
+                err = errors[:, block]
+                errors_norm[:, block] = err / np.array(iqr, (err[:0] / 1.0).dtype)
+            done[block] = True
+
         for i, param_name in enumerate(self.parameters):
+            if done[i]:
+                continue
             stats = self.stats[param_name]
             values = y[:, i]
 
@@ -314,7 +354,21 @@ class LabelNormalizer:
             np.zeros_like(y_norm, dtype=np.float64) if errors_norm is not None else None
         )
 
+        # Linearly scaled columns, a block at a time: y_norm * IQR + median
+        done = np.zeros(self.n_parameters, dtype=bool)
+        for start, stop, median, iqr in self._linear_blocks():
+            block = slice(start, stop)
+            values_norm = y_norm[:, block]
+            dtype = (values_norm[:0] * 1.0).dtype  # as for `values * python_float`
+            y[:, block] = values_norm * np.array(iqr, dtype) + np.array(median, dtype)
+            if errors_norm is not None:
+                err = errors_norm[:, block]
+                errors[:, block] = err * np.array(iqr, (err[:0] * 1.0).dtype)
+            done[block] = True
+
         for i, param_name in enumerate(self.parameters):
+            if done[i]:
+                continue
             stats = self.stats[param_name]
             values_norm = y_norm[:, i]
 

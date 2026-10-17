@@ -562,3 +562,63 @@ class TestLabelNormalizerMasking:
         assert normalizer.stats["teff"].log_median == pytest.approx(
             expected_log_median, rel=0.01
         )
+
+
+class TestBlockTransformsMatchPerColumn:
+    """Linearly scaled columns are transformed a block at a time; results must
+    equal the per-parameter formulas bit for bit (incl. float32 rounding)."""
+
+    PARAMS = ["logg", "fe_h", "teff", "mg_fe", "c_fe"]  # two linear blocks
+
+    def _per_column(self, normalizer, y, errors):
+        y_norm = np.zeros(y.shape)
+        e_norm = np.zeros(y.shape)
+        for i, name in enumerate(self.PARAMS):
+            s = normalizer.stats[name]
+            if s.use_log:
+                y_norm[:, i] = (np.log10(y[:, i]) - s.log_median) / s.log_iqr
+                e_norm[:, i] = errors[:, i] / (y[:, i] * np.log(10)) / s.log_iqr
+            else:
+                y_norm[:, i] = (y[:, i] - s.median) / s.iqr
+                e_norm[:, i] = errors[:, i] / s.iqr
+        return y_norm, e_norm
+
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_bitwise_equal(self, dtype):
+        rng = np.random.default_rng(5)
+        y = rng.normal(0, 0.3, (300, 5))
+        y[:, 2] = rng.uniform(3500, 7000, 300)
+        errors = rng.uniform(0.01, 0.2, (300, 5))
+        normalizer = LabelNormalizer(parameters=self.PARAMS).fit(y)
+        y, errors = y.astype(dtype), errors.astype(dtype)
+
+        y_norm, e_norm = normalizer.transform(y, errors)
+        ref_y, ref_e = self._per_column(normalizer, y, errors)
+        np.testing.assert_array_equal(y_norm, ref_y)
+        np.testing.assert_array_equal(e_norm, ref_e)
+
+        y_norm, e_norm = y_norm.astype(dtype), e_norm.astype(dtype)
+        back, back_err = normalizer.inverse_transform(y_norm, e_norm)
+        for i, name in enumerate(self.PARAMS):
+            s = normalizer.stats[name]
+            if s.use_log:
+                ref = 10 ** (y_norm[:, i] * s.log_iqr + s.log_median)
+                ref_err = (
+                    ref.astype(np.float64) * np.log(10) * (e_norm[:, i] * s.log_iqr)
+                )
+            else:
+                ref = y_norm[:, i] * s.iqr + s.median
+                ref_err = e_norm[:, i] * s.iqr
+            np.testing.assert_array_equal(back[:, i], ref)
+            np.testing.assert_array_equal(back_err[:, i], ref_err)
+
+    def test_numpy_scalar_stats_use_per_column_path(self):
+        rng = np.random.default_rng(6)
+        y = rng.normal(0, 0.3, (200, 5)).astype(np.float32)
+        y[:, 2] = rng.uniform(3500, 7000, 200)
+        normalizer = LabelNormalizer(parameters=self.PARAMS).fit(y)
+        normalizer.stats["fe_h"].median = np.float64(normalizer.stats["fe_h"].median)
+        s = normalizer.stats["fe_h"]
+        # float32 values minus a float64 scalar compute in float64
+        expected = (y[:, 1] - s.median) / s.iqr
+        np.testing.assert_array_equal(normalizer.transform(y)[:, 1], expected)
