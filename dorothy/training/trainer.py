@@ -710,9 +710,7 @@ class Trainer:
         )
         logger.info(f"Memory usage: {data.memory_usage_mb()['total']:.1f} MB")
         train_source = SparseBatchSource(data, train_indices, labels, self.device)
-        val_source = SparseBatchSource(
-            data, val_indices, labels, self.device, share_buffers_with=train_source
-        )
+        val_source = SparseBatchSource(data, val_indices, labels, self.device)
         return self._run(train_source, val_source, survey_names=list(data.surveys))
 
     def fit_multi_labelset(
