@@ -30,11 +30,18 @@ Example:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+
+
+def _rmse(result: EvaluationResult, param: str) -> float:
+    """RMSE of a parameter, NaN if the result has no metrics for it."""
+    metrics = result.metrics.get(param)
+    return metrics.rmse if metrics is not None else float("nan")
 
 
 @dataclass
@@ -326,7 +333,7 @@ class SurveyEvaluationResult:
                 count = self.survey_sample_counts.get(survey, 0)
                 line = f"{survey:<15} {count:>8} "
                 line += " ".join(
-                    f"{result.metrics[p].rmse:>10.4f}"
+                    f"{_rmse(result, p):>10.4f}"
                     for p in self.overall.parameter_names[:4]
                 )
                 lines.append(line)
@@ -391,8 +398,7 @@ class SurveyEvaluationResult:
             values = (
                 f"| {survey} | "
                 + " | ".join(
-                    f"{result.metrics[p].rmse:.4f}"
-                    for p in self.overall.parameter_names[:6]
+                    f"{_rmse(result, p):.4f}" for p in self.overall.parameter_names[:6]
                 )
                 + " |"
             )
@@ -430,7 +436,8 @@ class Evaluator:
     Attributes:
         parameter_names: Names of parameters to evaluate.
         teff_in_log: Whether to also compute Teff metrics in log10 space.
-        scatter_floor: Minimum scatter value (for z-score computation).
+        scatter_floor: Scatter floor used by the model (pred_scatter already
+            includes it).
 
     Example:
         >>> evaluator = Evaluator(["teff", "logg", "fe_h"])
@@ -451,7 +458,9 @@ class Evaluator:
                 default ["teff", "logg", "fe_h"].
             teff_in_log: Whether to also evaluate Teff in log10 space,
                 adding a "log_teff" entry to the metrics.
-            scatter_floor: Minimum scatter floor for z-score computation.
+            scatter_floor: Scatter floor used by the model. Kept for reference;
+                ``pred_scatter`` passed to evaluate() must already include it
+                (as returned by the loss / Predictor).
         """
         if parameter_names is None:
             parameter_names = ["teff", "logg", "fe_h"]
@@ -670,13 +679,26 @@ class Evaluator:
             survey_indices = np.array(
                 [survey_name_to_idx.get(s, -1) for s in survey_ids], dtype=np.int32
             )
+        elif survey_names is None:
+            # Integer IDs without names: name each distinct ID and map IDs to
+            # positions (IDs need not be contiguous or start at 0)
+            unique_ids = np.unique(survey_ids)
+            survey_names = [f"survey_{i}" for i in unique_ids]
+            survey_indices = np.searchsorted(unique_ids, survey_ids).astype(np.int32)
         else:
-            # Integer array: need survey_names
-            if survey_names is None:
-                # Create default names
-                unique_indices = np.unique(survey_ids)
-                survey_names = [f"survey_{i}" for i in unique_indices]
+            # Integer IDs index into the given survey names
             survey_indices = survey_ids.astype(np.int32)
+
+        n_unassigned = int(
+            np.sum((survey_indices < 0) | (survey_indices >= len(survey_names)))
+        )
+        if n_unassigned:
+            warnings.warn(
+                f"{n_unassigned} samples have survey IDs not in survey_names "
+                f"{survey_names}; they are excluded from the per-survey results",
+                UserWarning,
+                stacklevel=3,
+            )
 
         # Compute overall metrics
         overall = self.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
@@ -874,8 +896,10 @@ class Evaluator:
         pred_unc_p84 = None
 
         if pred_scatter is not None:
-            # Compute total variance: sigma_label^2 + s^2 + s_0^2
-            s_squared = pred_scatter**2 + self.scatter_floor**2
+            # Total variance: sigma_label^2 + s^2. pred_scatter is the model's
+            # predicted scatter, which already includes the scatter floor
+            # (see dorothy.losses.predicted_scatter).
+            s_squared = pred_scatter**2
             total_var = (
                 label_errors**2 + s_squared if label_errors is not None else s_squared
             )

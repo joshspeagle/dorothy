@@ -1085,3 +1085,59 @@ class TestEvaluatorBySurveyNonExclusive:
         assert isinstance(result, SurveyEvaluationResult)
         assert result.survey_sample_counts["boss"] == 2
         assert result.survey_sample_counts["lamost"] == 2
+
+
+class TestEvaluatorRegressions:
+    """Regression tests for bugs fixed in the evaluator."""
+
+    def test_noncontiguous_integer_survey_ids(self):
+        rng = np.random.default_rng(0)
+        y_true = rng.normal(size=(6, 2))
+        y_pred = y_true.copy()
+        y_pred[:3] += 1.0  # survey 1 is offset by +1
+        evaluator = Evaluator(parameter_names=["a", "b"], teff_in_log=False)
+        result = evaluator.evaluate_by_survey(
+            y_pred, y_true, survey_ids=np.array([1, 1, 1, 3, 3, 3])
+        )
+        assert result.survey_sample_counts == {"survey_1": 3, "survey_3": 3}
+        assert result.by_survey["survey_1"].metrics["a"].bias == pytest.approx(1.0)
+        assert result.by_survey["survey_3"].metrics["a"].bias == pytest.approx(0.0)
+
+    def test_unknown_string_survey_ids_warn(self):
+        y = np.zeros((3, 1))
+        evaluator = Evaluator(parameter_names=["a"], teff_in_log=False)
+        with pytest.warns(UserWarning, match="not in survey_names"):
+            evaluator.evaluate_by_survey(
+                y,
+                y,
+                survey_ids=["boss", "desi", "lamost"],
+                survey_names=["boss", "desi"],
+            )
+
+    @pytest.mark.parametrize("fmt", ["text", "markdown"])
+    def test_survey_summary_with_log_teff_and_empty_survey(self, fmt):
+        rng = np.random.default_rng(1)
+        y_true = np.column_stack([rng.uniform(4000, 6000, 8), rng.normal(size=8)])
+        evaluator = Evaluator(parameter_names=["teff", "logg"], teff_in_log=True)
+        result = evaluator.evaluate_by_survey(
+            y_true + 1,
+            y_true,
+            survey_ids=np.array([0] * 8),
+            survey_names=["boss", "desi"],  # desi has no samples
+        )
+        summary = result.summary(format=fmt, compact=True)
+        assert "desi" in summary
+
+    def test_zscore_uses_scatter_as_given(self):
+        """pred_scatter already includes the floor; it must not be added again."""
+        y_true = np.zeros((1000, 1))
+        rng = np.random.default_rng(2)
+        sigma = 0.02
+        y_pred = rng.normal(size=(1000, 1)) * sigma
+        evaluator = Evaluator(
+            parameter_names=["a"], teff_in_log=False, scatter_floor=0.05
+        )
+        result = evaluator.evaluate(
+            y_pred, y_true, pred_scatter=np.full((1000, 1), sigma)
+        )
+        assert result.metrics["a"].z_robust_scatter == pytest.approx(1.0, abs=0.1)
