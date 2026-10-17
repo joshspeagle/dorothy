@@ -23,6 +23,27 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+# ln_s is clamped before exponentiating (exp(2 * 5) ~ 22000, safe for float16)
+LN_S_MIN = -10.0
+LN_S_MAX = 5.0
+
+
+def predicted_scatter(ln_s: torch.Tensor, scatter_floor: float) -> torch.Tensor:
+    """Convert predicted log-scatter to scatter: sqrt(exp(2 ln_s) + s_0^2).
+
+    This is the single definition used by the loss, training validation,
+    evaluation and inference, so predicted uncertainties agree everywhere.
+
+    Args:
+        ln_s: Predicted log-scatter (any shape).
+        scatter_floor: Scatter floor s_0.
+
+    Returns:
+        Predicted scatter, same shape as ln_s.
+    """
+    ln_s = torch.clamp(ln_s, min=LN_S_MIN, max=LN_S_MAX)
+    return torch.sqrt(torch.exp(2 * ln_s) + scatter_floor**2)
+
 
 class HeteroscedasticLoss(nn.Module):
     """
@@ -99,6 +120,53 @@ class HeteroscedasticLoss(nn.Module):
             torch.tensor(scatter_floor**2, dtype=torch.float32),
         )
 
+    def _check_shapes(self, output: torch.Tensor, target: torch.Tensor) -> None:
+        if output.shape[1:] != (2, self.n_parameters):
+            raise ValueError(
+                f"Output shape should be (batch, 2, {self.n_parameters}), "
+                f"got {output.shape}"
+            )
+        if target.shape[1:] != (3, self.n_parameters):
+            raise ValueError(
+                f"Target shape should be (batch, 3, {self.n_parameters}), "
+                f"got {target.shape}"
+            )
+
+    def element_losses(
+        self,
+        output: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """Unreduced loss per (sample, parameter), zero where masked.
+
+        Masked entries are zeroed with ``torch.where`` (not multiplied by the
+        mask), so non-finite values in masked entries cannot leak NaN into
+        the loss.
+
+        Args:
+            output: Model predictions of shape (batch_size, 2, n_parameters).
+            target: Targets of shape (batch_size, 3, n_parameters) holding
+                [labels, label uncertainties, mask].
+
+        Returns:
+            Tensor of shape (batch_size, n_parameters).
+        """
+        self._check_shapes(output, target)
+
+        mu = output[:, 0, :]
+        ln_s = torch.clamp(output[:, 1, :], min=LN_S_MIN, max=LN_S_MAX)
+        y = target[:, 0, :]
+        sigma_label = target[:, 1, :]
+        mask = target[:, 2, :]
+
+        # Total variance = label variance + model scatter^2 (with floor)
+        s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
+        total_variance = sigma_label**2 + s_squared
+
+        # loss = (mu - y)^2 / variance + log(variance)
+        loss = (mu - y) ** 2 / total_variance + torch.log(total_variance)
+        return torch.where(mask > 0, loss * mask, torch.zeros_like(loss))
+
     def forward(
         self,
         output: torch.Tensor,
@@ -122,54 +190,14 @@ class HeteroscedasticLoss(nn.Module):
         Raises:
             ValueError: If output or target shapes don't match expectations.
         """
-        if output.shape[1:] != (2, self.n_parameters):
-            raise ValueError(
-                f"Output shape should be (batch, 2, {self.n_parameters}), "
-                f"got {output.shape}"
-            )
-        if target.shape[1:] != (3, self.n_parameters):
-            raise ValueError(
-                f"Target shape should be (batch, 3, {self.n_parameters}), "
-                f"got {target.shape}"
-            )
+        loss_per_element = self.element_losses(output, target)
 
-        # Extract predictions and log-uncertainties from 3D output
-        mu = output[:, 0, :]  # (batch, n_params)
-        ln_s = output[:, 1, :]  # (batch, n_params)
-
-        # Extract labels, uncertainties, and mask from 3-channel target
-        y = target[:, 0, :]  # (batch, n_params)
-        sigma_label = target[:, 1, :]  # (batch, n_params)
-        mask = target[:, 2, :]  # (batch, n_params)
-
-        # Compute model's predicted scatter with floor
-        # s = sqrt(exp(2 * ln_s) + s_0^2)
-        # Using exp(2 * ln_s) = exp(ln_s)^2 for numerical stability
-        # Clamp ln_s to prevent overflow: exp(2 * 5) = exp(10) ≈ 22000, safe for float16
-        ln_s_clamped = torch.clamp(ln_s, min=-10.0, max=5.0)
-        s_squared = torch.exp(2 * ln_s_clamped) + self.scatter_floor_sq
-
-        # Total variance is sum of label variance and model variance
-        # variance = sigma_label^2 + s^2
-        sigma_label_sq = sigma_label**2
-        total_variance = sigma_label_sq + s_squared
-
-        # Compute weighted squared error and log-variance penalty
-        # loss = (mu - y)^2 / variance + log(variance)
-        squared_error = (mu - y) ** 2
-        loss_per_element = squared_error / total_variance + torch.log(total_variance)
-
-        # Apply mask from target channel 2
-        loss_per_element = loss_per_element * mask
-
-        # Apply reduction
         if self.reduction == "none":
             return loss_per_element
         elif self.reduction == "sum":
             return loss_per_element.sum()
-        else:  # mean
-            # Average over valid elements only
-            return loss_per_element.sum() / mask.sum().clamp(min=1)
+        else:  # mean over valid elements only
+            return loss_per_element.sum() / target[:, 2, :].sum().clamp(min=1)
 
     def get_predicted_scatter(self, output: torch.Tensor) -> torch.Tensor:
         """
@@ -184,10 +212,7 @@ class HeteroscedasticLoss(nn.Module):
             Predicted scatter of shape (batch_size, n_parameters), computed as
             sqrt(exp(2 * ln_s) + s_0^2).
         """
-        ln_s = output[:, 1, :]  # (batch, n_params)
-        ln_s_clamped = torch.clamp(ln_s, min=-10.0, max=5.0)
-        s_squared = torch.exp(2 * ln_s_clamped) + self.scatter_floor_sq
-        return torch.sqrt(s_squared)
+        return predicted_scatter(output[:, 1, :], self.scatter_floor)
 
     def forward_detailed(
         self,
@@ -217,42 +242,31 @@ class HeteroscedasticLoss(nn.Module):
                 - 'y_pred': Predicted means, shape (batch, n_parameters)
                 - 'pred_scatter': Predicted scatter, shape (batch, n_parameters)
         """
-        # Extract predictions and log-uncertainties from 3D output
-        mu = output[:, 0, :]  # (batch, n_params)
-        ln_s = output[:, 1, :]  # (batch, n_params)
+        self._check_shapes(output, target)
+        mu = output[:, 0, :]
+        y = target[:, 0, :]
+        sigma_label = target[:, 1, :]
+        mask = target[:, 2, :]
 
-        # Extract labels, uncertainties, and mask from 3-channel target
-        y = target[:, 0, :]  # (batch, n_params)
-        sigma_label = target[:, 1, :]  # (batch, n_params)
-        mask = target[:, 2, :]  # (batch, n_params)
+        pred_scatter = predicted_scatter(output[:, 1, :], self.scatter_floor)
+        total_variance = sigma_label**2 + pred_scatter**2
 
-        # Compute model's predicted scatter with floor
-        # Clamp ln_s to prevent overflow in float16
-        ln_s_clamped = torch.clamp(ln_s, min=-10.0, max=5.0)
-        s_squared = torch.exp(2 * ln_s_clamped) + self.scatter_floor_sq
-        pred_scatter = torch.sqrt(s_squared)
-
-        # Total variance
-        sigma_label_sq = sigma_label**2
-        total_variance = sigma_label_sq + s_squared
-
-        # Compute the two components separately
         residuals = mu - y
-        squared_error = residuals**2
-        mean_component = squared_error / total_variance  # (batch, n_params)
+        mean_component = residuals**2 / total_variance  # (batch, n_params)
         scatter_component = torch.log(total_variance)  # (batch, n_params)
 
-        # Per-element loss
-        loss_per_element = mean_component + scatter_component
+        # Mask with torch.where so non-finite masked entries cannot leak NaN
+        valid = mask > 0
+        zeros = torch.zeros_like(mean_component)
+        masked_mean = torch.where(valid, mean_component * mask, zeros)
+        masked_scatter = torch.where(valid, scatter_component * mask, zeros)
+        loss_per_element = masked_mean + masked_scatter
 
-        # Apply mask from target channel 2
-        loss_per_element = loss_per_element * mask
         # Average over batch for each parameter, counting only valid samples
         valid_counts = mask.sum(dim=0).clamp(min=1)  # (n_params,)
-        mean_component_avg = (mean_component * mask).sum(dim=0) / valid_counts
-        scatter_component_avg = (scatter_component * mask).sum(dim=0) / valid_counts
+        mean_component_avg = masked_mean.sum(dim=0) / valid_counts
+        scatter_component_avg = masked_scatter.sum(dim=0) / valid_counts
 
-        # Total loss
         if self.reduction == "none":
             total_loss = loss_per_element
         elif self.reduction == "sum":
@@ -276,3 +290,60 @@ class HeteroscedasticLoss(nn.Module):
             f"n_parameters={self.n_parameters}, "
             f"reduction='{self.reduction}'"
         )
+
+
+class MaskedMSELoss(nn.Module):
+    """Masked mean squared error on predicted means, for ``loss: mse``.
+
+    Uses the same (batch, 2, n_params) output / (batch, 3, n_params) target
+    format as :class:`HeteroscedasticLoss` and ignores label uncertainties and
+    the predicted log-scatter channel (which receives no gradient).
+    """
+
+    def __init__(self, n_parameters: int = 11, reduction: str = "mean") -> None:
+        super().__init__()
+        if reduction not in ("none", "mean", "sum"):
+            raise ValueError(
+                f"reduction must be 'none', 'mean', or 'sum', got '{reduction}'"
+            )
+        self.n_parameters = n_parameters
+        self.reduction = reduction
+
+    def element_losses(
+        self, output: torch.Tensor, target: torch.Tensor
+    ) -> torch.Tensor:
+        """Squared error per (sample, parameter), zero where masked."""
+        if output.shape[1:] != (2, self.n_parameters) or target.shape[1:] != (
+            3,
+            self.n_parameters,
+        ):
+            raise ValueError(
+                f"Expected output (batch, 2, {self.n_parameters}) and target "
+                f"(batch, 3, {self.n_parameters}), got {output.shape} and {target.shape}"
+            )
+        mask = target[:, 2, :]
+        sq = (output[:, 0, :] - target[:, 0, :]) ** 2
+        return torch.where(mask > 0, sq * mask, torch.zeros_like(sq))
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        loss = self.element_losses(output, target)
+        if self.reduction == "none":
+            return loss
+        if self.reduction == "sum":
+            return loss.sum()
+        return loss.sum() / target[:, 2, :].sum().clamp(min=1)
+
+    def forward_detailed(
+        self, output: torch.Tensor, target: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
+        """Per-parameter MSE as the mean component (scatter component is 0)."""
+        loss = self.element_losses(output, target)
+        valid_counts = target[:, 2, :].sum(dim=0).clamp(min=1)
+        mean_component = loss.sum(dim=0) / valid_counts
+        return {
+            "loss": self.forward(output, target),
+            "mean_component": mean_component,
+            "scatter_component": torch.zeros_like(mean_component),
+            "residuals": output[:, 0, :] - target[:, 0, :],
+            "y_pred": output[:, 0, :],
+        }
