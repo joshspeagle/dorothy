@@ -279,7 +279,7 @@ class MultiHeadMLP(nn.Module):
         trunk: Shared trunk network.
         output_head: Output prediction head.
 
-    Example:
+    Examples:
         >>> model = MultiHeadMLP(
         ...     survey_configs={"boss": 4506, "lamost": 3700},
         ...     n_parameters=11,

@@ -78,7 +78,7 @@ class LabelNormalizer:
         stats: Dictionary mapping parameter names to their statistics.
         is_fitted: Whether the normalizer has been fitted to data.
 
-    Example:
+    Examples:
         >>> normalizer = LabelNormalizer()
         >>> normalizer.fit(y_train)
         >>> y_train_norm = normalizer.transform(y_train)

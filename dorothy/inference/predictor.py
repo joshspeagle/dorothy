@@ -7,7 +7,7 @@ This module provides inference capabilities for trained models, including:
 - Denormalization of predictions to physical units
 - Uncertainty extraction from heteroscedastic outputs
 
-Example:
+Examples:
     >>> predictor = Predictor.load("path/to/checkpoint")
     >>> result = predictor.predict(spectra, denormalize=True)
     >>> print(result.predictions.shape, result.uncertainties.shape)
@@ -99,7 +99,7 @@ class Predictor:
             label sources; None uses the first / primary head).
         config: Experiment config of the checkpoint, if loaded from one.
 
-    Example:
+    Examples:
         >>> predictor = Predictor.load("checkpoint/")
         >>> result = predictor.predict(X, denormalize=True)
         >>> print(result.predictions.shape)  # (n_samples, n_params)

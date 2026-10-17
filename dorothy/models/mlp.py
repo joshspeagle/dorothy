@@ -60,7 +60,7 @@ class MLP(nn.Module):
         hidden_layers: List of hidden layer sizes.
         layers: The sequential container of all network layers.
 
-    Example:
+    Examples:
         >>> from dorothy.config import ModelConfig
         >>> config = ModelConfig(hidden_layers=[1000, 500, 100])
         >>> model = MLP.from_config(config)
@@ -144,11 +144,12 @@ class MLP(nn.Module):
         Forward pass through the network.
 
         Args:
-            x: Input tensor of shape (batch_size, 3, wavelength_bins) where:
+            x: Input tensor of shape (batch_size, 3, wavelength_bins), or
+                pre-flattened (batch_size, input_features), where:
+
                 - x[:, 0, :] contains the flux values
                 - x[:, 1, :] contains the sigma (uncertainty) values
                 - x[:, 2, :] contains the mask (1=valid, 0=invalid)
-               Can also be pre-flattened (batch_size, input_features).
 
         Returns:
             Output tensor of shape (batch_size, 2, n_parameters) where:

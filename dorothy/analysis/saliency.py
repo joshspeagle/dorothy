@@ -6,7 +6,7 @@ model predictions are to changes in the input spectrum. It uses the
 Jacobian of the model outputs with respect to inputs and aggregates
 gradients using Fisher information weighting.
 
-Example:
+Examples:
     >>> from dorothy.inference import Predictor
     >>> from dorothy.analysis import SaliencyAnalyzer, plot_parameter_saliency
     >>>

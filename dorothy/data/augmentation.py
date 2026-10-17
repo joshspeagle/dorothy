@@ -33,7 +33,7 @@ class DynamicLabelMasking:
         p_label_min: Minimum probability of keeping each label.
         p_label_max: Maximum probability of keeping each label.
 
-    Example:
+    Examples:
         >>> masking = DynamicLabelMasking(p_label_min=0.3, p_label_max=1.0)
         >>> y_masked = masking(y_batch)  # y has shape (batch, 3, n_params)
     """
@@ -271,7 +271,7 @@ class DynamicInputMasking:
         p_block_min: Minimum probability of keeping each block.
         p_block_max: Maximum probability of keeping each block.
 
-    Example:
+    Examples:
         >>> masking = DynamicInputMasking(p_block_min=0.3, p_block_max=1.0)
         >>> X_masked = masking(X_batch, n_wavelengths={"boss": 4506, "desi": 7650})
     """

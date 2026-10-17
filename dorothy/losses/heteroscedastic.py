@@ -83,7 +83,7 @@ class HeteroscedasticLoss(nn.Module):
         n_parameters: Number of stellar parameters being predicted.
         reduction: How to reduce the loss ('mean', 'sum', or 'none').
 
-    Example:
+    Examples:
         >>> loss_fn = HeteroscedasticLoss(scatter_floor=0.01, n_parameters=11)
         >>> output = model(x)  # Shape: (batch, 2, 11)
         >>> target = labels    # Shape: (batch, 3, 11) - [y, sigma, mask]

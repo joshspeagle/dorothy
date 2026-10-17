@@ -12,7 +12,7 @@ The approach:
 4. Compute k-th nearest neighbor distances
 5. Flag stars exceeding the percentile threshold as anomalies
 
-Example:
+Examples:
     >>> detector = AnomalyDetector.from_predictor(predictor)
     >>> detector.fit(X_train, k=10, percentile=99)
     >>> result = detector.detect(X_test)
@@ -104,7 +104,7 @@ class AnomalyDetector:
         percentile: Percentile used to compute threshold.
         train_embeddings: Normalized training embeddings.
 
-    Example:
+    Examples:
         >>> detector = AnomalyDetector.from_predictor(predictor)
         >>> detector.fit(X_train, k=10, percentile=99)
         >>> result = detector.detect(X_test)

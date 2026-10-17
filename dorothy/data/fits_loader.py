@@ -370,7 +370,7 @@ class FITSLoader:
         fits_path: Path to the FITS file.
         parameters: List of stellar parameter names to load.
 
-    Example:
+    Examples:
         >>> loader = FITSLoader(Path("data/loa_trainingset.fits"))
         >>> data = loader.load()
         >>> X = data.get_model_input()  # Shape: (n_good_stars, 2, 7650)

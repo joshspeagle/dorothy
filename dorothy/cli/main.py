@@ -10,11 +10,13 @@ Commands:
     info      - Display information about a checkpoint
     evaluate  - Evaluate model on held-out test set
 
-Example:
-    $ dorothy train config.yaml
-    $ dorothy predict --checkpoint ./outputs/my_exp --input spectra.fits --output predictions.csv
-    $ dorothy info ./outputs/my_exp
-    $ dorothy evaluate ./outputs/my_exp
+Examples:
+    ```bash
+    dorothy train config.yaml
+    dorothy predict --checkpoint ./outputs/my_exp --input spectra.fits --output predictions.csv
+    dorothy info ./outputs/my_exp
+    dorothy evaluate ./outputs/my_exp
+    ```
 """
 
 from __future__ import annotations

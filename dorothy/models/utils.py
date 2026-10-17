@@ -21,7 +21,7 @@ def get_activation(activation: str) -> type[nn.Module]:
     Raises:
         ValueError: If activation name is not recognized.
 
-    Example:
+    Examples:
         >>> act_class = get_activation("gelu")
         >>> layer = act_class()
     """
@@ -50,7 +50,7 @@ def get_normalization(normalization: str) -> type[nn.Module]:
     Raises:
         ValueError: If normalization name is not recognized.
 
-    Example:
+    Examples:
         >>> norm_class = get_normalization("layernorm")
         >>> layer = norm_class(256)  # 256 features
     """

@@ -305,7 +305,7 @@ class Trainer:
         normalizer: LabelNormalizer for converting to/from normalized space.
         parameter_names: Names of stellar parameters being predicted.
 
-    Example:
+    Examples:
         >>> from dorothy.config import ExperimentConfig, DataConfig
         >>> config = ExperimentConfig(
         ...     name="test",
@@ -684,7 +684,7 @@ class Trainer:
             TypeError: If model is not a MultiHeadMLP.
             ValueError: If the model's label sources are not in the data.
 
-        Example:
+        Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
             >>> data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
             >>> train_idx, val_idx, test_idx = split_indices(data.n_total)

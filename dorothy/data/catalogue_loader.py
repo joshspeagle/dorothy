@@ -8,7 +8,7 @@ Each survey in the catalogue has its own independent row structure and
 corresponding labels. The loader automatically maps surveys to their
 appropriate label sources.
 
-Example:
+Examples:
     >>> loader = CatalogueLoader("/path/to/super_catalogue.h5")
     >>> loader.info()  # Print catalogue summary
     >>> data = loader.load(survey="boss")  # Loads BOSS with APOGEE labels
@@ -230,7 +230,7 @@ class MergedCatalogueData:
         primary_errors: Primary label errors array, shape (N, 11).
         primary_flags: Primary label flags array, shape (N, 11).
 
-    Example:
+    Examples:
         >>> merged = loader.load_merged(surveys=["boss", "lamost_lrs"])
         >>> # Access BOSS spectra for all stars (missing = ivar=0)
         >>> boss_flux = merged.surveys["boss"]["flux"]  # (N, wavelengths)
@@ -455,7 +455,7 @@ class CatalogueLoader:
     super-catalogue format. It supports loading from single or multiple
     surveys and selecting between APOGEE and GALAH labels.
 
-    Example:
+    Examples:
         >>> loader = CatalogueLoader("super_catalogue.h5")
         >>> loader.info()
 
@@ -891,7 +891,7 @@ class CatalogueLoader:
             In "intersection" mode, all CatalogueData objects are filtered
             to the same set of stars (ordered consistently by Gaia ID).
 
-        Example:
+        Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
             >>> # Load stars observed by both BOSS and LAMOST LRS
             >>> data = loader.load_multi(
@@ -1304,7 +1304,7 @@ class CatalogueLoader:
         Raises:
             ValueError: If duplicate observations are found in the catalogue.
 
-        Example:
+        Examples:
             >>> merged = loader.load_merged(["boss", "lamost_lrs", "desi"])
             >>> print(f"Total unique stars: {merged.n_stars}")
             >>> print(f"Coverage: {merged.get_coverage_stats()}")
@@ -1485,7 +1485,7 @@ class CatalogueLoader:
         Raises:
             ValueError: If duplicate observations are found in the catalogue.
 
-        Example:
+        Examples:
             >>> sparse_data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
             >>> print(f"Memory: {sparse_data.memory_usage_mb()['total']:.1f} MB")
             >>> print(f"Coverage: {sparse_data.get_coverage_stats()}")
@@ -2164,7 +2164,7 @@ class CatalogueLoader:
         Returns:
             Dictionary mapping survey name to number of wavelength bins.
 
-        Example:
+        Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
             >>> counts = loader.get_survey_wavelength_counts(["boss", "lamost_lrs"])
             >>> # counts = {"boss": 4506, "lamost_lrs": 3473}

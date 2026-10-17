@@ -22,7 +22,7 @@ Metrics computed:
     Predicted uncertainty statistics:
         - pred_unc_p16, pred_unc_p50, pred_unc_p84: Percentiles of predicted scatter
 
-Example:
+Examples:
     >>> evaluator = Evaluator(parameter_names=["teff", "logg", "fe_h"])
     >>> result = evaluator.evaluate(y_pred, y_true, pred_scatter, label_errors)
     >>> print(result.summary())
@@ -48,28 +48,27 @@ def _rmse(result: EvaluationResult, param: str) -> float:
 class ParameterMetrics:
     """Metrics for a single stellar parameter.
 
+    Mean-based metrics are sensitive to outliers; quantile-based metrics are
+    robust to them. z-scores check the calibration of the uncertainties.
+
     Attributes:
         name: Parameter name.
         n_samples: Number of samples evaluated.
-
-        # Mean-based metrics (outlier-sensitive)
-        rmse: Root Mean Square Error.
-        bias: Mean (predicted - true).
-        sd: Standard deviation of residuals.
-
-        # Quantile-based metrics (robust to outliers)
-        mae: Mean Absolute Error.
-        median_offset: Median (predicted - true).
-        robust_scatter: (P84 - P16) / 2 of residuals.
-
-        # Z-score metrics (calibration check)
-        z_median: Median of z-scores (None if no uncertainties).
-        z_robust_scatter: (P84 - P16) / 2 of z-scores (None if no uncertainties).
-
-        # Predicted uncertainty statistics
-        pred_unc_p16: 16th percentile of predicted scatter (None if no uncertainties).
-        pred_unc_p50: 50th percentile of predicted scatter (None if no uncertainties).
-        pred_unc_p84: 84th percentile of predicted scatter (None if no uncertainties).
+        rmse: Root mean square error.
+        bias: Mean of (predicted - true).
+        sd: Standard deviation of the residuals.
+        mae: Mean absolute error.
+        median_offset: Median of (predicted - true).
+        robust_scatter: (P84 - P16) / 2 of the residuals.
+        z_median: Median of the z-scores (None without uncertainties).
+        z_robust_scatter: (P84 - P16) / 2 of the z-scores (None without
+            uncertainties).
+        pred_unc_p16: 16th percentile of the predicted scatter (None without
+            uncertainties).
+        pred_unc_p50: 50th percentile of the predicted scatter (None without
+            uncertainties).
+        pred_unc_p84: 84th percentile of the predicted scatter (None without
+            uncertainties).
     """
 
     name: str
@@ -439,7 +438,7 @@ class Evaluator:
         scatter_floor: Scatter floor used by the model (pred_scatter already
             includes it).
 
-    Example:
+    Examples:
         >>> evaluator = Evaluator(["teff", "logg", "fe_h"])
         >>> result = evaluator.evaluate(predictions, ground_truth, pred_scatter, label_errors)
         >>> print(result.summary())

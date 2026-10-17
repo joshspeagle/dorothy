@@ -323,7 +323,7 @@ class MultiHeadModelConfig(_ConfigModel):
         head_dropout: Optional per-label-source dropout for the output heads
             (e.g. ``{"galah": 0.2}``); sources not listed use ``dropout``.
 
-    Example:
+    Examples:
         >>> config = MultiHeadModelConfig(
         ...     survey_wavelengths={"boss": 4506, "lamost_lrs": 3700},
         ...     n_parameters=11,
