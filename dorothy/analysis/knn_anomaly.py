@@ -8,7 +8,7 @@ exceeding the threshold are flagged as potential anomalies.
 The approach:
 1. Extract penultimate-layer embeddings from the trained model
 2. L2-normalize embeddings to unit vectors
-3. Build a BallTree for efficient nearest neighbor queries
+3. Find nearest training neighbors by brute-force search
 4. Compute k-th nearest neighbor distances
 5. Flag stars exceeding the percentile threshold as anomalies
 
@@ -30,8 +30,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from sklearn.neighbors import BallTree
-
     from dorothy.inference.predictor import Predictor
 
 
@@ -98,7 +96,6 @@ class AnomalyDetector:
 
     Attributes:
         predictor: The DOROTHY predictor for extracting embeddings.
-        tree: BallTree for efficient nearest neighbor queries.
         threshold: Distance threshold for anomaly detection.
         k: Number of neighbors to consider.
         percentile: Percentile used to compute threshold.
@@ -126,7 +123,6 @@ class AnomalyDetector:
         self.layer_index = layer_index
 
         # State set during fit()
-        self.tree: BallTree | None = None
         self.threshold: float | None = None
         self.k: int | None = None
         self.percentile: float | None = None
@@ -160,8 +156,8 @@ class AnomalyDetector:
         """
         Fit the anomaly detector on training data.
 
-        Computes embeddings, builds the BallTree, and determines the
-        distance threshold from the training distribution.
+        Computes embeddings and determines the distance threshold from the
+        training distribution.
 
         Args:
             X_train: Training spectra of shape (n_samples, n_features).
@@ -172,8 +168,6 @@ class AnomalyDetector:
         Returns:
             Self for method chaining.
         """
-        from sklearn.neighbors import BallTree
-
         self.k = k
         self.percentile = percentile
 
@@ -185,12 +179,8 @@ class AnomalyDetector:
         )
         self.train_embeddings = l2_normalize(embeddings)
 
-        # Build BallTree for efficient queries
-        self.tree = BallTree(self.train_embeddings, metric="euclidean")
-
         # Query k+1 neighbors (includes self) for training data
-        distances, _ = self.tree.query(self.train_embeddings, k=k + 1)
-        kth_distances = distances[:, -1]  # k-th neighbor (excluding self)
+        kth_distances = self._kth_neighbor_distances(self.train_embeddings, k + 1)
 
         # Compute threshold
         self.threshold = float(np.percentile(kth_distances, percentile))
@@ -215,7 +205,7 @@ class AnomalyDetector:
         Raises:
             RuntimeError: If detector has not been fitted.
         """
-        if self.tree is None or self.threshold is None:
+        if self.train_embeddings is None or self.threshold is None:
             raise RuntimeError(
                 "Detector must be fitted before detection. Call fit() first."
             )
@@ -229,8 +219,8 @@ class AnomalyDetector:
         embeddings_norm = l2_normalize(embeddings)
 
         # Query k neighbors (no self-distance for new data)
-        distances, _ = self.tree.query(embeddings_norm, k=self.k)
-        kth_distances = distances[:, -1].astype(np.float32)
+        kth_distances = self._kth_neighbor_distances(embeddings_norm, self.k)
+        kth_distances = kth_distances.astype(np.float32)
 
         # Flag anomalies
         is_anomaly = kth_distances > self.threshold
@@ -255,11 +245,22 @@ class AnomalyDetector:
         Raises:
             RuntimeError: If detector has not been fitted.
         """
-        if self.tree is None or self.train_embeddings is None:
+        if self.train_embeddings is None:
             raise RuntimeError("Detector must be fitted first. Call fit().")
 
-        distances, _ = self.tree.query(self.train_embeddings, k=self.k + 1)
-        return distances[:, -1].astype(np.float32)
+        distances = self._kth_neighbor_distances(self.train_embeddings, self.k + 1)
+        return distances.astype(np.float32)
+
+    def _kth_neighbor_distances(
+        self, X: NDArray[np.float32], n_neighbors: int
+    ) -> NDArray[np.float64]:
+        from sklearn.neighbors import NearestNeighbors
+
+        # Brute force: a ball tree cannot prune in ~100-dimensional embedding
+        # space, so its queries are far slower than blocked BLAS distances.
+        search = NearestNeighbors(n_neighbors=n_neighbors, algorithm="brute")
+        distances, _ = search.fit(self.train_embeddings).kneighbors(X)
+        return distances[:, -1]
 
     def save(self, path: str | Path) -> None:
         """
@@ -271,7 +272,7 @@ class AnomalyDetector:
         Raises:
             RuntimeError: If detector has not been fitted.
         """
-        if self.tree is None:
+        if self.train_embeddings is None:
             raise RuntimeError("Cannot save unfitted detector. Call fit() first.")
 
         path = Path(path)
@@ -298,8 +299,6 @@ class AnomalyDetector:
         Returns:
             Self for method chaining.
         """
-        from sklearn.neighbors import BallTree
-
         path = Path(path)
         with open(path, "rb") as f:
             state = pickle.load(f)
@@ -309,8 +308,5 @@ class AnomalyDetector:
         self.k = state["k"]
         self.percentile = state["percentile"]
         self.layer_index = state["layer_index"]
-
-        # Rebuild BallTree
-        self.tree = BallTree(self.train_embeddings, metric="euclidean")
 
         return self

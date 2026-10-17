@@ -154,7 +154,7 @@ class TestAnomalyDetectorInit:
         detector = AnomalyDetector(simple_predictor)
         assert detector.predictor is simple_predictor
         assert detector.layer_index == -2
-        assert detector.tree is None
+        assert detector.train_embeddings is None
         assert detector.threshold is None
 
     def test_from_predictor(self, simple_predictor):
@@ -172,7 +172,6 @@ class TestAnomalyDetectorFit:
         detector = AnomalyDetector(simple_predictor)
         detector.fit(training_data, k=5, percentile=95.0)
 
-        assert detector.tree is not None
         assert detector.threshold is not None
         assert detector.threshold > 0
         assert detector.k == 5
@@ -263,6 +262,46 @@ class TestAnomalyDetectorTrainingDistances:
         detector = AnomalyDetector(simple_predictor)
         with pytest.raises(RuntimeError, match="must be fitted"):
             detector.get_training_distances()
+
+
+class _FixedEmbeddings:
+    """Predictor stand-in: X holds row indices into a fixed embedding table."""
+
+    def __init__(self, table: np.ndarray):
+        self.table = table
+
+    def get_embeddings(self, X, layer_index=-2, batch_size=1024):
+        return self.table[X]
+
+
+class TestAgreementWithBallTree:
+    """The brute-force search must agree with an exact BallTree search."""
+
+    def test_distances_threshold_and_flags_match_balltree(self):
+        """k-NN distances, threshold and flags match BallTree, duplicates included."""
+        from sklearn.neighbors import BallTree
+
+        rng = np.random.default_rng(0)
+        table = rng.normal(size=(500, 100)).astype(np.float32)
+        table[10:16] = table[10]  # six copies: zero k-th distances for k=5
+        train, test = np.arange(400), np.arange(500)  # test includes training stars
+        detector = AnomalyDetector(_FixedEmbeddings(table))
+        detector.fit(train, k=5, percentile=95.0)
+        result = detector.detect(test)
+
+        tree = BallTree(detector.train_embeddings)
+        train_ref = tree.query(detector.train_embeddings, k=6)[0][:, -1]
+        test_ref = tree.query(l2_normalize(table[test]), k=5)[0][:, -1]
+        # Brute force rounds squared distances to float32; measured differences
+        # from BallTree are <= 1.2e-7 relative and <= 7e-8 absolute (at zero).
+        tol = {"rtol": 1e-6, "atol": 1e-6}
+        np.testing.assert_allclose(detector.get_training_distances(), train_ref, **tol)
+        np.testing.assert_allclose(result.distances, test_ref, **tol)
+        np.testing.assert_allclose(
+            detector.threshold, np.percentile(train_ref, 95.0), **tol
+        )
+        np.testing.assert_array_equal(result.is_anomaly, test_ref > detector.threshold)
+        assert np.any(test_ref == 0)
 
 
 class TestAnomalyDetectorSerialization:
