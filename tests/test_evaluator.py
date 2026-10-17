@@ -1085,3 +1085,90 @@ class TestEvaluatorBySurveyNonExclusive:
         assert isinstance(result, SurveyEvaluationResult)
         assert result.survey_sample_counts["boss"] == 2
         assert result.survey_sample_counts["lamost"] == 2
+
+
+class TestSortedOrderStatistics:
+    """The evaluator takes medians/percentiles from sorted arrays; these must
+    match np.median / np.percentile on the unsorted data exactly."""
+
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_match_numpy(self, dtype):
+        from dorothy.inference.evaluator import (
+            _median_of_sorted,
+            _percentiles_of_sorted,
+        )
+
+        rng = np.random.default_rng(0)
+        for n in [1, 2, 3, 4, 5, 8, 31, 100, 1001]:
+            for special in [None, np.nan, np.inf, -np.inf]:
+                values = (rng.normal(size=n) * 50).astype(dtype)
+                if special is not None:
+                    values[rng.integers(0, n)] = special
+                if n > 4:
+                    values[:3] = np.round(values[:3])  # ties
+                ordered = np.sort(values)
+                for q in ([16, 84], [16, 50, 84], [0, 25, 100]):
+                    with np.errstate(invalid="ignore"):  # inf - inf, as numpy
+                        expected = np.percentile(values, q)
+                        got = _percentiles_of_sorted(ordered, q)
+                    assert got.dtype == expected.dtype
+                    np.testing.assert_array_equal(got, expected)
+                expected = np.median(values)
+                got = _median_of_sorted(ordered)
+                assert type(got) is type(expected)
+                np.testing.assert_array_equal(got, expected)
+
+
+class TestEvaluateMatchesPerParameterReference:
+    """evaluate() gathers all parameters at once; check it against a direct
+    per-parameter computation on masked columns."""
+
+    @staticmethod
+    def _reference(pred, true, s, sigma, floor):
+        residuals = pred - true
+        p16, p84 = np.percentile(residuals, [16, 84])
+        ref = {
+            "rmse": float(np.sqrt(np.mean(residuals**2))),
+            "bias": float(np.mean(residuals)),
+            "sd": float(np.std(residuals)),
+            "mae": float(np.mean(np.abs(residuals))),
+            "median_offset": float(np.median(residuals)),
+            "robust_scatter": float((p84 - p16) / 2),
+        }
+        z = residuals / np.sqrt(sigma**2 + (s**2 + floor**2))
+        z16, z84 = np.percentile(z, [16, 84])
+        ref["z_median"] = float(np.median(z))
+        ref["z_robust_scatter"] = float((z84 - z16) / 2)
+        pcts = np.percentile(s, [16, 50, 84])
+        for k, v in zip(("p16", "p50", "p84"), pcts, strict=True):
+            ref[f"pred_unc_{k}"] = float(v)
+        return ref
+
+    @pytest.mark.parametrize("strided", [False, True])
+    def test_bitwise_equal(self, strided):
+        rng = np.random.default_rng(3)
+        n, p = 2001, 6
+        stack = rng.normal(size=(n, 4, p)).astype(np.float32)
+        stack[:, 2] = np.exp(stack[:, 2] - 1)  # scatter
+        stack[:, 3] = np.abs(stack[:, 3]) * 0.1  # label errors
+        stack[5, 0, 1] = np.nan
+        arrays = [stack[:, i] for i in range(4)]
+        if not strided:  # strided views are what the trainer passes
+            arrays = [np.ascontiguousarray(a) for a in arrays]
+        pred, true, s, sigma = arrays
+        mask = (rng.random((n, p)) > 0.3).astype(np.float32)
+        mask[:, 3] = 0  # fully masked parameter
+        names = [f"x{i}" for i in range(p)]
+        result = Evaluator(names, teff_in_log=False).evaluate(
+            pred, true, s, sigma, mask
+        )
+        for i, name in enumerate(names):
+            m = mask[:, i] > 0
+            metrics = result[name].to_dict()
+            assert metrics["n_samples"] == m.sum()
+            if not m.any():
+                assert np.isnan(metrics["rmse"]) and np.isnan(metrics["z_median"])
+                continue
+            ref = self._reference(pred[m, i], true[m, i], s[m, i], sigma[m, i], 0.01)
+            for key, value in ref.items():
+                np.testing.assert_array_equal(metrics[key], value, err_msg=key)

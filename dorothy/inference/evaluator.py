@@ -37,6 +37,56 @@ import numpy as np
 from numpy.typing import NDArray
 
 
+def _median_of_sorted(values: np.ndarray):
+    """``np.median(values)`` for an already sorted, non-empty 1-D array.
+
+    np.median selects the middle element(s) and averages them with np.mean,
+    returning NaN (the last element after sorting) if there are NaNs; this
+    does the same on sorted input without another selection pass.
+    """
+    n = len(values)
+    median = np.mean(values[(n - 1) // 2 : n // 2 + 1])
+    if np.issubdtype(values.dtype, np.inexact) and np.isnan(values[-1]):
+        return values[-1]  # NaNs sort to the end
+    return median
+
+
+def _percentiles_of_sorted(values: np.ndarray, q: list[float]) -> np.ndarray:
+    """``np.percentile(values, q)`` for an already sorted, non-empty 1-D array.
+
+    Follows numpy's default "linear" method step by step (as in numpy >= 2.0;
+    tests compare it against np.percentile): float64 virtual index
+    ``(n - 1) * q / 100``, the two neighbouring order statistics (the last
+    element at or beyond the end), numpy's two-sided lerp, and NaN if the data
+    contain NaN. Reading the order statistics from the sorted array avoids
+    np.percentile's copy and partition passes.
+    """
+    n = len(values)
+    virtual = (n - 1) * np.true_divide(q, 100)
+    below = np.floor(virtual)
+    above = below + 1
+    at_end = virtual >= n - 1
+    below[at_end] = -1
+    above[at_end] = -1
+    below = below.astype(np.intp)
+    above = above.astype(np.intp)
+    gamma = np.asarray(virtual - below, dtype=virtual.dtype)
+    lower = values[below]
+    diff = values[above] - lower
+    result = np.add(lower, diff * gamma)
+    np.subtract(
+        values[above],
+        diff * (1 - gamma),
+        out=result,
+        where=gamma >= 0.5,
+        casting="unsafe",
+        dtype=result.dtype,
+    )
+    if np.issubdtype(values.dtype, np.inexact) and np.isnan(values[-1]):
+        result[...] = values[-1]
+    return result
+
+
 @dataclass
 class ParameterMetrics:
     """Metrics for a single stellar parameter.
@@ -514,22 +564,25 @@ class Evaluator:
 
         result = EvaluationResult(parameter_names=list(self.parameter_names))
 
-        for i, param_name in enumerate(self.parameter_names):
-            # Get per-parameter mask
-            param_mask = mask[:, i].astype(bool) if mask is not None else None
+        # Gather the valid samples of every parameter in one pass: column i of
+        # each input becomes the contiguous segment [bounds[i], bounds[i + 1])
+        # of a flat array, in sample order (same values as masking column i).
+        inputs = (y_pred, y_true, pred_scatter, label_errors)
+        if mask is not None:
+            valid_t = mask.T.astype(bool)
+            counts = valid_t.sum(axis=1)
+            flat = [None if a is None else a.T[valid_t] for a in inputs]
+        else:
+            counts = np.full(y_pred.shape[1], y_pred.shape[0])
+            flat = [
+                None if a is None else np.ascontiguousarray(a.T).reshape(-1)
+                for a in inputs
+            ]
+        bounds = np.concatenate([[0], np.cumsum(counts)]).tolist()
 
-            # Filter arrays based on mask
-            if param_mask is not None:
-                valid_idx = param_mask
-                pred = y_pred[valid_idx, i]
-                true = y_true[valid_idx, i]
-                s = pred_scatter[valid_idx, i] if pred_scatter is not None else None
-                sigma = label_errors[valid_idx, i] if label_errors is not None else None
-            else:
-                pred = y_pred[:, i]
-                true = y_true[:, i]
-                s = pred_scatter[:, i] if pred_scatter is not None else None
-                sigma = label_errors[:, i] if label_errors is not None else None
+        for i, param_name in enumerate(self.parameter_names):
+            segment = slice(bounds[i], bounds[i + 1])
+            pred, true, s, sigma = (None if a is None else a[segment] for a in flat)
 
             metrics = self._compute_metrics(param_name, pred, true, s, sigma)
             result.metrics[param_name] = metrics
@@ -667,9 +720,16 @@ class Evaluator:
                 survey_names = unique_surveys
             # Convert to integer indices for consistency
             survey_name_to_idx = {name: i for i, name in enumerate(survey_names)}
-            survey_indices = np.array(
-                [survey_name_to_idx.get(s, -1) for s in survey_ids], dtype=np.int32
-            )
+            if survey_ids.dtype.kind in ("U", "S"):
+                # Look up each distinct name once, then broadcast to samples
+                names, inverse = np.unique(survey_ids, return_inverse=True)
+                lookup = [survey_name_to_idx.get(s, -1) for s in names]
+                survey_indices = np.array(lookup, dtype=np.int32)[inverse]
+            else:
+                survey_indices = np.array(
+                    [survey_name_to_idx.get(s, -1) for s in survey_ids],
+                    dtype=np.int32,
+                )
         else:
             # Integer array: need survey_names
             if survey_names is None:
@@ -860,10 +920,14 @@ class Evaluator:
         bias = np.mean(residuals)
         sd = np.std(residuals)
 
-        # Quantile-based metrics (robust)
+        # Quantile-based metrics (robust). Order statistics don't depend on
+        # element order, so each array is sorted once and its median and
+        # percentiles are taken from the sorted copy: the same values as on
+        # the unsorted data, but one fast sort replaces several selections.
         mae = np.mean(np.abs(residuals))
-        median_offset = np.median(residuals)
-        p16, p84 = np.percentile(residuals, [16, 84])
+        sorted_residuals = np.sort(residuals)
+        median_offset = _median_of_sorted(sorted_residuals)
+        p16, p84 = _percentiles_of_sorted(sorted_residuals, [16, 84])
         robust_scatter = (p84 - p16) / 2
 
         # Z-score metrics (if uncertainties provided)
@@ -882,15 +946,15 @@ class Evaluator:
 
             total_std = np.sqrt(total_var)
 
-            # Z-scores
-            z_scores = residuals / total_std
-            z_median = np.median(z_scores)
-            z_p16, z_p84 = np.percentile(z_scores, [16, 84])
+            # Z-scores (sorted, see above)
+            z_scores = np.sort(residuals / total_std)
+            z_median = _median_of_sorted(z_scores)
+            z_p16, z_p84 = _percentiles_of_sorted(z_scores, [16, 84])
             z_robust_scatter = (z_p84 - z_p16) / 2
 
             # Predicted uncertainty statistics
-            pred_unc_p16, pred_unc_p50, pred_unc_p84 = np.percentile(
-                pred_scatter, [16, 50, 84]
+            pred_unc_p16, pred_unc_p50, pred_unc_p84 = _percentiles_of_sorted(
+                np.sort(pred_scatter), [16, 50, 84]
             )
 
         return ParameterMetrics(
