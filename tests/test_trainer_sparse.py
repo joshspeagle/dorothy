@@ -431,6 +431,39 @@ class TestSharedLoopBehaviour:
         assert np.isfinite(history.val_metrics["rmse"][-1]).all()
         assert np.isnan(history.val_metrics["z_median"][-1]).all()
 
+    @pytest.mark.parametrize("batch_size", [1, 32, 200])
+    def test_sparse_batches_match_dense_reference(self, batch_size):
+        """Batches hold [flux, 1/sqrt(ivar), ivar > 0], zero rows if absent."""
+        from dorothy.training.batches import SparseBatchSource
+
+        data = make_sparse_data(multi_label=True)
+        data.ivar["boss"][0, :4] = [-1.0, np.nan, np.inf, 1e-45]  # odd ivar values
+        idx = np.random.default_rng(1).permutation(N_TOTAL)[:120]
+        labels = {k: v.astype(np.float32) for k, v in data.labels_dict.items()}
+        source = SparseBatchSource(data, idx, labels, torch.device("cpu"))
+        order = idx[np.random.default_rng(2).permutation(len(idx))]
+        batches = list(source.batches(batch_size, np.random.default_rng(2)))
+        assert sum(len(b) for b in batches) == len(idx)
+        start = 0
+        for batch in batches:
+            rows = order[start : start + len(batch)]
+            start += len(batch)
+            for survey in data.surveys:
+                local = data.global_to_local[survey][rows]
+                present = local >= 0
+                expected = np.zeros((len(rows), 3, WAVES[survey]), np.float32)
+                ivar = data.ivar[survey][local[present]]
+                valid = ivar > 0
+                sigma = np.zeros_like(ivar)
+                sigma[valid] = 1.0 / np.sqrt(ivar[valid])
+                expected[present, 0] = data.flux[survey][local[present]]
+                expected[present, 1] = sigma
+                expected[present, 2] = valid
+                np.testing.assert_array_equal(batch.X[survey].numpy(), expected)
+                np.testing.assert_array_equal(batch.has_data[survey].numpy(), present)
+            for key, value in labels.items():
+                np.testing.assert_array_equal(batch.y[key].numpy(), value[rows])
+
     def test_fit_multi_labelset_rejects_mismatched_sources(self, tmp_path):
         trainer = Trainer(make_config(tmp_path, multi_label=True))
         X = {s: np.zeros((10, 3, n), np.float32) for s, n in WAVES.items()}
