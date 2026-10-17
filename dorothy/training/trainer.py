@@ -36,7 +36,6 @@ from torch.optim.lr_scheduler import (
 )
 
 from dorothy.config.schema import (
-    STELLAR_PARAMETERS,
     LossType,
     OptimizerType,
     SchedulerType,
@@ -280,8 +279,8 @@ class Trainer:
         Args:
             config: Complete experiment configuration.
             parameter_names: Names of stellar parameters being predicted.
-                If None, uses the first n parameters from STELLAR_PARAMETERS
-                where n is from config.model or config.multi_head_model.
+                If None, uses ``config.parameter_names`` (``data.parameter_names``
+                when set, otherwise the first n STELLAR_PARAMETERS).
         """
         self.config = config
         self.history = TrainingHistory()
@@ -335,8 +334,7 @@ class Trainer:
                 )
             self.parameter_names = parameter_names
         else:
-            # Use first n parameters from standard list
-            self.parameter_names = list(STELLAR_PARAMETERS[:n_params])
+            self.parameter_names = config.parameter_names
 
         # Normalizer will be fitted during training
         self.normalizer: LabelNormalizer | None = None
@@ -378,20 +376,7 @@ class Trainer:
         Returns MLP for single-survey config, MultiHeadMLP for multi-survey.
         """
         if self.config.is_multi_head:
-            mh_config = self.config.multi_head_model
-            return MultiHeadMLP(
-                survey_configs=mh_config.survey_wavelengths,
-                n_parameters=mh_config.n_parameters,
-                latent_dim=mh_config.latent_dim,
-                encoder_hidden=mh_config.encoder_hidden,
-                trunk_hidden=mh_config.trunk_hidden,
-                output_hidden=mh_config.output_hidden,
-                combination_mode=mh_config.combination_mode.value,
-                normalization=mh_config.normalization.value,
-                activation=mh_config.activation.value,
-                dropout=mh_config.dropout,
-                label_sources=mh_config.label_sources,
-            )
+            return MultiHeadMLP.from_config(self.config.multi_head_model)
         return MLP.from_config(self.config.model)
 
     def _create_loss_fn(self) -> nn.Module:
@@ -1030,6 +1015,24 @@ class Trainer:
                 updates[name] = torch.norm(delta).item()
         return updates
 
+    def _apply_input_masking(
+        self,
+        X_batch: dict[str, torch.Tensor],
+        has_data_batch: dict[str, torch.Tensor],
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        """Apply input masking and drop surveys it fully masked from has_data.
+
+        DynamicInputMasking zeroes out whole surveys (including the mask
+        channel). The model must then treat that survey as missing, exactly as
+        at inference time, rather than encoding an all-zero spectrum.
+        """
+        X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+        has_data_batch = {
+            survey: has_data_batch[survey] & (X_batch[survey][:, 2, :] > 0).any(dim=1)
+            for survey in has_data_batch
+        }
+        return X_batch, has_data_batch
+
     def _to_tensor(self, data: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Convert numpy array to tensor if needed."""
         if isinstance(data, np.ndarray):
@@ -1545,7 +1548,9 @@ class Trainer:
 
             # Apply input masking if enabled (training only)
             if self._input_masking is not None:
-                X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+                X_batch, has_data_batch = self._apply_input_masking(
+                    X_batch, has_data_batch
+                )
 
             # Apply label masking if enabled (training only)
             if self._label_masking is not None:
@@ -2198,7 +2203,9 @@ class Trainer:
 
             # Apply input masking if enabled (training only)
             if self._input_masking is not None:
-                X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+                X_batch, has_data_batch = self._apply_input_masking(
+                    X_batch, has_data_batch
+                )
 
             # Apply label masking if enabled (training only)
             if self._label_masking is not None:
@@ -3033,7 +3040,9 @@ class Trainer:
 
             # Apply input masking if enabled (training only)
             if self._input_masking is not None:
-                X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+                X_batch, has_data_batch = self._apply_input_masking(
+                    X_batch, has_data_batch
+                )
 
             # Extract all label batches and apply label masking
             y_batch_dict = {

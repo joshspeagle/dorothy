@@ -326,13 +326,11 @@ def evaluate_on_test_set(
     pred_scatter_norm = np.sqrt(np.exp(2 * log_scatter) + scatter_floor**2)
 
     # Get parameter names
-    from dorothy.config.schema import STELLAR_PARAMETERS
-
     n_params = y_pred_norm.shape[1]
     if normalizer is not None:
         parameter_names = normalizer.parameters[:n_params]
     else:
-        parameter_names = list(STELLAR_PARAMETERS[:n_params])
+        parameter_names = config.parameter_names[:n_params]
 
     # Create evaluator with same settings as training (teff_in_log=False, scatter_floor)
     evaluator = Evaluator(
@@ -493,13 +491,11 @@ def evaluate_on_dense_data(
     y_mask = y_test_norm[:, 2, :]
 
     # Get parameter names
-    from dorothy.config.schema import STELLAR_PARAMETERS
-
     n_params = predictions.shape[1]
     if normalizer is not None:
         parameter_names = normalizer.parameters[:n_params]
     else:
-        parameter_names = list(STELLAR_PARAMETERS[:n_params])
+        parameter_names = config.parameter_names[:n_params]
 
     # Create evaluator
     evaluator = Evaluator(
@@ -632,13 +628,11 @@ def evaluate_on_single_survey_data(
     y_mask = y_test_norm[:, 2, :]
 
     # Get parameter names
-    from dorothy.config.schema import STELLAR_PARAMETERS
-
     n_params = predictions.shape[1]
     if normalizer is not None:
         parameter_names = normalizer.parameters[:n_params]
     else:
-        parameter_names = list(STELLAR_PARAMETERS[:n_params])
+        parameter_names = config.parameter_names[:n_params]
 
     # Create evaluator
     evaluator = Evaluator(

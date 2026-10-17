@@ -485,15 +485,20 @@ class TestLabelNormalizerMasking:
         # logg computed from [2.0, 3.0, 4.0]
         assert normalizer.stats["logg"].median == pytest.approx(3.0)
 
-    def test_fit_all_masked_raises(self):
-        """Test that fully masked parameter raises error."""
+    def test_fit_all_masked_uses_identity(self):
+        """A fully masked parameter gets identity stats and a warning."""
         normalizer = LabelNormalizer(parameters=["fe_h", "logg"])
         y = np.random.randn(10, 2)
         mask = np.ones_like(y)
         mask[:, 0] = 0  # Mask all feh values
 
-        with pytest.raises(ValueError, match="All values masked"):
+        with pytest.warns(UserWarning, match="All values masked"):
             normalizer.fit(y, mask=mask)
+
+        assert normalizer.stats["fe_h"].median == 0.0
+        assert normalizer.stats["fe_h"].iqr == 1.0
+        y_norm = normalizer.transform(y)
+        np.testing.assert_allclose(y_norm[:, 0], y[:, 0], rtol=1e-6)
 
     def test_fit_mask_shape_mismatch_raises(self):
         """Test that mask shape mismatch raises error."""

@@ -16,6 +16,7 @@ same IQR factor as their corresponding labels.
 from __future__ import annotations
 
 import pickle
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -149,7 +150,18 @@ class LabelNormalizer:
                 param_mask = mask[:, i].astype(bool)
                 values = y[param_mask, i]
                 if len(values) == 0:
-                    raise ValueError(f"All values masked for parameter {param_name}")
+                    # No valid labels (e.g. an element one label source lacks):
+                    # use identity stats. The loss ignores these entries anyway.
+                    warnings.warn(
+                        f"All values masked for parameter {param_name}; "
+                        "using identity normalization (median=0, IQR=1)",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    self.stats[param_name] = ParameterStats(
+                        name=param_name, median=0.0, iqr=1.0, use_log=False
+                    )
+                    continue
             else:
                 values = y[:, i]
 

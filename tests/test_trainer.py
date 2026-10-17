@@ -27,6 +27,7 @@ from dorothy.config.schema import (
     SchedulerType,
     TrainingConfig,
 )
+from dorothy.data.augmentation import DynamicInputMasking
 from dorothy.training.trainer import EVALUATOR_METRIC_NAMES, Trainer, TrainingHistory
 
 
@@ -900,6 +901,40 @@ class TestTrainerMultiSurvey:
                 batch_size=16,
             ),
         )
+
+    def test_input_masking_clears_has_data_for_dropped_surveys(self, multi_head_config):
+        """A survey zeroed out by input masking must be marked as missing."""
+        import torch
+
+        config = multi_head_config.model_copy(
+            update={
+                "input_masking": InputMaskingConfig(
+                    enabled=True, p_survey_min=0.5, p_survey_max=0.5
+                )
+            }
+        )
+        trainer = Trainer(config)
+        trainer._input_masking = DynamicInputMasking(
+            p_survey_min=0.5, p_survey_max=0.5, p_block_min=0.0, p_block_max=0.0
+        )
+        trainer._survey_wavelengths = {"boss": 100, "lamost": 80}
+        torch.manual_seed(0)
+        n = 64
+        X = {
+            "boss": torch.ones(n, 3, 100),
+            "lamost": torch.ones(n, 3, 80),
+        }
+        has_data = {
+            "boss": torch.ones(n, dtype=torch.bool),
+            "lamost": torch.ones(n, dtype=torch.bool),
+        }
+        X_out, has_out = trainer._apply_input_masking(X, has_data)
+        for survey in X_out:
+            dropped = X_out[survey][:, 2, :].sum(dim=1) == 0
+            assert dropped.any()
+            assert torch.equal(has_out[survey], ~dropped)
+        # Every sample keeps at least one survey
+        assert (has_out["boss"] | has_out["lamost"]).all()
 
     def test_fit_multi_survey_runs(self, multi_head_config):
         """Test fit_multi_survey runs without error."""

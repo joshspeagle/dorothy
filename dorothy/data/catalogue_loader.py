@@ -26,20 +26,11 @@ from typing import Literal
 import h5py
 import numpy as np
 
-# 11 stellar parameters in standard order
-PARAMETER_NAMES = [
-    "teff",
-    "logg",
-    "fe_h",
-    "mg_fe",
-    "c_fe",
-    "si_fe",
-    "ni_fe",
-    "al_fe",
-    "ca_fe",
-    "n_fe",
-    "mn_fe",
-]
+from dorothy.config.schema import STELLAR_PARAMETERS
+from dorothy.data.fits_loader import normalize_spectra as _normalize_spectra
+
+# Default (v1/v2 [X/Fe]) parameter names; catalogues may define their own
+PARAMETER_NAMES = list(STELLAR_PARAMETERS)
 
 # Mapping from survey names to their label group names (v1 schema)
 # For v2 schema, labels are stored directly as /labels/apogee/ and /labels/galah/
@@ -53,6 +44,47 @@ SURVEY_LABEL_MAP = {
 
 # Available label sources (for v2 schema)
 LABEL_SOURCES = ["apogee", "galah"]
+
+
+def _read_parameter_names(f: h5py.File) -> list[str]:
+    """Read label parameter names from an open catalogue.
+
+    Uses the ``parameter_names`` file attribute when present. Older files
+    without it fall back to the standard names, sized to the label width.
+    """
+    if "parameter_names" in f.attrs:
+        return [
+            n.decode() if isinstance(n, bytes) else str(n)
+            for n in f.attrs["parameter_names"]
+        ]
+    n_params = len(PARAMETER_NAMES)
+    for source in f.get("labels", {}):
+        if "values" in f["labels"][source]:
+            n_params = f["labels"][source]["values"].shape[1]
+            break
+    if n_params > len(PARAMETER_NAMES):
+        raise ValueError(
+            f"Catalogue has {n_params} label columns but no parameter_names "
+            "attribute; cannot infer parameter names"
+        )
+    return list(PARAMETER_NAMES[:n_params])
+
+
+def _split_dual_arm_spectra(
+    spectra: np.ndarray, survey_grp: h5py.Group
+) -> tuple[np.ndarray, np.ndarray]:
+    """Convert padded dual-arm (LAMOST MRS) spectra to concatenated flux/ivar.
+
+    The catalogue stores MRS as (N, 4, max_wave) = [flux_b, ivar_b, flux_r,
+    ivar_r], padded to the longer arm. Each arm is trimmed to its own
+    wavelength grid and the arms are concatenated (blue then red), matching
+    ``wavelength_b`` + ``wavelength_r``.
+    """
+    n_wave_b = survey_grp["wavelength_b"].shape[0]
+    n_wave_r = survey_grp["wavelength_r"].shape[0]
+    flux = np.concatenate([spectra[:, 0, :n_wave_b], spectra[:, 2, :n_wave_r]], axis=1)
+    ivar = np.concatenate([spectra[:, 1, :n_wave_b], spectra[:, 3, :n_wave_r]], axis=1)
+    return flux, ivar
 
 
 @dataclass
@@ -155,7 +187,7 @@ class CatalogueData:
         """
         # Count bits set in each flag
         flag_bits = np.zeros(len(self.gaia_ids), dtype=int)
-        for i in range(11):
+        for i in range(self.label_flags.shape[1]):
             flag_bits += np.bitwise_count(self.label_flags[:, i].astype(np.uint64))
 
         mask = flag_bits <= max_flag_bits
@@ -329,6 +361,7 @@ class SparseMergedData:
     labels_dict: dict[str, np.ndarray] | None = None  # {source: (n_total, 3, n_params)}
     has_labels_dict: dict[str, np.ndarray] | None = None  # {source: (n_total,) bool}
     label_sources: list[str] | None = None  # List of label source names
+    parameter_names: list[str] | None = None  # Label parameter names (n_params,)
 
     def has_data(self, survey: str) -> np.ndarray:
         """Return boolean mask of which global indices have data for survey."""
@@ -459,7 +492,7 @@ class CatalogueLoader:
         with h5py.File(self.path, "r") as f:
             # Read attributes
             n_stars = f.attrs["n_stars"]
-            parameter_names = list(f.attrs["parameter_names"])
+            parameter_names = _read_parameter_names(f)
             survey_names = list(f.attrs["survey_names"])
             creation_date = f.attrs["creation_date"]
             version = f.attrs["version"]
@@ -718,6 +751,7 @@ class CatalogueLoader:
         survey: str,
         label_source: str | None = None,
         max_flag_bits: int = 0,
+        normalize_spectra: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Load data ready for training in unified 3-channel format.
@@ -729,6 +763,9 @@ class CatalogueLoader:
             survey: Survey to load from.
             label_source: Label source to use. If None, auto-determined from survey.
             max_flag_bits: Maximum flag bits allowed (0 = highest quality).
+            normalize_spectra: Apply per-spectrum median/IQR normalization to
+                flux (and rescale ivar) before building the model inputs.
+                Training and inference must use the same setting.
 
         Returns:
             Tuple of (X, y) where:
@@ -752,6 +789,8 @@ class CatalogueLoader:
         # Convert ivar to sigma: sigma = 1/sqrt(ivar) where ivar > 0
         flux = data.flux
         ivar = data.ivar
+        if normalize_spectra:
+            flux, ivar = _normalize_spectra(flux, ivar)
         sigma = np.zeros_like(ivar)
         valid_ivar = ivar > 0
         sigma[valid_ivar] = 1.0 / np.sqrt(ivar[valid_ivar])
@@ -1271,9 +1310,8 @@ class CatalogueLoader:
             >>> print(f"Total unique stars: {merged.n_stars}")
             >>> print(f"Coverage: {merged.get_coverage_stats()}")
         """
-        n_params = 11
-
         with h5py.File(self.path, "r") as f:
+            n_params = len(_read_parameter_names(f))
             # PASS 1: Load metadata and identify duplicates
             (
                 survey_meta,
@@ -1411,6 +1449,7 @@ class CatalogueLoader:
         label_source: str = "apogee",
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
+        normalize_spectra: bool = False,
     ) -> SparseMergedData:
         """
         Load and merge multiple surveys with memory-efficient sparse storage.
@@ -1436,6 +1475,9 @@ class CatalogueLoader:
                 If provided, labels_dict and has_labels_dict will be populated
                 with labels from each source. The primary `labels` array uses
                 the first source in the list (or label_source if not provided).
+            normalize_spectra: Apply per-spectrum median/IQR normalization to
+                flux (and rescale ivar) before building the model inputs.
+                Training and inference must use the same setting.
 
         Returns:
             SparseMergedData with memory-efficient sparse survey storage.
@@ -1456,9 +1498,9 @@ class CatalogueLoader:
             ... )
             >>> print(f"Multi-label: {sparse_data.is_multi_label()}")
         """
-        n_params = 11
-
         with h5py.File(self.path, "r") as f:
+            parameter_names = _read_parameter_names(f)
+            n_params = len(parameter_names)
             # =========================================================
             # PASS 1: Fast scan - read only SNR arrays and gaia_ids
             # =========================================================
@@ -1559,17 +1601,7 @@ class CatalogueLoader:
                     spectra = spectra_all[valid_indices]
                     del spectra_all
 
-                    # Get actual wavelength lengths for each arm
-                    n_wave_b = len(survey_grp["wavelength_b"][:])
-                    n_wave_r = len(survey_grp["wavelength_r"][:])
-
-                    # Extract and trim to actual wavelength lengths
-                    flux_b = spectra[:, 0, :n_wave_b]
-                    flux_r = spectra[:, 2, :n_wave_r]
-                    ivar_b = spectra[:, 1, :n_wave_b]
-                    ivar_r = spectra[:, 3, :n_wave_r]
-                    flux = np.concatenate([flux_b, flux_r], axis=1)
-                    ivar = np.concatenate([ivar_b, ivar_r], axis=1)
+                    flux, ivar = _split_dual_arm_spectra(spectra, survey_grp)
                     del spectra
 
                 # Load SNR for valid indices
@@ -1581,6 +1613,11 @@ class CatalogueLoader:
                 g2l[valid_indices] = np.arange(n_with_data, dtype=np.int32)
                 global_to_local[survey] = g2l
                 local_to_global[survey] = valid_indices.astype(np.int32)
+
+                if normalize_spectra:
+                    flux = np.ascontiguousarray(flux, dtype=np.float32)
+                    ivar = np.ascontiguousarray(ivar, dtype=np.float32)
+                    flux, ivar = _normalize_spectra(flux, ivar, inplace=True)
 
                 # Store sparse arrays
                 sparse_flux[survey] = flux
@@ -1731,6 +1768,7 @@ class CatalogueLoader:
             labels_dict=labels_dict_out,
             has_labels_dict=has_labels_dict_out,
             label_sources=label_sources_out,
+            parameter_names=parameter_names,
         )
 
     def _deduplicate(self, data: CatalogueData) -> CatalogueData:
@@ -1792,10 +1830,87 @@ class CatalogueLoader:
                 raise ValueError(f"Survey '{survey}' not in catalogue")
             return f["surveys"][survey]["wavelength"][:]
 
-    def get_parameter_names(self) -> list[str]:
-        """Get the list of parameter names."""
+    def load_spectrum(
+        self,
+        survey: str,
+        index: int,
+        normalize_spectra: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray, int]:
+        """
+        Load one star's spectrum as a 3-channel model input.
+
+        Args:
+            survey: Survey name (e.g. "boss", "lamost_mrs").
+            index: Row index in the catalogue (v2 rows are aligned with
+                ``metadata/gaia_id``).
+            normalize_spectra: Apply per-spectrum median/IQR normalization,
+                as during training (see ``data.normalize_spectra``).
+
+        Returns:
+            Tuple of (X, wavelength, gaia_id) where X has shape (3, n_wave)
+            with channels [flux, sigma, mask], matching the training inputs.
+        """
         with h5py.File(self.path, "r") as f:
-            return list(f.attrs["parameter_names"])
+            if survey not in f["surveys"]:
+                raise ValueError(f"Survey '{survey}' not in catalogue")
+            grp = f["surveys"][survey]
+            if "flux" in grp:
+                flux = grp["flux"][index : index + 1]
+                ivar = grp["ivar"][index : index + 1]
+                wavelength = grp["wavelength"][:]
+            else:
+                flux, ivar = _split_dual_arm_spectra(
+                    grp["spectra"][index : index + 1], grp
+                )
+                wavelength = np.concatenate(
+                    [grp["wavelength_b"][:], grp["wavelength_r"][:]]
+                )
+            has_ids = "metadata" in f and "gaia_id" in f["metadata"]
+            gaia_id = int(f["metadata"]["gaia_id"][index]) if has_ids else -1
+
+        flux = flux.astype(np.float32)
+        ivar = ivar.astype(np.float32)
+        if normalize_spectra:
+            flux, ivar = _normalize_spectra(flux, ivar)
+        valid = ivar > 0
+        sigma = np.zeros_like(ivar)
+        sigma[valid] = 1.0 / np.sqrt(ivar[valid])
+        X = np.stack([flux[0], sigma[0], valid[0].astype(np.float32)], axis=0)
+        return X, wavelength.astype(np.float32), gaia_id
+
+    def load_labels_for_index(
+        self,
+        index: int,
+        label_source: str = "apogee",
+        survey: str | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """
+        Load one star's labels by catalogue row index.
+
+        Args:
+            index: Row index in the catalogue.
+            label_source: Label source (e.g. "apogee", "galah").
+            survey: Survey name, only needed to resolve v1 per-survey label
+                groups (e.g. "apogee_boss").
+
+        Returns:
+            Tuple of (values, errors, flags), each of shape (n_params,), or
+            None if the label source is not in the catalogue.
+        """
+        with h5py.File(self.path, "r") as f:
+            if "labels" not in f:
+                return None
+            try:
+                resolved = self._resolve_label_source(survey or "", label_source, f)
+            except ValueError:
+                return None
+            grp = f["labels"][resolved]
+            return grp["values"][index], grp["errors"][index], grp["flags"][index]
+
+    def get_parameter_names(self) -> list[str]:
+        """Get the label parameter names, in catalogue column order."""
+        with h5py.File(self.path, "r") as f:
+            return _read_parameter_names(f)
 
     def load_merged_for_training(
         self,
@@ -1803,6 +1918,7 @@ class CatalogueLoader:
         label_source: str = "apogee",
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
+        normalize_spectra: bool = False,
     ) -> tuple[
         dict[str, np.ndarray],
         np.ndarray | dict[str, np.ndarray],
@@ -1833,6 +1949,9 @@ class CatalogueLoader:
             label_sources: List of label sources for multi-labelset training.
                 If None, uses single-source mode with label_source parameter.
                 If provided, returns y_dict and has_labels_dict instead of y.
+            normalize_spectra: Apply per-spectrum median/IQR normalization to
+                flux (and rescale ivar) before building the model inputs.
+                Training and inference must use the same setting.
 
         Returns:
             Tuple of (X_dict, y, has_data_dict, has_labels_dict) where:
@@ -1884,6 +2003,8 @@ class CatalogueLoader:
             survey_data = merged.surveys[survey]
             flux = survey_data["flux"]
             ivar = survey_data["ivar"]
+            if normalize_spectra:
+                flux, ivar = _normalize_spectra(flux, ivar)
 
             # Convert ivar to sigma: sigma = 1/sqrt(ivar) where ivar > 0
             sigma = np.zeros_like(ivar)
@@ -1927,10 +2048,10 @@ class CatalogueLoader:
         y_dict: dict[str, np.ndarray] = {}
         has_labels_dict: dict[str, np.ndarray] = {}
 
-        n_params = 11
         n_stars = merged.n_stars
 
         with h5py.File(self.path, "r") as f:
+            n_params = len(_read_parameter_names(f))
             if "labels" not in f:
                 raise ValueError("Catalogue has no 'labels' group")
 

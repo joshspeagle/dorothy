@@ -25,10 +25,15 @@ For multi-survey training:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 import torch.nn as nn
 
 from dorothy.models.utils import get_activation, get_normalization
+
+if TYPE_CHECKING:
+    from dorothy.config.schema import MultiHeadModelConfig
 
 
 class SurveyEncoder(nn.Module):
@@ -303,6 +308,7 @@ class MultiHeadMLP(nn.Module):
         activation: str = "gelu",
         dropout: float = 0.0,
         label_sources: list[str] | None = None,
+        head_dropout: dict[str, float] | None = None,
     ) -> None:
         """Initialize the multi-head MLP.
 
@@ -324,6 +330,8 @@ class MultiHeadMLP(nn.Module):
             label_sources: List of label sources for multi-output heads. Default: None
                 (single output head). If multiple sources specified, creates one
                 output head per source (e.g., ["apogee", "galah"]).
+            head_dropout: Optional per-label-source dropout for the output heads,
+                e.g. {"galah": 0.2}. Sources not listed use ``dropout``.
 
         Raises:
             ValueError: If survey_configs is empty.
@@ -379,6 +387,8 @@ class MultiHeadMLP(nn.Module):
         )
 
         # Create output head(s) - one per label source
+        head_dropout = head_dropout or {}
+        self.head_dropout = dict(head_dropout)
         if self.is_multi_label:
             self.output_heads = nn.ModuleDict()
             for source in self.label_sources:
@@ -388,7 +398,7 @@ class MultiHeadMLP(nn.Module):
                     hidden_layers=output_hidden,
                     normalization=normalization,
                     activation=activation,
-                    dropout=dropout,
+                    dropout=head_dropout.get(source, dropout),
                 )
             # Backward compatibility: also set output_head to first source
             self.output_head = self.output_heads[self.label_sources[0]]
@@ -399,10 +409,35 @@ class MultiHeadMLP(nn.Module):
                 hidden_layers=output_hidden,
                 normalization=normalization,
                 activation=activation,
-                dropout=dropout,
+                dropout=head_dropout.get(self.label_sources[0], dropout),
             )
             # For consistency
             self.output_heads = nn.ModuleDict({"default": self.output_head})
+
+    @classmethod
+    def from_config(cls, config: MultiHeadModelConfig) -> MultiHeadMLP:
+        """Create a MultiHeadMLP from a MultiHeadModelConfig.
+
+        Args:
+            config: Multi-head model configuration.
+
+        Returns:
+            Configured MultiHeadMLP instance.
+        """
+        return cls(
+            survey_configs=dict(config.survey_wavelengths),
+            n_parameters=config.n_parameters,
+            latent_dim=config.latent_dim,
+            encoder_hidden=list(config.encoder_hidden),
+            trunk_hidden=list(config.trunk_hidden),
+            output_hidden=list(config.output_hidden),
+            combination_mode=config.combination_mode.value,
+            normalization=config.normalization.value,
+            activation=config.activation.value,
+            dropout=config.dropout,
+            label_sources=config.label_sources,
+            head_dropout=config.head_dropout,
+        )
 
     def forward_single(
         self,

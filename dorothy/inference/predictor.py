@@ -126,10 +126,13 @@ class Predictor:
 
         # Set parameter names
         if parameter_names is None:
-            from dorothy.config.schema import STELLAR_PARAMETERS
+            if normalizer is not None:
+                parameter_names = list(normalizer.parameters)
+            else:
+                from dorothy.config.schema import STELLAR_PARAMETERS
 
-            n_params = model.n_parameters
-            parameter_names = list(STELLAR_PARAMETERS[:n_params])
+                n_params = model.n_parameters
+                parameter_names = list(STELLAR_PARAMETERS[:n_params])
         self.parameter_names = parameter_names
 
     @classmethod

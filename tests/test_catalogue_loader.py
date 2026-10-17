@@ -1666,3 +1666,139 @@ class TestSparseMergedDataMethods:
         stats = sparse_data.get_coverage_stats()
         assert stats["survey_a"] == 60
         assert stats["survey_b"] == 40
+
+
+class TestParameterNamesAndSpectralNormalization:
+    """Catalogue-defined parameter lists and loader-level flux normalization."""
+
+    PARAMS = ["teff", "logg", "fe_h", "mg_h", "ba_h"]
+
+    def _build(self, path, parameter_names=None, n_params=None):
+        rng = np.random.default_rng(0)
+        n_stars, n_wave = 30, 50
+        n_params = n_params or len(parameter_names)
+        with h5py.File(path, "w") as f:
+            meta = f.create_group("metadata")
+            meta.create_dataset(
+                "gaia_id", data=np.arange(1, n_stars + 1, dtype=np.int64)
+            )
+            meta.create_dataset("ra", data=rng.uniform(0, 360, n_stars))
+            meta.create_dataset("dec", data=rng.uniform(-90, 90, n_stars))
+            boss = f.create_group("surveys/boss")
+            flux = (rng.normal(size=(n_stars, n_wave)) * 3 + 50).astype(np.float32)
+            ivar = np.ones((n_stars, n_wave), dtype=np.float32)
+            ivar[:, :5] = 0.0  # always-masked pixels
+            snr = np.full(n_stars, 20.0, dtype=np.float32)
+            snr[-5:] = 0.0  # last 5 stars have no BOSS spectrum
+            flux[-5:] = 0.0
+            ivar[-5:] = 0.0
+            boss.create_dataset("flux", data=flux)
+            boss.create_dataset("ivar", data=ivar)
+            boss.create_dataset("wavelength", data=np.linspace(3600, 9000, n_wave))
+            boss.create_dataset("snr", data=snr)
+            # LAMOST MRS in the real v2 layout: padded (N, 4, max_wave) arms
+            mrs = f.create_group("surveys/lamost_mrs")
+            n_b, n_r = 6, 8
+            spectra = np.zeros((n_stars, 4, n_r), dtype=np.float32)
+            spectra[:, 0, :n_b] = rng.normal(size=(n_stars, n_b)) + 5
+            spectra[:, 1, :n_b] = 1.0
+            spectra[:, 2, :n_r] = rng.normal(size=(n_stars, n_r)) + 7
+            spectra[:, 3, :n_r] = 2.0
+            mrs.create_dataset("spectra", data=spectra)
+            mrs.create_dataset("wavelength_b", data=np.linspace(4950, 5350, n_b))
+            mrs.create_dataset("wavelength_r", data=np.linspace(6300, 6800, n_r))
+            mrs.create_dataset("snr", data=np.full(n_stars, 15.0, dtype=np.float32))
+            apogee = f.create_group("labels/apogee")
+            values = rng.normal(size=(n_stars, n_params)).astype(np.float32)
+            values[:, 0] = rng.uniform(4000, 6000, n_stars)
+            apogee.create_dataset("values", data=values)
+            apogee.create_dataset(
+                "errors", data=np.full((n_stars, n_params), 0.1, dtype=np.float32)
+            )
+            apogee.create_dataset("flags", data=np.zeros((n_stars, n_params), np.uint8))
+            apogee.create_dataset("gaia_id", data=np.arange(1, n_stars + 1))
+            f.attrs["n_stars"] = n_stars
+            f.attrs["survey_names"] = ["boss", "lamost_mrs"]
+            f.attrs["creation_date"] = "2026-01-01"
+            f.attrs["version"] = "2.0"
+            if parameter_names is not None:
+                f.attrs["parameter_names"] = parameter_names
+        return path
+
+    def test_parameter_names_from_attrs(self, tmp_path):
+        path = self._build(tmp_path / "cat.h5", self.PARAMS)
+        loader = CatalogueLoader(path)
+        assert loader.get_parameter_names() == self.PARAMS
+        data = loader.load_merged_sparse(["boss"], label_source="apogee")
+        assert data.n_params == len(self.PARAMS)
+        assert data.parameter_names == self.PARAMS
+        assert data.labels.shape == (30, 3, len(self.PARAMS))
+
+    def test_parameter_names_fallback_without_attrs(self, tmp_path):
+        path = self._build(tmp_path / "cat.h5", None, n_params=11)
+        assert CatalogueLoader(path).get_parameter_names() == PARAMETER_NAMES
+
+    def test_wide_labels_without_names_raise(self, tmp_path):
+        path = self._build(tmp_path / "cat.h5", None, n_params=20)
+        with pytest.raises(ValueError, match="no parameter_names"):
+            CatalogueLoader(path).get_parameter_names()
+
+    def test_sparse_normalization(self, tmp_path):
+        path = self._build(tmp_path / "cat.h5", self.PARAMS)
+        loader = CatalogueLoader(path)
+        raw = loader.load_merged_sparse(["boss"], label_source="apogee")
+        norm = loader.load_merged_sparse(
+            ["boss"], label_source="apogee", normalize_spectra=True
+        )
+        flux = norm.flux["boss"]
+        assert flux.shape == raw.flux["boss"].shape == (25, 50)
+        np.testing.assert_allclose(np.median(flux[:, 5:], axis=1), 0.0, atol=1e-5)
+        assert np.all(flux[:, :5] == 0) and np.all(norm.ivar["boss"][:, :5] == 0)
+        assert not np.allclose(raw.flux["boss"][:, 5:], flux[:, 5:])
+
+    def test_all_loading_paths_normalize_identically(self, tmp_path):
+        path = self._build(tmp_path / "cat.h5", self.PARAMS)
+        loader = CatalogueLoader(path)
+        sparse = loader.load_merged_sparse(
+            ["boss"], label_source="apogee", normalize_spectra=True
+        )
+        X_dict, _, has_data, _ = loader.load_merged_for_training(
+            ["boss"], label_source="apogee", normalize_spectra=True
+        )
+        dense_flux = X_dict["boss"][has_data["boss"], 0, :]
+        np.testing.assert_allclose(dense_flux, sparse.flux["boss"], rtol=1e-6)
+        X, _ = loader.load_for_training(
+            "boss", label_source="apogee", normalize_spectra=True
+        )
+        np.testing.assert_allclose(X[:, 0, :], sparse.flux["boss"], rtol=1e-6)
+
+    @pytest.mark.parametrize("normalize", [False, True])
+    @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
+    def test_load_spectrum_matches_training_rows(self, tmp_path, survey, normalize):
+        path = self._build(tmp_path / "cat.h5", self.PARAMS)
+        loader = CatalogueLoader(path)
+        sparse = loader.load_merged_sparse(
+            [survey], label_source="apogee", normalize_spectra=normalize
+        )
+        X, wavelength, gaia_id = loader.load_spectrum(
+            survey, 3, normalize_spectra=normalize
+        )
+        local = sparse.global_to_local[survey][3]
+        assert X.shape == (3, len(sparse.wavelengths[survey]))
+        np.testing.assert_allclose(wavelength, sparse.wavelengths[survey])
+        np.testing.assert_allclose(X[0], sparse.flux[survey][local], rtol=1e-6)
+        valid = sparse.ivar[survey][local] > 0
+        np.testing.assert_array_equal(X[2], valid.astype(np.float32))
+        np.testing.assert_allclose(
+            X[1][valid], 1 / np.sqrt(sparse.ivar[survey][local][valid]), rtol=1e-6
+        )
+        assert gaia_id == 4
+
+    def test_load_labels_for_index(self, tmp_path):
+        path = self._build(tmp_path / "cat.h5", self.PARAMS)
+        loader = CatalogueLoader(path)
+        values, errors, flags = loader.load_labels_for_index(2, "apogee")
+        assert values.shape == errors.shape == flags.shape == (len(self.PARAMS),)
+        sparse = loader.load_merged_sparse(["boss"], label_source="apogee")
+        np.testing.assert_allclose(values, sparse.labels[2, 0])
+        assert loader.load_labels_for_index(2, "galah") is None

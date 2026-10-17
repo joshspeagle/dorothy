@@ -20,6 +20,7 @@ from dorothy.data.fits_loader import (
     SpectralData,
     apply_quality_filter,
     ivar_to_error_and_mask,
+    normalize_spectra,
     normalize_spectrum,
     split_data,
 )
@@ -29,6 +30,7 @@ __all__ = [
     # FITS loading
     "FITSLoader",
     "SpectralData",
+    "normalize_spectra",
     "normalize_spectrum",
     "apply_quality_filter",
     "split_data",

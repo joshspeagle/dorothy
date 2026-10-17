@@ -73,6 +73,33 @@ STELLAR_PARAMETERS = [
     "mn_fe",  # Manganese abundance [Mn/Fe]
 ]
 
+# Display names for parameters that don't follow the "x_h" / "x_fe" pattern
+_SPECIAL_DISPLAY_NAMES = {
+    "teff": r"$T_{\rm eff}$",
+    "logg": r"$\log g$",
+}
+
+
+def parameter_display_name(name: str) -> str:
+    """Return a plot label for a parameter name.
+
+    Abundance names of the form ``x_h`` / ``x_fe`` become ``[X/H]`` / ``[X/Fe]``
+    (e.g. ``mg_fe`` -> ``[Mg/Fe]``, ``fe_h`` -> ``[Fe/H]``). Unrecognized names
+    are returned unchanged.
+
+    Args:
+        name: Parameter name as stored in the catalogue.
+
+    Returns:
+        Human-readable (matplotlib mathtext) label.
+    """
+    if name in _SPECIAL_DISPLAY_NAMES:
+        return _SPECIAL_DISPLAY_NAMES[name]
+    parts = name.split("_")
+    if len(parts) == 2 and parts[1] in ("h", "fe") and parts[0].isalpha():
+        return f"[{parts[0].capitalize()}/{parts[1].capitalize()}]"
+    return name
+
 
 class DataConfig(BaseModel):
     """Configuration for data loading and preprocessing.
@@ -93,6 +120,12 @@ class DataConfig(BaseModel):
         duplicate_labels: Dict mapping target label source to source label source.
             Used for testing multi-labelset training when some label sources don't exist.
             e.g., {'galah': 'apogee'} copies APOGEE labels to create "fake" GALAH labels.
+        parameter_names: Names of the label parameters, in catalogue order.
+            Auto-populated from the catalogue by ``dorothy train``; when None,
+            the standard 11 ``STELLAR_PARAMETERS`` are assumed.
+        normalize_spectra: Apply per-spectrum median/IQR normalization to the
+            input flux (and rescale ivar to match). Must match between training
+            and inference; it is saved with the checkpoint config.
     """
 
     catalogue_path: Path = Field(description="Path to HDF5 super-catalogue")
@@ -125,6 +158,15 @@ class DataConfig(BaseModel):
         default=False,
         description="Use dense loading for spectra (higher memory, ~40GB vs ~7GB sparse)",
     )
+    parameter_names: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description="Label parameter names in catalogue order (auto-populated)",
+    )
+    normalize_spectra: bool = Field(
+        default=True,
+        description="Per-spectrum median/IQR flux normalization (train and inference)",
+    )
 
     @property
     def test_ratio(self) -> float:
@@ -140,6 +182,14 @@ class DataConfig(BaseModel):
     def is_multi_label(self) -> bool:
         """Whether training with multiple label sources."""
         return len(self.label_sources) > 1
+
+    @field_validator("parameter_names")
+    @classmethod
+    def validate_parameter_names(cls, v: list[str] | None) -> list[str] | None:
+        """Ensure parameter names are unique."""
+        if v is not None and len(set(v)) != len(v):
+            raise ValueError(f"parameter_names contains duplicates: {v}")
+        return v
 
     @model_validator(mode="after")
     def validate_ratios(self) -> DataConfig:
@@ -240,6 +290,8 @@ class MultiHeadModelConfig(BaseModel):
         normalization: Type of normalization layer.
         activation: Activation function type.
         dropout: Dropout probability.
+        head_dropout: Optional per-label-source dropout for the output heads
+            (e.g. ``{"galah": 0.2}``); sources not listed use ``dropout``.
 
     Example:
         >>> config = MultiHeadModelConfig(
@@ -301,6 +353,21 @@ class MultiHeadModelConfig(BaseModel):
         lt=1.0,
         description="Dropout probability",
     )
+    head_dropout: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-label-source output head dropout (falls back to dropout)",
+    )
+
+    @field_validator("head_dropout")
+    @classmethod
+    def validate_head_dropout(cls, v: dict[str, float]) -> dict[str, float]:
+        """Ensure per-head dropout probabilities are in [0, 1)."""
+        for source, p in v.items():
+            if not 0.0 <= p < 1.0:
+                raise ValueError(
+                    f"head_dropout for '{source}' must be in [0, 1), got {p}"
+                )
+        return v
 
     @property
     def is_multi_label(self) -> bool:
@@ -682,6 +749,24 @@ class ExperimentConfig(BaseModel):
         """Whether using multi-head architecture."""
         return self.multi_head_model is not None
 
+    @property
+    def parameter_names(self) -> list[str]:
+        """Names of the predicted parameters, in model output order.
+
+        Uses ``data.parameter_names`` when set (populated from the catalogue),
+        otherwise the first n ``STELLAR_PARAMETERS``.
+        """
+        if self.data.parameter_names is not None:
+            return list(self.data.parameter_names)
+        if self.multi_head_model is not None:
+            n_params = self.multi_head_model.n_parameters
+        else:
+            n_params = self.model.n_parameters
+        names = list(STELLAR_PARAMETERS[:n_params])
+        # Generic names for any outputs beyond the standard list
+        names += [f"param_{i}" for i in range(len(names), n_params)]
+        return names
+
     @model_validator(mode="after")
     def validate_model_config(self) -> ExperimentConfig:
         """Ensure model configuration is consistent with data configuration."""
@@ -712,6 +797,32 @@ class ExperimentConfig(BaseModel):
                 "Cannot specify both 'model' and 'multi_head_model'. "
                 "Use 'model' for single-survey or 'multi_head_model' for multi-survey."
             )
+
+        # Keep the model's output size in sync with the catalogue's parameters
+        if self.data.parameter_names is not None:
+            n_params = len(self.data.parameter_names)
+            if self.multi_head_model is not None:
+                mh = self.multi_head_model
+                if (
+                    "n_parameters" in mh.model_fields_set
+                    and mh.n_parameters != n_params
+                ):
+                    raise ValueError(
+                        f"multi_head_model.n_parameters={mh.n_parameters} does not "
+                        f"match {n_params} data.parameter_names"
+                    )
+                mh.n_parameters = n_params
+            else:
+                model = self.model
+                if (
+                    "output_features" in model.model_fields_set
+                    and model.output_features != 2 * n_params
+                ):
+                    raise ValueError(
+                        f"model.output_features={model.output_features} does not "
+                        f"match 2 x {n_params} data.parameter_names"
+                    )
+                model.output_features = 2 * n_params
 
         return self
 
@@ -760,6 +871,53 @@ class ExperimentConfig(BaseModel):
 
         with open(path, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def load_checkpoint_config(cls, path: str | Path) -> ExperimentConfig:
+        """Load the ``config.yaml`` saved alongside a trained checkpoint.
+
+        Unlike :meth:`load_yaml`, this accepts the Python-specific tags (e.g.
+        tuples) written by :meth:`save_yaml`, and fills in defaults that keep
+        older checkpoints reproducible. Checkpoints saved before
+        ``data.normalize_spectra`` existed were trained on un-normalized
+        catalogue spectra, so the flag defaults to False for them -- except
+        configs from the ``dorothy_update`` branch, recognizable by their
+        ``multi_head_model.head_dropout`` entry, whose sparse and single-survey
+        loaders already normalized spectra. A warning is issued either way.
+
+        Args:
+            path: Path to the checkpoint's ``config.yaml``.
+
+        Returns:
+            ExperimentConfig instance.
+        """
+        import yaml
+
+        with open(path) as f:
+            data = yaml.full_load(f)
+
+        data_section = data.setdefault("data", {})
+        if "normalize_spectra" not in data_section:
+            mh_section = data.get("multi_head_model") or {}
+            normalized = "head_dropout" in mh_section and not data_section.get(
+                "use_dense_loading", False
+            )
+            data_section["normalize_spectra"] = normalized
+            import warnings
+
+            warnings.warn(
+                f"Checkpoint config {path} predates data.normalize_spectra; "
+                f"assuming normalize_spectra={normalized}. Add it to the "
+                "config's data section if this is wrong.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if "catalogue_path" in data_section:
+            data_section["catalogue_path"] = Path(data_section["catalogue_path"])
+        if "output_dir" in data:
+            data["output_dir"] = Path(data["output_dir"])
+
+        return cls(**data)
 
     @classmethod
     def load_yaml(cls, path: str | Path) -> ExperimentConfig:

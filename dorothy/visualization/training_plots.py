@@ -14,24 +14,24 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from dorothy.config.schema import STELLAR_PARAMETERS, parameter_display_name
+
 if TYPE_CHECKING:
     from dorothy.training.trainer import TrainingHistory
 
 
-# Standard parameter names for labeling
-PARAM_DISPLAY_NAMES = [
-    r"$T_{\rm eff}$",
-    r"$\log g$",
-    "[Fe/H]",
-    "[Mg/Fe]",
-    "[C/Fe]",
-    "[Si/Fe]",
-    "[Ni/Fe]",
-    "[Al/Fe]",
-    "[Ca/Fe]",
-    "[N/Fe]",
-    "[Mn/Fe]",
-]
+# Display names for the standard 11 parameters
+PARAM_DISPLAY_NAMES = [parameter_display_name(p) for p in STELLAR_PARAMETERS]
+
+
+def _param_display_names(history: "TrainingHistory", n_params: int) -> list[str]:
+    """Plot labels for the first n_params parameters of a training run."""
+    names = list(getattr(history, "parameter_names", None) or [])
+    if len(names) < n_params:
+        names = (list(STELLAR_PARAMETERS) + [f"param_{i}" for i in range(n_params)])[
+            :n_params
+        ]
+    return [parameter_display_name(n) for n in names[:n_params]]
 
 
 def _simplify_layer_name(name: str) -> str:
@@ -220,7 +220,7 @@ def plot_loss_components(
 
     # Use subset of params for readability
     n_show = min(n_params, 6)
-    param_names = PARAM_DISPLAY_NAMES[:n_show]
+    param_names = _param_display_names(history, n_show)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
@@ -510,7 +510,7 @@ def plot_val_metrics(
     if n_params == 0:
         return None
 
-    param_names = PARAM_DISPLAY_NAMES[:n_params]
+    param_names = _param_display_names(history, n_params)
     x = np.arange(n_params)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -635,7 +635,7 @@ def plot_zscore_calibration(
     zscore_std = z_scatter_list[-1]
 
     n_params = len(zscore_mean)
-    param_names = PARAM_DISPLAY_NAMES[:n_params]
+    param_names = _param_display_names(history, n_params)
     x = np.arange(n_params)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -722,7 +722,7 @@ def plot_metrics_evolution(
         return None
 
     n_show = min(3, n_params)
-    param_names = PARAM_DISPLAY_NAMES[:n_show]
+    param_names = _param_display_names(history, n_show)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
@@ -903,7 +903,7 @@ def plot_per_survey_metrics(
 
     # Show up to 6 parameters for readability
     n_show = min(n_params, 6)
-    param_names = PARAM_DISPLAY_NAMES[:n_show]
+    param_names = _param_display_names(history, n_show)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     x = np.arange(n_show)
@@ -1057,7 +1057,7 @@ def plot_per_survey_metrics_evolution(
 
     # Show up to 3 key parameters
     n_show = min(3, n_params)
-    param_names = PARAM_DISPLAY_NAMES[:n_show]
+    param_names = _param_display_names(history, n_show)
 
     fig, axes = plt.subplots(1, n_show, figsize=(5 * n_show, 4))
     if n_show == 1:
@@ -1239,7 +1239,7 @@ def plot_per_labelset_metrics(
 
     # Show up to 6 parameters for readability
     n_show = min(n_params, 6)
-    param_names = PARAM_DISPLAY_NAMES[:n_show]
+    param_names = _param_display_names(history, n_show)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     x = np.arange(n_show)
@@ -1393,7 +1393,7 @@ def plot_per_labelset_metrics_evolution(
 
     # Show up to 3 key parameters
     n_show = min(3, n_params)
-    param_names = PARAM_DISPLAY_NAMES[:n_show]
+    param_names = _param_display_names(history, n_show)
 
     fig, axes = plt.subplots(1, n_show, figsize=(5 * n_show, 4))
     if n_show == 1:

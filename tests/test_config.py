@@ -377,3 +377,101 @@ class TestStellarParameters:
             "mn_fe",
         }
         assert set(STELLAR_PARAMETERS) == expected
+
+
+class TestParameterNamesConfig:
+    """Catalogue-driven parameter names and related config fields."""
+
+    def _data(self, **kw):
+        return {"catalogue_path": "cat.h5", **kw}
+
+    def test_default_parameter_names(self):
+        config = ExperimentConfig(name="t", data=self._data())
+        assert config.parameter_names == STELLAR_PARAMETERS
+        assert config.data.normalize_spectra is True
+
+    def test_parameter_names_sync_multi_head(self):
+        names = ["teff", "logg", "fe_h", "mg_h"]
+        config = ExperimentConfig(
+            name="t",
+            data=self._data(surveys=["boss", "desi"], parameter_names=names),
+            multi_head_model={"survey_wavelengths": {"boss": 10, "desi": 20}},
+        )
+        assert config.multi_head_model.n_parameters == 4
+        assert config.parameter_names == names
+
+    def test_parameter_names_sync_mlp(self):
+        config = ExperimentConfig(
+            name="t", data=self._data(parameter_names=["teff", "logg", "fe_h"])
+        )
+        assert config.model.output_features == 6
+
+    def test_parameter_names_conflict_raises(self):
+        with pytest.raises(ValueError, match="does not match"):
+            ExperimentConfig(
+                name="t",
+                data=self._data(surveys=["boss", "desi"], parameter_names=["teff"]),
+                multi_head_model={
+                    "survey_wavelengths": {"boss": 10, "desi": 20},
+                    "n_parameters": 11,
+                },
+            )
+
+    def test_duplicate_parameter_names_raise(self):
+        with pytest.raises(ValueError, match="duplicates"):
+            DataConfig(catalogue_path="cat.h5", parameter_names=["teff", "teff"])
+
+    def test_head_dropout_optional_and_validated(self):
+        from dorothy.config.schema import MultiHeadModelConfig
+
+        cfg = MultiHeadModelConfig(survey_wavelengths={"boss": 10})
+        assert cfg.head_dropout == {}
+        cfg = MultiHeadModelConfig(
+            survey_wavelengths={"boss": 10}, head_dropout={"galah": 0.2}
+        )
+        assert cfg.head_dropout == {"galah": 0.2}
+        with pytest.raises(ValueError):
+            MultiHeadModelConfig(
+                survey_wavelengths={"boss": 10}, head_dropout={"galah": 1.5}
+            )
+
+    def test_display_names(self):
+        from dorothy.config.schema import parameter_display_name
+
+        assert parameter_display_name("fe_h") == "[Fe/H]"
+        assert parameter_display_name("mg_fe") == "[Mg/Fe]"
+        assert parameter_display_name("sr_h") == "[Sr/H]"
+        assert parameter_display_name("custom") == "custom"
+
+    def test_checkpoint_config_defaults_normalization_off(self, tmp_path):
+        config = ExperimentConfig(name="t", data=self._data())
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        assert ExperimentConfig.load_checkpoint_config(path).data.normalize_spectra
+
+        import yaml
+
+        raw = yaml.full_load(path.read_text())
+        del raw["data"]["normalize_spectra"]
+        path.write_text(yaml.dump(raw))
+        with pytest.warns(UserWarning, match="predates"):
+            legacy = ExperimentConfig.load_checkpoint_config(path)
+        assert legacy.data.normalize_spectra is False
+
+    def test_checkpoint_config_from_update_branch_assumes_normalized(self, tmp_path):
+        import yaml
+
+        config = ExperimentConfig(
+            name="t",
+            data=self._data(surveys=["boss", "desi"]),
+            multi_head_model={"survey_wavelengths": {"boss": 10, "desi": 20}},
+        )
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        del raw["data"]["normalize_spectra"]
+        raw["multi_head_model"]["head_dropout"] = {"galah": 0.0}
+        path.write_text(yaml.dump(raw))
+        with pytest.warns(UserWarning, match="normalize_spectra=True"):
+            loaded = ExperimentConfig.load_checkpoint_config(path)
+        assert loaded.data.normalize_spectra is True

@@ -311,6 +311,24 @@ def cmd_train(args: argparse.Namespace) -> int:
         if len(label_sources) > 1:
             config_dict["multi_head_model"]["label_sources"] = label_sources
 
+    # Auto-populate parameter names from the catalogue (authoritative source)
+    catalogue_path = data_config.get("catalogue_path")
+    if catalogue_path is not None and Path(catalogue_path).exists():
+        try:
+            catalogue_params = CatalogueLoader(catalogue_path).get_parameter_names()
+        except Exception as e:
+            print(f"Error: Could not read parameter names from catalogue: {e}")
+            return 1
+        user_params = data_config.get("parameter_names")
+        if user_params is not None and list(user_params) != catalogue_params:
+            print(
+                f"Error: data.parameter_names {user_params} does not match the "
+                f"catalogue's parameters {catalogue_params}"
+            )
+            return 1
+        config_dict.setdefault("data", {})["parameter_names"] = catalogue_params
+        print(f"  Parameters ({len(catalogue_params)}): {', '.join(catalogue_params)}")
+
     # Create config object
     try:
         config = ExperimentConfig(**config_dict)
@@ -359,6 +377,7 @@ def cmd_train(args: argparse.Namespace) -> int:
                     surveys=config.data.surveys,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                     label_sources=sources_to_load,
                 )
             )
@@ -497,6 +516,7 @@ def cmd_train(args: argparse.Namespace) -> int:
                     surveys=config.data.surveys,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                     label_sources=sources_to_load,
                 )
             else:
@@ -508,6 +528,7 @@ def cmd_train(args: argparse.Namespace) -> int:
                         else config.data.label_sources[0]
                     ),
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                 )
             _print_memory("After load_merged_sparse (SPARSE)")
 
@@ -682,6 +703,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         X, y = loader.load_for_training(
             survey=survey,
             max_flag_bits=config.data.max_flag_bits,
+            normalize_spectra=config.data.normalize_spectra,
         )
 
         print(f"  Survey: {survey}")
@@ -954,6 +976,7 @@ def _recreate_data_split(config, loader):
                     surveys=config.data.surveys,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                     label_sources=sources_to_load,
                 )
             )
@@ -1016,6 +1039,7 @@ def _recreate_data_split(config, loader):
                     surveys=config.data.surveys,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                     label_sources=sources_to_load,
                 )
             else:
@@ -1027,6 +1051,7 @@ def _recreate_data_split(config, loader):
                         else config.data.label_sources[0]
                     ),
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                 )
 
             # Handle duplicate_labels
@@ -1087,6 +1112,7 @@ def _recreate_data_split(config, loader):
         X, y = loader.load_for_training(
             survey=survey,
             max_flag_bits=config.data.max_flag_bits,
+            normalize_spectra=config.data.normalize_spectra,
         )
 
         # Filter to valid samples
@@ -1115,7 +1141,6 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     import numpy as np
     import torch
-    import yaml
 
     from dorothy.config.schema import ExperimentConfig
     from dorothy.data import CatalogueLoader
@@ -1133,17 +1158,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         print(f"Error: Config file not found: {config_file}")
         return 1
 
-    with open(config_file) as f:
-        # Use full_load to handle Python tuples in saved config
-        config_dict = yaml.full_load(f)
-
-    # Handle Path conversion
-    if "data" in config_dict and "catalogue_path" in config_dict["data"]:
-        config_dict["data"]["catalogue_path"] = Path(
-            config_dict["data"]["catalogue_path"]
-        )
-
-    config = ExperimentConfig(**config_dict)
+    config = ExperimentConfig.load_checkpoint_config(config_file)
     print(f"  Experiment: {config.name}")
     print(f"  Surveys: {config.data.surveys}")
     print(f"  Label sources: {config.data.label_sources}")
@@ -1178,6 +1193,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                     surveys=config.data.surveys,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                     label_sources=sources_to_load,
                 )
             else:
@@ -1189,6 +1205,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                         else config.data.label_sources[0]
                     ),
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                 )
 
             # Handle duplicate_labels
@@ -1218,6 +1235,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                     surveys=config.data.surveys,
                     label_source=sources_to_load[0],
                     max_flag_bits=config.data.max_flag_bits,
+                    normalize_spectra=config.data.normalize_spectra,
                     label_sources=sources_to_load,
                 )
             )
@@ -1255,6 +1273,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             X, y = loader.load_for_training(
                 survey=survey,
                 max_flag_bits=config.data.max_flag_bits,
+                normalize_spectra=config.data.normalize_spectra,
             )
 
             # Filter to valid samples
@@ -1314,19 +1333,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         from dorothy.models import MultiHeadMLP
 
         # Create multi-head model from config and load state dict
-        model = MultiHeadMLP(
-            survey_configs=config.multi_head_model.survey_wavelengths,
-            n_parameters=config.multi_head_model.n_parameters,
-            latent_dim=config.multi_head_model.latent_dim,
-            encoder_hidden=list(config.multi_head_model.encoder_hidden),
-            trunk_hidden=list(config.multi_head_model.trunk_hidden),
-            output_hidden=list(config.multi_head_model.output_hidden),
-            combination_mode=config.multi_head_model.combination_mode.value,
-            normalization=config.multi_head_model.normalization.value,
-            activation=config.multi_head_model.activation.value,
-            dropout=config.multi_head_model.dropout,
-            label_sources=config.multi_head_model.label_sources,
-        )
+        model = MultiHeadMLP.from_config(config.multi_head_model)
         model.load_state_dict(state_dict)
     else:
         from dorothy.models import MLP

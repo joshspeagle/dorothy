@@ -27,6 +27,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from dorothy.config.schema import STELLAR_PARAMETERS
+
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
     from numpy.typing import NDArray
@@ -34,20 +36,15 @@ if TYPE_CHECKING:
     from dorothy.data.normalizer import LabelNormalizer
 
 
-# Default parameter names (same as catalogue_loader)
-DEFAULT_PARAMETER_NAMES = [
-    "teff",
-    "logg",
-    "fe_h",
-    "mg_fe",
-    "c_fe",
-    "si_fe",
-    "ni_fe",
-    "al_fe",
-    "ca_fe",
-    "n_fe",
-    "mn_fe",
-]
+# Default parameter names (the standard 11; prefer passing the model's names)
+DEFAULT_PARAMETER_NAMES = list(STELLAR_PARAMETERS)
+
+
+def _default_parameter_names(model: nn.Module) -> list[str]:
+    """Standard parameter names sized to the model's number of outputs."""
+    n_params = getattr(model, "n_parameters", len(DEFAULT_PARAMETER_NAMES))
+    names = DEFAULT_PARAMETER_NAMES[:n_params]
+    return names + [f"param_{i}" for i in range(len(names), n_params)]
 
 
 @dataclass
@@ -243,11 +240,11 @@ class SaliencyAnalyzer:
             device: Device for computation ("auto", "cuda", "cpu").
             scatter_floor: Floor for uncertainty computation (default 0.01).
             parameter_names: Names for the stellar parameters.
-                Default: standard 11 APOGEE parameters.
+                Default: standard names, sized to the model's outputs.
         """
         self.model = model
         self.scatter_floor = scatter_floor
-        self.parameter_names = parameter_names or DEFAULT_PARAMETER_NAMES.copy()
+        self.parameter_names = parameter_names or _default_parameter_names(model)
 
         # Resolve device
         if device == "auto":
@@ -533,7 +530,7 @@ class AblationSaliencyAnalyzer:
         """
         self.model = model
         self.scatter_floor = scatter_floor
-        self.parameter_names = parameter_names or DEFAULT_PARAMETER_NAMES.copy()
+        self.parameter_names = parameter_names or _default_parameter_names(model)
         self.batch_size = batch_size
 
         # Resolve device

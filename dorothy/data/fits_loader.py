@@ -192,13 +192,91 @@ class SpectralData:
         return np.concatenate([labels, errors], axis=1).astype(np.float32)
 
 
+# torch.nanquantile rejects inputs above 2**24 elements in some torch versions
+_MAX_QUANTILE_ELEMENTS = 2**24
+
+
+def normalize_spectra(
+    flux: NDArray,
+    ivar: NDArray,
+    chunk_size: int = 4096,
+    inplace: bool = False,
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """
+    Per-spectrum median/IQR normalization over valid pixels.
+
+    For each spectrum (row):
+        normalized_flux = (flux - median) / IQR
+        scaled_ivar = IQR^2 * ivar
+    where the median and IQR are computed over valid pixels only (finite flux,
+    finite and positive ivar). Invalid pixels are returned with flux = 0 and
+    ivar = 0, so downstream code that derives the pixel mask from ivar > 0
+    treats them as masked. Spectra with no valid pixels, or zero IQR, use
+    median = 0 / IQR = 1.
+
+    Args:
+        flux: Flux array of shape (n_spectra, n_wavelengths) or (n_wavelengths,).
+        ivar: Inverse variance array with the same shape as flux.
+        chunk_size: Number of spectra processed at once (bounds peak memory).
+        inplace: Write the results into ``flux`` and ``ivar`` (must be float32
+            arrays) instead of allocating new ones.
+
+    Returns:
+        Tuple of (normalized_flux, scaled_ivar), float32, same shape as input.
+    """
+    flux = np.asarray(flux)
+    ivar = np.asarray(ivar)
+    if flux.shape != ivar.shape:
+        raise ValueError(f"flux shape {flux.shape} != ivar shape {ivar.shape}")
+    squeeze = flux.ndim == 1
+    flux_2d = flux.reshape(1, -1) if squeeze else flux
+    ivar_2d = ivar.reshape(1, -1) if squeeze else ivar
+
+    if inplace:
+        if flux_2d.dtype != np.float32 or ivar_2d.dtype != np.float32:
+            raise ValueError("inplace normalization requires float32 arrays")
+        out_flux, out_ivar = flux_2d, ivar_2d
+    else:
+        out_flux = np.empty(flux_2d.shape, dtype=np.float32)
+        out_ivar = np.empty(ivar_2d.shape, dtype=np.float32)
+
+    # Torch is used for speed: its nan-quantiles and elementwise ops are
+    # vectorized and multithreaded (numpy's nan-quantiles loop over rows).
+    import torch
+
+    quantiles = torch.tensor([0.25, 0.5, 0.75])
+    nan = torch.tensor(float("nan"))
+    zero = torch.tensor(0.0)
+    n_cols = max(flux_2d.shape[1], 1)
+    rows_per_chunk = max(1, min(chunk_size, _MAX_QUANTILE_ELEMENTS // n_cols))
+    for start in range(0, flux_2d.shape[0], rows_per_chunk):
+        sl = slice(start, start + rows_per_chunk)
+        f = torch.from_numpy(np.ascontiguousarray(flux_2d[sl], dtype=np.float32))
+        iv = torch.from_numpy(np.ascontiguousarray(ivar_2d[sl], dtype=np.float32))
+        valid = torch.isfinite(f) & torch.isfinite(iv) & (iv > 0)
+        q25, med, q75 = torch.nanquantile(
+            torch.where(valid, f, nan), quantiles, dim=1, keepdim=True
+        )
+        iqr = q75 - q25
+        iqr = torch.where(torch.isfinite(iqr) & (iqr > 0), iqr, torch.ones_like(iqr))
+        med = torch.nan_to_num(med, nan=0.0)
+        # Compute both outputs before writing (inplace may alias f / iv)
+        new_flux = torch.where(valid, (f - med) / iqr, zero)
+        new_ivar = torch.where(valid, iv * iqr**2, zero)
+        out_flux[sl] = new_flux.numpy()
+        out_ivar[sl] = new_ivar.numpy()
+
+    if squeeze:
+        return out_flux.reshape(-1), out_ivar.reshape(-1)
+    return out_flux, out_ivar
+
+
 def normalize_spectrum(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
     """
     Normalize a single spectrum using median/IQR scaling.
 
-    This applies per-star normalization:
-        normalized_flux = (flux - median) / IQR
-        scaled_ivar = IQR^2 * ivar
+    Thin wrapper around :func:`normalize_spectra` for one spectrum; statistics
+    use valid pixels only and invalid pixels are zeroed (flux and ivar).
 
     Args:
         flux: Flux array of shape (n_wavelengths,).
@@ -207,22 +285,7 @@ def normalize_spectrum(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
     Returns:
         Tuple of (normalized_flux, scaled_ivar).
     """
-    # Handle NaN/Inf in ivar
-    ivar = np.where(np.isfinite(ivar), ivar, 0.0)
-
-    # Compute normalization parameters
-    median = np.median(flux)
-    q25, q75 = np.percentile(flux, [25, 75])
-    iqr = q75 - q25
-
-    # Avoid division by zero
-    if iqr <= 0:
-        iqr = 1.0
-
-    normalized_flux = (flux - median) / iqr
-    scaled_ivar = iqr**2 * ivar
-
-    return normalized_flux, scaled_ivar
+    return normalize_spectra(flux, ivar)
 
 
 def ivar_to_error_and_mask(

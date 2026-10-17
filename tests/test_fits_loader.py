@@ -22,9 +22,73 @@ from dorothy.data.fits_loader import (
     SpectralData,
     apply_quality_filter,
     ivar_to_error_and_mask,
+    normalize_spectra,
     normalize_spectrum,
     split_data,
 )
+
+
+class TestNormalizeSpectra:
+    """Tests for batched per-spectrum normalization."""
+
+    def test_rows_normalized_independently(self):
+        rng = np.random.default_rng(0)
+        flux = rng.normal(size=(5, 200)) * np.arange(1, 6)[:, None] + 10.0
+        ivar = np.ones_like(flux)
+        norm, scaled = normalize_spectra(flux, ivar)
+        assert norm.dtype == np.float32 and scaled.dtype == np.float32
+        np.testing.assert_allclose(np.median(norm, axis=1), 0.0, atol=1e-5)
+        q25, q75 = np.percentile(norm, [25, 75], axis=1)
+        np.testing.assert_allclose(q75 - q25, 1.0, rtol=1e-4)
+
+    def test_invalid_pixels_excluded_and_zeroed(self):
+        rng = np.random.default_rng(1)
+        flux = rng.normal(size=(1, 100)) + 5.0
+        ivar = np.ones_like(flux)
+        flux_bad = flux.copy()
+        ivar_bad = ivar.copy()
+        flux_bad[0, :10] = np.nan  # non-finite flux
+        flux_bad[0, 10:20] = 1e6  # huge flux but ivar = 0
+        ivar_bad[0, 10:20] = 0.0
+        norm, scaled = normalize_spectra(flux_bad, ivar_bad)
+        assert np.all(np.isfinite(norm))
+        assert np.all(norm[0, :20] == 0) and np.all(scaled[0, :20] == 0)
+        # Statistics come from the 80 valid pixels only
+        ref, _ = normalize_spectra(flux[:, 20:], ivar[:, 20:])
+        np.testing.assert_allclose(norm[0, 20:], ref[0], rtol=1e-5)
+
+    def test_ivar_scaled_consistently(self):
+        flux = np.array([[0.0, 1.0, 2.0, 3.0, 4.0]])
+        ivar = np.full_like(flux, 4.0)
+        norm, scaled = normalize_spectra(flux, ivar)
+        # IQR = 2 -> sigma scales by 1/2, ivar by 4
+        np.testing.assert_allclose(scaled, 16.0)
+        np.testing.assert_allclose(norm, (flux - 2.0) / 2.0)
+
+    def test_all_invalid_row(self):
+        flux = np.ones((2, 10))
+        ivar = np.ones((2, 10))
+        ivar[1] = 0.0
+        norm, scaled = normalize_spectra(flux, ivar)
+        assert np.all(norm[1] == 0) and np.all(scaled[1] == 0)
+
+    def test_chunking_and_inplace_match(self):
+        rng = np.random.default_rng(2)
+        flux = rng.normal(size=(37, 50)).astype(np.float32)
+        ivar = rng.uniform(0, 2, size=(37, 50)).astype(np.float32)
+        ref = normalize_spectra(flux, ivar)
+        chunked = normalize_spectra(flux, ivar, chunk_size=5)
+        f2, i2 = flux.copy(), ivar.copy()
+        out = normalize_spectra(f2, i2, inplace=True)
+        for a, b in [(ref, chunked), (ref, out)]:
+            np.testing.assert_array_equal(a[0], b[0])
+            np.testing.assert_array_equal(a[1], b[1])
+        assert out[0] is f2 or np.shares_memory(out[0], f2)
+
+    def test_one_dimensional_input(self):
+        flux = np.linspace(0, 1, 20)
+        norm, scaled = normalize_spectra(flux, np.ones(20))
+        assert norm.shape == (20,) and scaled.shape == (20,)
 
 
 class TestNormalizeSpectrum:
@@ -38,7 +102,7 @@ class TestNormalizeSpectrum:
         norm_flux, _ = normalize_spectrum(flux, ivar)
 
         # Median should be close to zero
-        assert abs(np.median(norm_flux)) < 1e-10
+        assert abs(np.median(norm_flux)) < 1e-6
 
     def test_normalization_unit_iqr(self):
         """Test that normalized flux has IQR close to 1."""
