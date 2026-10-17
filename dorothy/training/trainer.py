@@ -1011,36 +1011,45 @@ class Trainer:
             for name in EVALUATOR_METRIC_NAMES
         }
 
-    def _evaluate_head(
-        self,
-        output: torch.Tensor,
-        target: torch.Tensor,
-        has_data: dict[str, torch.Tensor] | None = None,
-    ) -> tuple[dict[str, np.ndarray], dict[str, float], dict[str, dict]]:
-        """Evaluator metrics overall and (optionally) per survey for one head."""
-        kwargs = {
-            "y_pred": output[:, 0, :].numpy(),
-            "y_true": target[:, 0, :].numpy(),
-            "pred_scatter": self._predicted_scatter(output),
-            "label_errors": target[:, 1, :].numpy(),
-            "mask": target[:, 2, :].numpy(),
+    def _head_inputs(
+        self, output: torch.Tensor, target: torch.Tensor
+    ) -> dict[str, np.ndarray | None]:
+        """Evaluator inputs for one head, as column-major arrays.
+
+        The Evaluator selects each parameter's valid entries column by
+        column, which is much faster on column-major copies. The values (and
+        their order) are unchanged.
+        """
+        scatter = self._predicted_scatter(output)
+        return {
+            "y_pred": np.asfortranarray(output[:, 0, :].numpy()),
+            "y_true": np.asfortranarray(target[:, 0, :].numpy()),
+            "pred_scatter": None if scatter is None else np.asfortranarray(scatter),
+            "label_errors": np.asfortranarray(target[:, 1, :].numpy()),
+            "mask": np.asfortranarray(target[:, 2, :].numpy()),
         }
-        metrics = self._metric_arrays(self._evaluator.evaluate(**kwargs))
-        survey_losses, survey_metrics = {}, {}
-        if has_data:
-            by_survey = self._evaluator.evaluate_by_survey(
-                **kwargs, has_data={s: h.numpy() for s, h in has_data.items()}
-            )
-            for survey, mask in has_data.items():
-                survey_losses[survey] = (
-                    self.loss_fn(output[mask], target[mask]).item()
-                    if mask.any()
-                    else float("nan")
-                )
-                survey_metrics[survey] = self._metric_arrays(
-                    by_survey.by_survey[survey]
-                )
-        return metrics, survey_losses, survey_metrics
+
+    def _head_metrics(
+        self,
+        inputs: dict[str, np.ndarray | None],
+        rows: np.ndarray | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Evaluator metrics for one head, optionally on a subset of rows.
+
+        A subset without rows gives NaN metrics, as
+        ``Evaluator.evaluate_by_survey`` does for a survey without samples.
+        """
+        if rows is not None:
+            if not rows.any():
+                return {
+                    name: np.full(len(self.parameter_names), np.nan, dtype=np.float32)
+                    for name in EVALUATOR_METRIC_NAMES
+                }
+            inputs = {
+                k: None if v is None else np.asfortranarray(v[rows])
+                for k, v in inputs.items()
+            }
+        return self._metric_arrays(self._evaluator.evaluate(**inputs))
 
     def _evaluate(self, source: TensorBatchSource | SparseBatchSource) -> dict:
         """Run validation over a batch source and compute all metrics.
@@ -1070,15 +1079,36 @@ class Trainer:
         outputs = {k: torch.cat(v) for k, v in outputs.items()}
         targets = {k: torch.cat(v) for k, v in targets.items()}
         has_data_all = {s: torch.cat(v) for s, v in has_data.items()}
+        return self._validation_results(outputs, targets, has_data_all)
 
+    def _validation_results(
+        self,
+        outputs: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        has_data: dict[str, torch.Tensor],
+    ) -> dict:
+        """Losses and Evaluator metrics from concatenated validation outputs.
+
+        Each (head, row subset) is evaluated once: the primary head's overall
+        metrics also serve as its per-labelset metrics, and per-survey metrics
+        evaluate only that survey's rows.
+        """
+        keys = self.label_keys
         primary = keys[0]
         details = self.loss_fn.forward_detailed(outputs[primary], targets[primary])
-        multi_survey = isinstance(self.model, MultiHeadMLP)
-        metrics, survey_losses, survey_metrics = self._evaluate_head(
-            outputs[primary],
-            targets[primary],
-            has_data_all if multi_survey else None,
-        )
+        inputs = self._head_inputs(outputs[primary], targets[primary])
+        metrics = self._head_metrics(inputs)
+
+        survey_losses, survey_metrics = {}, {}
+        if isinstance(self.model, MultiHeadMLP):
+            output, target = outputs[primary], targets[primary]
+            for survey, mask in has_data.items():
+                survey_losses[survey] = (
+                    self.loss_fn(output[mask], target[mask]).item()
+                    if mask.any()
+                    else float("nan")
+                )
+                survey_metrics[survey] = self._head_metrics(inputs, mask.numpy())
 
         labelset_losses, labelset_metrics = {}, {}
         if len(keys) > 1:
@@ -1089,7 +1119,11 @@ class Trainer:
                     if has_labels
                     else float("nan")
                 )
-                labelset_metrics[k], _, _ = self._evaluate_head(outputs[k], targets[k])
+                labelset_metrics[k] = (
+                    {name: arr.copy() for name, arr in metrics.items()}
+                    if k == primary
+                    else self._head_metrics(self._head_inputs(outputs[k], targets[k]))
+                )
 
         return {
             "loss": self._combine_losses(outputs, targets).item(),
