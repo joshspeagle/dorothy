@@ -501,3 +501,59 @@ class TestEdgeCases:
             # Should not crash when best_epoch is None
             result = plot_loss_curves(history, tmp_path)
             assert result is not None
+
+
+class TestEvaluationPlots:
+    """Tests for test-set evaluation plots (any number of parameters)."""
+
+    @staticmethod
+    def _arrays(n_params, n=200, seed=0):
+        rng = np.random.default_rng(seed)
+        true = rng.normal(size=(n, n_params))
+        true[:, 0] = rng.uniform(4000, 6000, n)
+        unc = np.abs(rng.normal(0.1, 0.02, size=(n, n_params)))
+        preds = true + rng.normal(size=(n, n_params)) * unc
+        err = np.full((n, n_params), 0.05)
+        mask = np.ones((n, n_params))
+        mask[:, -1] = 0  # parameter with no valid labels
+        mask[:10, 1] = 0
+        return preds, true, unc, err, mask
+
+    @pytest.mark.parametrize("n_params", [3, 11, 20])
+    def test_generate_all_plots(self, tmp_path, n_params):
+        from dorothy.visualization import generate_evaluation_plots
+
+        names = ["teff", "logg", "fe_h"] + [f"x{i}_h" for i in range(n_params - 3)]
+        preds, true, unc, err, mask = self._arrays(n_params)
+        paths = generate_evaluation_plots(
+            tmp_path, preds, true, unc, err, mask, names, label_source="galah"
+        )
+        assert len(paths) == 4
+        for p in paths:
+            assert p.exists() and p.name.startswith("galah_")
+
+    def test_custom_ranges_and_nan_tolerance(self, tmp_path):
+        from dorothy.visualization import plot_pred_vs_truth, plot_zscore_histograms
+
+        preds, true, unc, err, mask = self._arrays(3)
+        preds[0, 2] = np.nan
+        path = plot_pred_vs_truth(
+            tmp_path,
+            preds,
+            true,
+            unc,
+            mask,
+            ["teff", "logg", "fe_h"],
+            ranges={"teff": (3500, 6500)},
+        )
+        assert path.exists()
+        assert plot_zscore_histograms(
+            tmp_path, preds, true, unc, None, mask, ["teff", "logg", "fe_h"]
+        ).exists()
+
+    def test_shape_mismatch_raises(self, tmp_path):
+        from dorothy.visualization import plot_histograms
+
+        preds, true, _, _, mask = self._arrays(3)
+        with pytest.raises(ValueError, match="same shape"):
+            plot_histograms(tmp_path, preds, true[:, :2], mask, ["a", "b", "c"])
