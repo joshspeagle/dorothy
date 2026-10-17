@@ -1274,7 +1274,7 @@ class Trainer:
             if val_loss < self.history.best_val_loss:
                 self.history.best_val_loss = val_loss
                 self.history.best_epoch = epoch
-                self._best_weights = copy.deepcopy(self.model.state_dict())
+                self._store_best_weights()
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -1393,18 +1393,39 @@ class Trainer:
 
         return grad_norm
 
+    def _store_best_weights(self) -> None:
+        """Copy the current weights into the best-weights state dict.
+
+        Copies in place into the state dict made at the start of training,
+        instead of deep-copying a new one on every improvement.
+        """
+        with torch.no_grad():
+            for name, tensor in self.model.state_dict().items():
+                self._best_weights[name].copy_(tensor)
+
+    def _weight_matrices(self) -> dict[str, torch.Tensor]:
+        """Weight matrices tracked for grokking detection (not biases/1D)."""
+        return {
+            name: param.detach()
+            for name, param in self.model.named_parameters()
+            if "weight" in name and param.dim() >= 2
+        }
+
+    @staticmethod
+    def _norms(tensors: dict[str, torch.Tensor]) -> dict[str, float]:
+        """L2 norm of each tensor, read back in one host transfer."""
+        if not tensors:
+            return {}
+        norms = torch.stack([torch.norm(t) for t in tensors.values()]).tolist()
+        return dict(zip(tensors, norms, strict=True))
+
     def _compute_weight_norms(self) -> dict[str, float]:
         """Compute L2 norms of weight matrices for each layer.
 
         Returns:
             Dictionary mapping layer names to their L2 norms.
         """
-        norms = {}
-        for name, param in self.model.named_parameters():
-            if "weight" in name and param.dim() >= 2:
-                # Only track weight matrices (not biases or 1D params)
-                norms[name] = torch.norm(param).item()
-        return norms
+        return self._norms(self._weight_matrices())
 
     def _get_weight_snapshot(self) -> dict[str, torch.Tensor]:
         """Get a copy of current weight matrices.
@@ -1412,29 +1433,30 @@ class Trainer:
         Returns:
             Dictionary mapping layer names to detached weight tensors.
         """
-        snapshot = {}
-        for name, param in self.model.named_parameters():
-            if "weight" in name and param.dim() >= 2:
-                snapshot[name] = param.detach().clone()
-        return snapshot
+        return {name: w.clone() for name, w in self._weight_matrices().items()}
 
     def _compute_weight_updates(
         self, prev_weights: dict[str, torch.Tensor]
     ) -> dict[str, float]:
         """Compute magnitude of weight updates since last snapshot.
 
+        The snapshot is overwritten with W_old - W_new (whose norm equals
+        ||W_new - W_old|| exactly) to avoid allocating the differences.
+
         Args:
-            prev_weights: Previous weight snapshot from _get_weight_snapshot.
+            prev_weights: Previous weight snapshot from _get_weight_snapshot
+                (modified in place).
 
         Returns:
             Dictionary mapping layer names to ||W_new - W_old||.
         """
-        updates = {}
-        for name, param in self.model.named_parameters():
-            if name in prev_weights:
-                delta = param.detach() - prev_weights[name].to(param.device)
-                updates[name] = torch.norm(delta).item()
-        return updates
+        weights = self._weight_matrices()
+        deltas = {
+            name: prev.sub_(weights[name].to(prev.device))
+            for name, prev in prev_weights.items()
+            if name in weights
+        }
+        return self._norms(deltas)
 
     def _to_tensor(self, data: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Convert numpy array to tensor if needed."""
