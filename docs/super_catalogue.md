@@ -17,39 +17,47 @@ The super-catalogue is an HDF5 file that provides:
 
 ```bash
 # Build from pre-cross-matched FITS files in data/raw_catalogues/
-python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
+python scripts/build_catalogue_v2.py                     # data/super_catalogue.h5
+
+# [X/H] abundances and the extended 17-element set (20 parameters)
+python scripts/build_catalogue_v2.py --elements extended --abundance-scale x_h
+                                       # data/super_catalogue_xh_extended.h5
 
 # Dry run (print statistics only)
 python scripts/build_catalogue_v2.py --dry-run
 ```
+
+Every row of a v2 catalogue is one star (Gaia DR3 source ID). When a star
+appears more than once in the input files, the builder keeps its
+highest-S/N spectrum per survey and, per label source, the label row with the
+most valid labels (the earlier file on ties).
 
 ### Loading the Catalogue
 
 ```python
 from dorothy.data import CatalogueLoader
 
-# Load and inspect
 loader = CatalogueLoader("data/super_catalogue.h5")
-loader.info()  # Print summary
+loader.info()                        # print a summary
+names = loader.get_parameter_names() # parameter order of the label arrays
 
-# Load DESI spectra with APOGEE labels
-data = loader.load(surveys="desi", label_source="apogee")
-print(f"Total stars: {data.n_stars}")
-print(f"Stars with spectra: {data.n_with_spectra}")
-print(f"Stars with labels: {data.n_with_labels}")
-print(f"Complete (both): {data.n_complete}")
+# One survey with one label source (stars with both)
+X, y = loader.load_for_training(survey="desi", label_source="apogee",
+                                max_flag_bits=0, normalize_spectra=True)
+# X: (N, 3, n_wave) = [flux, sigma, mask]; y: (N, 3, n_params) = [values, errors, mask]
 
-# Filter to only complete, high-quality stars
-complete = data.filter_complete()
-high_quality = complete.filter_by_flags(max_flag_bits=0)
+# Several surveys and label sources, storing spectra only where they exist
+data = loader.load_merged_sparse(["boss", "desi", "lamost_mrs"],
+                                 label_sources=["apogee", "galah"],
+                                 max_flag_bits=-1, normalize_spectra=True)
 
-# Load directly for training
-X, y, y_err, mask = loader.load_for_training(
-    survey="desi",
-    label_source="apogee",
-    max_flag_bits=0
-)
+# One star's spectrum as a model input
+X_star, wavelength, gaia_id = loader.load_spectrum("lamost_mrs", 123)
 ```
+
+Training code does not call these directly: `load_training_data(config)` in
+`dorothy/data/training_data.py` picks the right loader for a config and
+applies the same filtering for training, evaluation and prediction.
 
 ## HDF5 Schema
 
@@ -74,27 +82,28 @@ super_catalogue.h5
 │   ├── lamost_lrs/
 │   │   ├── flux, ivar, wavelength, snr
 │   └── lamost_mrs/
-│       ├── spectra                        # (N, 4, 3375) float32 - 4 channels: [flux_b, ivar_b, flux_r, ivar_r]
-│       ├── wavelength_b                   # (3375,) float32 - Blue arm wavelengths
-│       ├── wavelength_r                   # (3248,) float32 - Red arm wavelengths (shorter than blue)
-│       └── snr                            # (N,) float32
-│       # Note: spectra array is padded to max(3375, 3248)=3375 for all channels
-│       # When loading, trim flux_r/ivar_r to first 3248 pixels to match wavelength_r
+│       ├── spectra                        # (N, 4, max_wave) float32 - [flux_b, ivar_b, flux_r, ivar_r]
+│       ├── wavelength_b                   # (n_b,) float32 - Blue arm wavelengths
+│       ├── wavelength_r                   # (n_r,) float32 - Red arm wavelengths
+│       └── snr                            # (N,) float32 - median S/N over both arms
+│       # Arms are padded to max_wave = max(n_b, n_r). Loaders trim each arm to
+│       # its wavelength grid and concatenate them (blue, then red).
 │
 ├── labels/                                # All arrays have N_TOTAL rows
 │   ├── apogee/
-│   │   ├── values                         # (N, 11) float32 - zeros if missing
-│   │   ├── errors                         # (N, 11) float32 - zeros if missing
-│   │   └── flags                          # (N, 11) uint8 - per-parameter quality
+│   │   ├── values                         # (N, P) float32 - zeros if missing
+│   │   ├── errors                         # (N, P) float32 - zeros if missing or unmeasured
+│   │   ├── flags                          # (N, P) uint8 - per-parameter quality
+│   │   └── gaia_id                        # (N,) int64 - same as metadata/gaia_id
 │   └── galah/
-│       ├── values                         # (N, 11) float32 - zeros if missing
-│       ├── errors                         # (N, 11) float32 - zeros if missing
-│       └── flags                          # (N, 11) uint8 - per-parameter quality
+│       └── values, errors, flags, gaia_id
 │
 └── attrs (HDF5 attributes)
     ├── n_stars: int
-    ├── parameter_names: list[str]
+    ├── parameter_names: list[str]         # defines P and the label column order
+    ├── abundance_scale: "x_fe" or "x_h"
     ├── survey_names: list[str]
+    ├── label_sources: list[str]
     ├── creation_date: str
     └── version: str
 ```
@@ -102,6 +111,8 @@ super_catalogue.h5
 ### Deriving Masks
 
 ```python
+data = loader.load(survey="desi", label_source="apogee")
+
 # Check which stars have data from a survey
 has_desi = np.any(data.ivar > 0, axis=1)
 
@@ -113,7 +124,9 @@ has_apogee = np.any(data.label_errors > 0, axis=1)
 
 ## Stellar Parameters
 
-The catalogue stores 11 stellar parameters (same order in both APOGEE and GALAH):
+The parameter set is chosen when building (`--elements`, `--abundance-scale`)
+and recorded in the `parameter_names` attribute; APOGEE and GALAH use the same
+order. The default build stores 11 parameters:
 
 | Index | Parameter | Description | Units |
 |-------|-----------|-------------|-------|
@@ -129,9 +142,14 @@ The catalogue stores 11 stellar parameters (same order in both APOGEE and GALAH)
 | 9 | n_fe | Nitrogen abundance | [N/Fe] dex |
 | 10 | mn_fe | Manganese abundance | [Mn/Fe] dex |
 
+`--elements extended` adds O, Na, K, Ti, V, Cr, Co, Ba and Sr (20 parameters),
+and `--abundance-scale x_h` stores [X/H] = [X/Fe] + [Fe/H] (errors added in
+quadrature; APOGEE's own X_H values where available) instead of [X/Fe].
+Elements a label source does not measure are stored with error 0.
+
 ## Quality Flags
 
-Flags are stored as binary values (0 = valid, 1 = flagged) derived from source bitmasks. The `flags` array has shape `(N, 11)` with one flag per stellar parameter per star.
+Flags are stored as binary values (0 = valid, 1 = flagged) derived from source bitmasks. The `flags` array has shape `(N, P)` with one flag per parameter per star. The loaders treat a label as valid when its flag is 0 and its error is positive; with `max_flag_bits >= 0`, a star with more flagged parameters than that has all its labels masked (`-1` keeps every unflagged label).
 
 ### APOGEE Flag Criteria
 
@@ -149,7 +167,7 @@ Flags are stored as binary values (0 = valid, 1 = flagged) derived from source b
 | n_fe | N_FE_FLAG | Any bit set (nonzero) |
 | mn_fe | MN_FE_FLAG | Any bit set (nonzero) |
 
-Additionally, flags are set to 1 if values or errors are NaN/inf.
+Additionally, flags are set to 1 if values or errors are NaN/inf. With `--abundance-scale x_h`, a derived [X/H] is also flagged when [Fe/H] is flagged.
 
 **Note on TEFF/LOGG**: Only parameter-specific ASPCAPFLAG bits are used. Other bits (VMICRO_WARN, N_M_WARN, etc.) do not affect TEFF/LOGG flags.
 
@@ -191,7 +209,8 @@ unflagged = data.filter_by_flags(max_flag_bits=0)
 
 ### Pre-Catalogue Filtering
 
-These filters are applied when building the catalogue:
+These filters were applied when the cross-matched input FITS files were made
+(upstream of `build_catalogue_v2.py`):
 
 | Source | Filter | SNR Check |
 |--------|--------|-----------|
@@ -209,7 +228,8 @@ These filters are applied when building the catalogue:
 
 ## Cross-Matching Strategy
 
-The catalogue uses a **UNION** cross-matching strategy:
+The input files were cross-matched with a **UNION** strategy, and the builder
+takes the union of their Gaia IDs:
 
 ```
 For each survey S:
@@ -232,53 +252,18 @@ Master catalogue = Union of all (Survey × Label) matches
 | APOGEE | No | Cross-match with Gaia DR3 |
 | GALAH | No | Cross-match with Gaia DR3 |
 
-## Configuration
-
-See [scripts/catalogue_config.yaml](../scripts/catalogue_config.yaml) for the full configuration reference.
-
-Key options:
-
-```yaml
-output:
-  path: "data/super_catalogue.h5"
-  compression: gzip
-
-gaia:
-  dr3_path: "data/raw/gaia/gaia_dr3_sources.fits"
-  tolerance_arcsec: 0.5
-
-surveys:
-  desi:
-    enabled: true
-    snr_threshold: 20.0
-  # ... more surveys
-
-labels:
-  apogee:
-    enabled: true
-    snr_threshold: 50.0
-    apply_star_bad_filter: true
-  galah:
-    enabled: true
-    snr_threshold: 30.0
-    apply_flag_sp_filter: true
-```
-
 ## Training with the Catalogue
 
-```python
-from dorothy.config import ExperimentConfig, DataConfig, SurveyType, LabelSource
-
-config = ExperimentConfig(
-    name="desi_apogee_training",
-    data=DataConfig(
-        catalogue_path="data/super_catalogue.h5",
-        survey=SurveyType.DESI,
-        label_source=LabelSource.APOGEE,
-        max_flag_bits=0,  # Only highest quality labels
-    ),
-)
+```yaml
+name: desi_apogee
+data:
+  catalogue_path: data/super_catalogue.h5
+  surveys: [desi]
+  label_sources: [apogee]
+  max_flag_bits: 0        # only stars without flagged parameters
 ```
+
+See `examples/` for multi-survey and multi-label configurations.
 
 ## References
 
