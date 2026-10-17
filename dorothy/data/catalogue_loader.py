@@ -87,6 +87,125 @@ def _split_dual_arm_spectra(
     return flux, ivar
 
 
+# Target size of one HDF5 read when selecting rows of a spectra dataset. Bounds
+# the temporary buffers (chunked datasets are read in whole chunk-row bands).
+_ROW_READ_BYTES = 64 * 1024**2
+
+
+def _iter_row_blocks(
+    dset: h5py.Dataset, rows: np.ndarray, out: np.ndarray | None = None
+):
+    """Read ``dset[rows]`` block by block, for sorted unique row indices.
+
+    Yields ``(lo, hi, block)`` with ``block`` equal to ``dset[rows[lo:hi]]``.
+    With ``out`` (shape ``(len(rows),) + dset.shape[1:]``), each block is the
+    view ``out[lo:hi]``; without it, a view of a reusable buffer that is only
+    valid until the next iteration.
+
+    Only the requested rows are transferred and no full-dataset temporary is
+    made. Contiguous datasets (as v2 catalogues are written) use HDF5 point
+    selections. Chunked (e.g. gzip-compressed) datasets are read in
+    chunk-aligned row bands, skipping bands without requested rows, so each
+    chunk is decompressed once (point selections re-decompress chunks).
+    """
+    rows = np.asarray(rows, dtype=np.int64)
+    n = len(rows)
+    if n == 0:
+        return
+    row_shape = dset.shape[1:]
+    row_bytes = max(1, int(np.prod(row_shape)) * dset.dtype.itemsize)
+
+    if dset.chunks is None:
+        step = max(1, _ROW_READ_BYTES // row_bytes)
+        buf = (
+            None
+            if out is not None
+            else np.empty((min(step, n),) + row_shape, dset.dtype)
+        )
+        for lo in range(0, n, step):
+            hi = min(n, lo + step)
+            if out is not None:
+                dset.read_direct(out, source_sel=rows[lo:hi], dest_sel=np.s_[lo:hi])
+                yield lo, hi, out[lo:hi]
+            else:
+                dset.read_direct(buf, source_sel=rows[lo:hi], dest_sel=np.s_[: hi - lo])
+                yield lo, hi, buf[: hi - lo]
+        return
+
+    chunk_rows = dset.chunks[0]
+    band = chunk_rows * max(1, _ROW_READ_BYTES // (row_bytes * chunk_rows))
+    band_buf = np.empty((min(band, dset.shape[0]),) + row_shape, dset.dtype)
+    buf = None if out is not None else np.empty_like(band_buf)
+    band_ids = rows // band
+    edges = np.flatnonzero(np.diff(band_ids)) + 1
+    for lo, hi in zip(np.r_[0, edges].tolist(), np.r_[edges, n].tolist(), strict=True):
+        start = int(band_ids[lo]) * band
+        stop = min(start + band, dset.shape[0])
+        dset.read_direct(
+            band_buf, source_sel=np.s_[start:stop], dest_sel=np.s_[: stop - start]
+        )
+        block = out[lo:hi] if out is not None else buf[: hi - lo]
+        np.take(band_buf, rows[lo:hi] - start, axis=0, out=block, mode="clip")
+        yield lo, hi, block
+
+
+def _read_rows(dset: h5py.Dataset, rows: np.ndarray) -> np.ndarray:
+    """Return ``dset[:][rows]`` (sorted unique ``rows``), reading only those rows."""
+    out = np.empty((len(rows),) + dset.shape[1:], dtype=dset.dtype)
+    for _ in _iter_row_blocks(dset, rows, out=out):
+        pass
+    return out
+
+
+def _read_dual_arm_rows(
+    survey_grp: h5py.Group, rows: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Selected rows of padded dual-arm (LAMOST MRS) spectra as flux/ivar.
+
+    Same result as ``_split_dual_arm_spectra(survey_grp["spectra"][:][rows],
+    survey_grp)``, but only the requested rows are read, block by block.
+    """
+    dset = survey_grp["spectra"]
+    n_wave = dset.shape[2]
+    n_b = min(survey_grp["wavelength_b"].shape[0], n_wave)
+    n_r = min(survey_grp["wavelength_r"].shape[0], n_wave)
+    flux = np.empty((len(rows), n_b + n_r), dtype=dset.dtype)
+    ivar = np.empty_like(flux)
+    for lo, hi, block in _iter_row_blocks(dset, rows):
+        flux[lo:hi, :n_b] = block[:, 0, :n_b]
+        flux[lo:hi, n_b:] = block[:, 2, :n_r]
+        ivar[lo:hi, :n_b] = block[:, 1, :n_b]
+        ivar[lo:hi, n_b:] = block[:, 3, :n_r]
+    return flux, ivar
+
+
+def _match_ids(keys: np.ndarray, query: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorized lookup of IDs in ``{int(k): i for i, k in enumerate(keys)}``.
+
+    Returns ``(found, idx)``: ``found[j]`` tells whether ``query[j]`` is one
+    of the keys (as ``np.isin``), and ``idx`` holds the key positions of the
+    found queries, in query order. For repeated keys the last position wins,
+    as it does in the dict.
+    """
+    keys = np.asarray(keys)
+    query = np.asarray(query)
+    if not (
+        np.issubdtype(keys.dtype, np.integer) and np.issubdtype(query.dtype, np.integer)
+    ):
+        lookup = {int(k): i for i, k in enumerate(keys)}
+        found = np.isin(query, keys)
+        return found, np.array([lookup[int(q)] for q in query[found]], dtype=np.intp)
+    keys = keys.astype(np.int64, copy=False)
+    query = query.astype(np.int64, copy=False)
+    order = np.argsort(keys, kind="stable")
+    sorted_keys = keys[order]
+    # Last of any equal keys (stable sort keeps them in position order)
+    pos = np.searchsorted(sorted_keys, query, side="right") - 1
+    found = pos >= 0
+    found[found] = sorted_keys[pos[found]] == query[found]
+    return found, order[pos[found]].astype(np.intp, copy=False)
+
+
 @dataclass
 class CatalogueData:
     """
@@ -1512,16 +1631,17 @@ class CatalogueLoader:
                 all_gaia_ids = f["labels"][resolved_label]["gaia_id"][:]
 
             n_total = len(all_gaia_ids)
-            id_to_idx = {int(gid): i for i, gid in enumerate(all_gaia_ids)}
 
             # Find which rows have data in each survey (fast - only reads SNR)
             survey_valid_indices: dict[str, np.ndarray] = {}
+            survey_snr: dict[str, np.ndarray] = {}
             for survey in surveys:
                 print(f"Loading {survey}...")
                 snr = f["surveys"][survey]["snr"][:]
                 valid_mask = snr > 0
                 valid_indices = np.where(valid_mask)[0]
                 survey_valid_indices[survey] = valid_indices
+                survey_snr[survey] = snr[valid_indices]
                 print(f"  {len(valid_indices):,} stars with data")
 
             # Always check for duplicates - require pre-deduplicated catalogue
@@ -1583,30 +1703,16 @@ class CatalogueLoader:
                     wavelength = survey_grp["wavelength"][:]
                 wavelengths[survey] = wavelength
 
-                # Determine storage format
-                storage_format = "flux" if "flux" in survey_grp else "spectra"
-
-                # Load spectra - for compressed HDF5, read all then filter is faster
-                # than fancy indexing (gzip decompression overhead)
-                if storage_format == "flux":
-                    flux_all = survey_grp["flux"][:]
-                    ivar_all = survey_grp["ivar"][:]
-                    flux = flux_all[valid_indices]
-                    ivar = ivar_all[valid_indices]
-                    del flux_all, ivar_all
+                # Read only the rows with data (no full-dataset temporaries)
+                if "flux" in survey_grp:
+                    flux = _read_rows(survey_grp["flux"], valid_indices)
+                    ivar = _read_rows(survey_grp["ivar"], valid_indices)
                 else:
                     # LAMOST MRS: (N, 4, wavelengths) format - dual arm
                     # Spectra array is padded to max wavelength, but arms have different lengths
-                    spectra_all = survey_grp["spectra"][:]
-                    spectra = spectra_all[valid_indices]
-                    del spectra_all
+                    flux, ivar = _read_dual_arm_rows(survey_grp, valid_indices)
 
-                    flux, ivar = _split_dual_arm_spectra(spectra, survey_grp)
-                    del spectra
-
-                # Load SNR for valid indices
-                snr_all = survey_grp["snr"][:]
-                snr = snr_all[valid_indices]
+                snr = survey_snr[survey]
 
                 # Build index mappings (valid_indices ARE the global indices)
                 g2l = np.full(n_total, -1, dtype=np.int32)
@@ -1627,9 +1733,6 @@ class CatalogueLoader:
                 print(
                     f"  {survey}: {n_with_data:,} stars ({100*n_with_data/n_total:.1f}%)"
                 )
-
-                del flux, ivar, snr
-                gc.collect()
 
         # Build 3-channel label format: [values, errors, mask]
         # Apply flag filtering to label mask
@@ -1710,18 +1813,12 @@ class CatalogueLoader:
                     flags = np.zeros((n_total, n_params), dtype=np.uint8)
                     has_labels_arr = np.zeros(n_total, dtype=bool)
 
-                    # Map label source data to merged structure (vectorized)
-                    source_gaia_ids_int = source_gaia_ids.astype(np.int64)
-                    # Find which source IDs exist in merged set
-                    valid_source_mask = np.isin(source_gaia_ids_int, all_gaia_ids)
-                    valid_source_idx = np.where(valid_source_mask)[0]
-                    valid_source_gids = source_gaia_ids_int[valid_source_mask]
-
-                    # Get merged indices for matching IDs (use id_to_idx dict)
-                    merged_idx = np.array(
-                        [id_to_idx[int(gid)] for gid in valid_source_gids],
-                        dtype=np.intp,
+                    # Map label source data to merged structure (vectorized):
+                    # merged rows of the source IDs that exist in the merged set
+                    valid_source_mask, merged_idx = _match_ids(
+                        all_gaia_ids, source_gaia_ids.astype(np.int64)
                     )
+                    valid_source_idx = np.where(valid_source_mask)[0]
 
                     # Bulk copy
                     values[merged_idx] = source_values[valid_source_idx]

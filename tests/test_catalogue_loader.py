@@ -1802,3 +1802,105 @@ class TestParameterNamesAndSpectralNormalization:
         sparse = loader.load_merged_sparse(["boss"], label_source="apogee")
         np.testing.assert_allclose(values, sparse.labels[2, 0])
         assert loader.load_labels_for_index(2, "galah") is None
+
+
+class TestSelectiveRowReads:
+    """Row-subset reads used by the merged loaders must equal dset[:][rows]."""
+
+    ROW_SETS = {
+        "empty": [],
+        "first": [0],
+        "last": [236],
+        "runs": [0, 1, 2, 50, 51, 120, 121, 122, 123, 200, 235, 236],
+        "all": list(range(237)),
+    }
+
+    @pytest.fixture
+    def datasets(self, tmp_path):
+        rng = np.random.default_rng(0)
+        data2d = rng.normal(size=(237, 13)).astype(np.float32)
+        data3d = rng.normal(size=(237, 4, 9)).astype(np.float32)
+        path = tmp_path / "rows.h5"
+        with h5py.File(path, "w") as f:
+            f.create_dataset("contig2d", data=data2d)
+            f.create_dataset("contig3d", data=data3d)
+            f.create_dataset("gzip2d", data=data2d, compression="gzip", chunks=(17, 5))
+            f.create_dataset("chunk3d", data=data3d, chunks=(10, 4, 9))
+        return path, {"2d": data2d, "3d": data3d}
+
+    @pytest.mark.parametrize("read_bytes", [64 * 1024**2, 100, 1])
+    @pytest.mark.parametrize("rows", list(ROW_SETS))
+    def test_matches_full_read(self, datasets, monkeypatch, read_bytes, rows):
+        import dorothy.data.catalogue_loader as cl
+
+        monkeypatch.setattr(cl, "_ROW_READ_BYTES", read_bytes)
+        path, data = datasets
+        idx = np.array(self.ROW_SETS[rows], dtype=np.int64)
+        with h5py.File(path, "r") as f:
+            for name in ("contig2d", "contig3d", "gzip2d", "chunk3d"):
+                expected = data[name[-2:]][idx]
+                got = cl._read_rows(f[name], idx)
+                assert got.dtype == expected.dtype and got.shape == expected.shape
+                np.testing.assert_array_equal(got, expected)
+                # Without an output array, blocks come from a reused buffer
+                pieces = [blk.copy() for _, _, blk in cl._iter_row_blocks(f[name], idx)]
+                joined = np.concatenate(pieces) if pieces else expected[:0]
+                np.testing.assert_array_equal(joined, expected)
+
+    def test_match_ids_like_dict(self):
+        from dorothy.data.catalogue_loader import _match_ids
+
+        keys = np.array([50, 10, 30, 10, -1, 70, 30], dtype=np.int64)
+        query = np.array([30, 99, 10, -1, 50, 0, 30], dtype=np.int64)
+        lookup = {int(k): i for i, k in enumerate(keys)}  # last occurrence wins
+        found, idx = _match_ids(keys, query)
+        np.testing.assert_array_equal(found, np.isin(query, keys))
+        np.testing.assert_array_equal(idx, [lookup[int(q)] for q in query[found]])
+        # Non-integer IDs fall back to the dict lookup itself
+        found_f, idx_f = _match_ids(keys.astype(float), query.astype(float))
+        np.testing.assert_array_equal(found_f, found)
+        np.testing.assert_array_equal(idx_f, idx)
+
+    def test_sparse_load_same_for_compressed_catalogue(self, tmp_path):
+        rng = np.random.default_rng(1)
+        n, n_wave = 300, 21
+        has = rng.random(n) < 0.3
+        flux = np.where(has[:, None], rng.normal(10, 1, (n, n_wave)), 0)
+        ivar = np.where(has[:, None], rng.uniform(0.5, 2, (n, n_wave)), 0)
+        flux, ivar = flux.astype(np.float32), ivar.astype(np.float32)
+        spectra = np.zeros((n, 4, 8), dtype=np.float32)
+        spectra[has] = rng.normal(5, 1, (has.sum(), 4, 8))
+        paths = {}
+        for compression in (None, "gzip"):
+            path = tmp_path / f"cat_{compression}.h5"
+            kw = {"compression": compression} if compression else {}
+            with h5py.File(path, "w") as f:
+                f.create_dataset("metadata/gaia_id", data=np.arange(1, n + 1))
+                g = f.create_group("surveys/boss")
+                g.create_dataset("flux", data=flux, **kw)
+                g.create_dataset("ivar", data=ivar, **kw)
+                g.create_dataset("wavelength", data=np.arange(n_wave, dtype=float))
+                g.create_dataset("snr", data=has.astype(np.float32) * 20)
+                g = f.create_group("surveys/lamost_mrs")
+                g.create_dataset("spectra", data=spectra, **kw)
+                g.create_dataset("wavelength_b", data=np.arange(8.0))
+                g.create_dataset("wavelength_r", data=np.arange(6.0))
+                g.create_dataset("snr", data=has.astype(np.float32) * 20)
+                g = f.create_group("labels/apogee")
+                g.create_dataset("values", data=rng.normal(size=(n, 11)))
+                g.create_dataset("errors", data=np.full((n, 11), 0.1))
+                g.create_dataset("flags", data=np.zeros((n, 11), np.uint8))
+                g.create_dataset("gaia_id", data=np.arange(1, n + 1))
+                f.attrs["parameter_names"] = PARAMETER_NAMES
+            paths[compression] = path
+        loaded = {
+            c: CatalogueLoader(p).load_merged_sparse(["boss", "lamost_mrs"])
+            for c, p in paths.items()
+        }
+        rows = np.flatnonzero(has)
+        for data in loaded.values():
+            np.testing.assert_array_equal(data.flux["boss"], flux[rows])
+            np.testing.assert_array_equal(data.ivar["boss"], ivar[rows])
+            mrs = np.concatenate([spectra[rows, 0, :8], spectra[rows, 2, :6]], axis=1)
+            np.testing.assert_array_equal(data.flux["lamost_mrs"], mrs)
+            np.testing.assert_array_equal(data.local_to_global["boss"], rows)
