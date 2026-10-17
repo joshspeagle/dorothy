@@ -23,6 +23,8 @@ import numpy as np
 import torch
 
 from dorothy.data.catalogue_loader import SparseMergedData
+from dorothy.models.mlp import MLP
+from dorothy.models.multi_head_mlp import MultiHeadMLP
 
 # Survey key used for single-survey (plain MLP) inputs
 SINGLE_SURVEY_KEY = "default"
@@ -71,6 +73,11 @@ class TensorBatchSource:
                 raise ValueError(
                     f"'{name}' has {len(tensor)} samples, expected {self.n_samples}"
                 )
+
+    @property
+    def label_keys(self) -> list[str]:
+        """Label sources this source provides targets for."""
+        return list(self.y)
 
     def batches(
         self, batch_size: int, rng: np.random.Generator | None = None
@@ -155,6 +162,11 @@ class SparseBatchSource:
             else _StagingBuffers(data, pinned=device.type == "cuda")
         )
 
+    @property
+    def label_keys(self) -> list[str]:
+        """Label sources this source provides targets for."""
+        return list(self.labels)
+
     def build_batch(self, global_indices: np.ndarray) -> Batch:
         """Assemble a dense batch for the given global star indices."""
         n = len(global_indices)
@@ -201,3 +213,20 @@ class SparseBatchSource:
         )
         for start in range(0, self.n_samples, batch_size):
             yield self.build_batch(order[start : start + batch_size])
+
+
+def forward_label_sources(
+    model: MLP | MultiHeadMLP, batch: Batch, label_keys: list[str]
+) -> dict[str, torch.Tensor]:
+    """Run the model on a batch, returning (batch, 2, n_params) per label source.
+
+    A multi-label MultiHeadMLP returns every head; a single-head model's
+    output is keyed by ``label_keys[0]``.
+    """
+    if isinstance(model, MultiHeadMLP):
+        if model.is_multi_label:
+            return model.forward_all_label_sources(batch.X, has_data=batch.has_data)
+        output = model(batch.X, has_data=batch.has_data)
+    else:
+        output = model(batch.X[SINGLE_SURVEY_KEY])
+    return {label_keys[0]: output}

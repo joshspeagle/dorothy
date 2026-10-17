@@ -1041,8 +1041,11 @@ class CatalogueLoader:
             n_wavelengths = survey_grp["flux"].shape[1]
         elif "spectra" in survey_grp:
             storage_format = "spectra"
-            # LAMOST MRS: (N, 4, wavelengths) -> concatenated = 2 * wavelengths
-            n_wavelengths = survey_grp["spectra"].shape[2] * 2
+            # LAMOST MRS: padded (N, 4, max_wave) arms, trimmed and concatenated
+            n_wavelengths = (
+                survey_grp["wavelength_b"].shape[0]
+                + survey_grp["wavelength_r"].shape[0]
+            )
         else:
             raise ValueError(f"Survey '{survey}' has no flux or spectra data")
 
@@ -1124,14 +1127,10 @@ class CatalogueLoader:
             flux = survey_grp["flux"][indices]
             ivar = survey_grp["ivar"][indices]
         else:
-            # LAMOST MRS: (N, 4, wavelengths) format
-            spectra = survey_grp["spectra"][indices]
-            flux_b = spectra[:, 0, :]
-            flux_r = spectra[:, 2, :]
-            ivar_b = spectra[:, 1, :]
-            ivar_r = spectra[:, 3, :]
-            flux = np.concatenate([flux_b, flux_r], axis=1)
-            ivar = np.concatenate([ivar_b, ivar_r], axis=1)
+            # LAMOST MRS: trim each padded arm to its own wavelength grid
+            flux, ivar = _split_dual_arm_spectra(
+                survey_grp["spectra"][indices], survey_grp
+            )
 
         return flux.astype(np.float32), ivar.astype(np.float32)
 

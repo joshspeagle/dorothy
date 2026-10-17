@@ -62,6 +62,7 @@ from dorothy.training.batches import (
     Batch,
     SparseBatchSource,
     TensorBatchSource,
+    forward_label_sources,
 )
 
 if TYPE_CHECKING:
@@ -365,8 +366,9 @@ class Trainer:
             OneCycleLR | CyclicLR | ReduceLROnPlateau | CosineAnnealingLR | None
         ) = None
 
-        # Best model weights
+        # Best model weights, and the weights after the last epoch
         self._best_weights: dict | None = None
+        self._final_weights: dict | None = None
 
         # Set up parameter names for normalization
         n_params = self.n_parameters
@@ -585,9 +587,17 @@ class Trainer:
         y_tr, (y_va,) = self._prepare_labels(
             {key: y_train_np}, [{key: y_val_np}], normalize_labels
         )
-        X_tr = {SINGLE_SURVEY_KEY: self._to_tensor(X_train)}
-        X_va = {SINGLE_SURVEY_KEY: self._to_tensor(X_val)}
-        self._setup_masking({SINGLE_SURVEY_KEY: X_tr[SINGLE_SURVEY_KEY].shape[2]})
+        survey_key = SINGLE_SURVEY_KEY
+        if isinstance(self.model, MultiHeadMLP):
+            if len(self.model.survey_names) != 1:
+                raise ValueError(
+                    "fit() takes single-survey data; use fit_multi_survey() or "
+                    "fit_multi_survey_sparse() for a multi-survey model"
+                )
+            survey_key = self.model.survey_names[0]
+        X_tr = {survey_key: self._to_tensor(X_train)}
+        X_va = {survey_key: self._to_tensor(X_val)}
+        self._setup_masking({survey_key: X_tr[survey_key].shape[2]})
 
         train_source = TensorBatchSource(X_tr, self._tensors(y_tr), None, self.device)
         val_source = TensorBatchSource(X_va, self._tensors(y_va), None, self.device)
@@ -861,26 +871,8 @@ class Trainer:
         return normalizer
 
     def _normalize_labels(self, y: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-        """Normalize label values/errors with the fitted normalizer.
-
-        Masked entries are replaced by the parameter's training median (error
-        0) before transforming, so e.g. a masked Teff stored as 0 cannot turn
-        into log10(0) = -inf. The mask channel is unchanged.
-        """
-        medians = np.array(
-            [self.normalizer.stats[p].median for p in self.parameter_names],
-            dtype=np.float64,
-        )
-        out = {}
-        for key, arr in y.items():
-            invalid = ~(arr[:, 2, :] > 0)
-            values = np.where(invalid, medians, arr[:, 0, :].astype(np.float64))
-            errors = np.where(invalid, 0.0, arr[:, 1, :].astype(np.float64))
-            values_n, errors_n = self.normalizer.transform(values, errors)
-            out[key] = np.stack([values_n, errors_n, arr[:, 2, :]], axis=1).astype(
-                np.float32
-            )
-        return out
+        """Normalize each label source with the fitted normalizer."""
+        return {key: self.normalizer.transform_labels(arr) for key, arr in y.items()}
 
     def _prepare_labels(
         self,
@@ -951,15 +943,7 @@ class Trainer:
 
     def _forward(self, batch: Batch) -> dict[str, torch.Tensor]:
         """Model outputs (batch, 2, n_params) for every label source key."""
-        if isinstance(self.model, MultiHeadMLP):
-            if self.model.is_multi_label:
-                return self.model.forward_all_label_sources(
-                    batch.X, has_data=batch.has_data
-                )
-            output = self.model(batch.X, has_data=batch.has_data)
-        else:
-            output = self.model(batch.X[SINGLE_SURVEY_KEY])
-        return {self.label_keys[0]: output}
+        return forward_label_sources(self.model, batch, self.label_keys)
 
     def _combine_losses(
         self,
@@ -984,7 +968,11 @@ class Trainer:
         if training.label_source_weighting == "per_label":
             numerator = sum(w * s for w, s in zip(weights, sums, strict=True))
             denominator = sum(w * c for w, c in zip(weights, counts, strict=True))
-            return numerator / torch.clamp(denominator, min=1.0)
+            return torch.where(
+                denominator > 0,
+                numerator / torch.clamp(denominator, min=1e-12),
+                numerator * 0.0,
+            )
 
         terms = [
             (w, s / c)
@@ -1050,7 +1038,7 @@ class Trainer:
         losses/metrics (primary head) and per-head losses/metrics.
         """
         self.model.eval()
-        keys = self.label_keys
+        keys = source.label_keys
         outputs = {k: [] for k in keys}
         targets = {k: [] for k in keys}
         has_data: dict[str, list[torch.Tensor]] = {}
@@ -1165,7 +1153,9 @@ class Trainer:
         steps_per_epoch = (train_source.n_samples + batch_size - 1) // batch_size
         self.scheduler = self._create_scheduler(steps_per_epoch)
 
-        keys = self.label_keys
+        # Train/validate the label sources the data provides (a multi-head
+        # model fit on one label set trains only that head)
+        keys = train_source.label_keys
         multi_label = len(keys) > 1
         labelsets = keys if multi_label else []
         self.history = TrainingHistory(
@@ -1266,6 +1256,7 @@ class Trainer:
                 break
 
         self.history.total_time = time.time() - start_time
+        self._final_weights = copy.deepcopy(self.model.state_dict())
         self.model.load_state_dict(self._best_weights)
         logger.info(
             f"Training complete in {self.history.total_time:.1f}s. Best val loss: "
@@ -1440,8 +1431,8 @@ class Trainer:
         Save the final model and training artifacts.
 
         Saves:
-            - best_model.pth: Best model weights
-            - final_model.pth: Final model weights
+            - best_model.pth: Best model weights (also loaded in self.model)
+            - final_model.pth: Weights after the last training epoch
             - normalizer.pkl: Label normalizer (if used)
             - history_train_val.pkl: Training/validation losses
             - learning_rates.pkl: Learning rate history
@@ -1460,8 +1451,13 @@ class Trainer:
         # Save best model
         torch.save(self._best_weights, path / "best_model.pth")
 
-        # Save final model (current state)
-        torch.save(self.model.state_dict(), path / "final_model.pth")
+        # Save final model (last epoch; the model itself holds the best weights)
+        final_weights = (
+            self._final_weights
+            if self._final_weights is not None
+            else self.model.state_dict()
+        )
+        torch.save(final_weights, path / "final_model.pth")
 
         # Save normalizer if it was fitted
         if self.normalizer is not None:

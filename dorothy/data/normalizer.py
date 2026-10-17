@@ -281,6 +281,35 @@ class LabelNormalizer:
             return y_norm, errors_norm
         return y_norm
 
+    def transform_labels(self, y: np.ndarray) -> np.ndarray:
+        """Normalize a 3-channel label array, leaving masked entries harmless.
+
+        Masked entries (mask <= 0) are replaced by the parameter's training
+        median (error 0) before transforming, so e.g. a masked Teff stored as
+        0 cannot become log10(0) = -inf. The mask channel is unchanged.
+
+        Args:
+            y: Labels of shape (n_samples, 3, n_params) = [values, errors, mask].
+
+        Returns:
+            Normalized labels, same shape, float32.
+        """
+        if not self.is_fitted:
+            raise RuntimeError("Normalizer must be fitted before transform")
+        y = np.asarray(y)
+        if y.ndim != 3 or y.shape[1] != 3:
+            raise ValueError(
+                f"y must have shape (n_samples, 3, n_params), got {y.shape}"
+            )
+        medians = np.array([self.stats[p].median for p in self.parameters])
+        invalid = ~(y[:, 2, :] > 0)
+        values = np.where(invalid, medians, y[:, 0, :].astype(np.float64))
+        errors = np.where(invalid, 0.0, y[:, 1, :].astype(np.float64))
+        values_norm, errors_norm = self.transform(values, errors)
+        return np.stack([values_norm, errors_norm, y[:, 2, :]], axis=1).astype(
+            np.float32
+        )
+
     def inverse_transform(
         self,
         y_norm: np.ndarray,

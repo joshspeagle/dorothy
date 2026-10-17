@@ -475,3 +475,75 @@ class TestParameterNamesConfig:
         with pytest.warns(UserWarning, match="normalize_spectra=True"):
             loaded = ExperimentConfig.load_checkpoint_config(path)
         assert loaded.data.normalize_spectra is True
+
+
+class TestUnknownKeys:
+    """Unknown config keys are errors (they used to be silently ignored)."""
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"data": {"catalogue_path": "a.h5", "surveyz": "boss"}},
+            {"data": {"catalogue_path": "a.h5"}, "model": {"architecture": "mlp"}},
+            {"data": {"catalogue_path": "a.h5"}, "training": {"epoch": 5}},
+            {"data": {"catalogue_path": "a.h5"}, "learning_rate": 0.1},
+        ],
+    )
+    def test_unknown_keys_rejected(self, kwargs):
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ExperimentConfig(name="t", **kwargs)
+
+    def test_checkpoint_config_ignores_removed_keys(self, tmp_path):
+        """Saved configs from older versions still load (obsolete keys dropped)."""
+        import yaml
+
+        config = ExperimentConfig(
+            name="t", data={"catalogue_path": "a.h5", "survey": "desi"}
+        )
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        raw["masking"] = {"enabled": True}
+        raw["data"]["smart_deduplicate"] = True
+        raw["training"]["optimizer"]["old_option"] = 1
+        path.write_text(yaml.dump(raw))
+        with pytest.warns(UserWarning, match="doesn't use") as record:
+            loaded = ExperimentConfig.load_checkpoint_config(path)
+        message = str(record[0].message)
+        for key in ["masking", "data.smart_deduplicate", "optimizer.old_option"]:
+            assert key in message
+        assert loaded.data.surveys == ["desi"]
+        assert loaded.training.optimizer == config.training.optimizer
+
+
+def test_checkpoint_config_20_parameter_mlp_assumed_normalized(tmp_path):
+    """dorothy_update single-survey (MLP, 20 parameters) checkpoints normalized spectra."""
+    import yaml
+
+    config = ExperimentConfig(
+        name="t",
+        data={"catalogue_path": "a.h5"},
+        model={"output_features": 40, "input_features": 30},
+    )
+    path = tmp_path / "config.yaml"
+    config.save_yaml(path)
+    raw = yaml.full_load(path.read_text())
+    del raw["data"]["normalize_spectra"]
+    del raw["data"]["parameter_names"]
+    path.write_text(yaml.dump(raw))
+    with pytest.warns(UserWarning, match="normalize_spectra=True"):
+        assert ExperimentConfig.load_checkpoint_config(path).data.normalize_spectra
+
+
+def test_singular_data_keys_are_aliases():
+    config = ExperimentConfig(
+        name="t",
+        data={"catalogue_path": "a.h5", "survey": "desi", "label_source": "galah"},
+    )
+    assert config.data.surveys == ["desi"]
+    assert config.data.label_sources == ["galah"]
+    with pytest.raises(ValidationError, match="not both"):
+        ExperimentConfig(
+            name="t",
+            data={"catalogue_path": "a.h5", "survey": "desi", "surveys": ["boss"]},
+        )

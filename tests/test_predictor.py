@@ -389,3 +389,50 @@ class TestPredictorFromConfig:
 
             predictor = Predictor.from_config(simple_config)
             assert predictor.model is not None
+
+
+class TestCheckpointArchitecture:
+    """Predictor.load must rebuild exactly the trained architecture."""
+
+    @staticmethod
+    def _checkpoint(tmp_path, **model_kwargs):
+        from dorothy.config.schema import DataConfig, ExperimentConfig, ModelConfig
+
+        config = ExperimentConfig(
+            name="arch",
+            data=DataConfig(catalogue_path=tmp_path / "c.h5"),
+            model=ModelConfig(input_features=60, output_features=22, **model_kwargs),
+            device="cpu",
+        )
+        torch.manual_seed(0)
+        model = MLP.from_config(config.model)
+        model.eval()
+        path = tmp_path / "ckpt"
+        path.mkdir()
+        torch.save(model.state_dict(), path / "best_model.pth")
+        config.save_yaml(path / "config.yaml")
+        return path, model
+
+    def test_many_layers_relu_batchnorm(self, tmp_path):
+        path, model = self._checkpoint(
+            tmp_path,
+            hidden_layers=[50, 40, 30, 20, 16, 12, 10, 8, 8, 8, 8],
+            activation="relu",
+            normalization="batchnorm",
+        )
+        predictor = Predictor.load(path, device="cpu")
+        X = torch.randn(7, 3, 20)
+        with torch.no_grad():
+            expected = model(X).numpy()
+        np.testing.assert_allclose(predictor.predict(X).raw_output, expected, rtol=1e-6)
+
+    def test_weights_only_checkpoint_layer_order(self, tmp_path):
+        torch.manual_seed(1)
+        model = MLP(input_features=60, output_features=8, hidden_layers=[40] * 11)
+        path = tmp_path / "w"
+        path.mkdir()
+        torch.save(model.state_dict(), path / "best_model.pth")
+        _, _, hidden = Predictor._infer_architecture(model.state_dict())
+        assert hidden == [40] * 11
+        predictor = Predictor.load(path, device="cpu")
+        assert predictor.model.hidden_layers == [40] * 11

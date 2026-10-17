@@ -414,6 +414,7 @@ class FITSLoader:
         apply_normalization: bool = True,
         apply_quality_filter: bool = True,
         compute_spectral_mask: bool = False,
+        require_labels: bool = True,
     ) -> SpectralData:
         """
         Load spectral data from the FITS file.
@@ -423,6 +424,9 @@ class FITSLoader:
             apply_quality_filter: Whether to compute quality mask.
             compute_spectral_mask: Whether to compute spectral_mask and
                 spectral_error from ivar. Required for 3-channel format.
+            require_labels: Require an APOGEE extension with all label
+                columns. When False (e.g. for prediction), missing labels are
+                returned as NaN and the quality mask keeps every spectrum.
 
         Returns:
             SpectralData object containing all loaded data.
@@ -440,13 +444,19 @@ class FITSLoader:
 
         with fits.open(self.fits_path) as hdul:
             # Validate required extensions
-            required_extensions = ["APOGEE", "SPECTRA", "SPEC_IVAR"]
+            required_extensions = ["SPECTRA", "SPEC_IVAR"]
+            if require_labels:
+                required_extensions.insert(0, "APOGEE")
             for ext in required_extensions:
                 if ext not in hdul:
                     raise ValueError(f"Missing required extension: {ext}")
 
-            # Load APOGEE data
-            apogee_table = Table(hdul["APOGEE"].data)
+            # Load APOGEE data (optional when labels aren't required)
+            apogee_table = Table(hdul["APOGEE"].data) if "APOGEE" in hdul else None
+            gaia_ids = None
+            if apogee_table is None and "GAIA_ID" in hdul:
+                gaia_table = hdul["GAIA_ID"].data
+                gaia_ids = np.array(gaia_table[gaia_table.columns.names[0]]).astype(str)
 
             # Load spectra data
             spectra_table = Table(hdul["SPECTRA"].data)
@@ -479,18 +489,31 @@ class FITSLoader:
             ivar_array[i] = ivar
 
         # Extract labels and errors
-        labels, errors = self._extract_labels(apogee_table)
+        has_labels = True
+        try:
+            if apogee_table is None:
+                raise ValueError("No APOGEE extension")
+            labels, errors = self._extract_labels(apogee_table)
+        except ValueError:
+            if require_labels:
+                raise
+            has_labels = False
+            labels = np.full((n_samples, len(self.parameters)), np.nan, np.float32)
+            errors = np.full_like(labels, np.nan)
 
         # Extract IDs
-        if "APOGEE_ID" in apogee_table.colnames:
+        names = apogee_table.colnames if apogee_table is not None else []
+        if "APOGEE_ID" in names:
             ids = np.array(apogee_table["APOGEE_ID"], dtype=str)
-        elif "TARGET_ID" in apogee_table.colnames:
+        elif "TARGET_ID" in names:
             ids = np.array(apogee_table["TARGET_ID"], dtype=str)
+        elif gaia_ids is not None and len(gaia_ids) == n_samples:
+            ids = gaia_ids
         else:
             ids = np.array([str(i) for i in range(n_samples)])
 
-        # Compute quality mask
-        if apply_quality_filter:
+        # Compute quality mask (needs labels)
+        if apply_quality_filter and has_labels:
             quality_mask = self._compute_quality_mask(labels, errors, apogee_table)
         else:
             quality_mask = np.ones(n_samples, dtype=bool)

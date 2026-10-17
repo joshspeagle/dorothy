@@ -1,7 +1,10 @@
 """Prediction and evaluation utilities."""
 
+from dorothy.inference.checkpoint import LoadedCheckpoint, load_checkpoint
 from dorothy.inference.evaluation_utils import (
+    HeadEvaluation,
     build_batch_from_sparse,
+    evaluate_model,
     evaluate_on_dense_data,
     evaluate_on_single_survey_data,
     evaluate_on_test_set,
@@ -24,6 +27,10 @@ from dorothy.inference.predictor import (
 )
 
 __all__ = [
+    "HeadEvaluation",
+    "LoadedCheckpoint",
+    "evaluate_model",
+    "load_checkpoint",
     "Predictor",
     "PredictionResult",
     "predict_from_fits",

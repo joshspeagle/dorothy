@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
 from dorothy.analysis.knn_anomaly import (
     AnomalyDetector,
@@ -106,7 +107,8 @@ class TestAnomalyResult:
 
 @pytest.fixture
 def simple_model():
-    """Create a simple model for testing."""
+    """Create a simple model for testing (seeded: tests compare k-NN distances)."""
+    torch.manual_seed(0)
     model = MLP(
         input_features=100,
         output_features=6,
@@ -126,24 +128,30 @@ def simple_predictor(simple_model):
     )
 
 
+# Normal data lies near a 3-D subspace of the 100-D input; anomalies don't.
+# (Scaled/offset copies of normal data are not reliably separable: the
+# models' LayerNorm and the detector's L2-normalized embeddings remove scale.)
+_BASIS = np.random.default_rng(42).normal(size=(3, 100)).astype(np.float32)
+
+
+def _subspace_data(n: int, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    coeffs = rng.normal(size=(n, 3))
+    noise = 0.05 * rng.normal(size=(n, 100))
+    return (coeffs @ _BASIS + noise).astype(np.float32)
+
+
 @pytest.fixture
 def training_data():
-    """Create synthetic training data."""
-    np.random.seed(42)
-    # Create clustered data - most points near origin
-    X_normal = np.random.randn(100, 100).astype(np.float32) * 0.5
-    return X_normal
+    """Create synthetic training data near a low-dimensional subspace."""
+    return _subspace_data(100, seed=1)
 
 
 @pytest.fixture
 def test_data_with_anomalies():
-    """Create test data with some anomalies."""
-    np.random.seed(123)
-    # Normal points
-    X_normal = np.random.randn(80, 100).astype(np.float32) * 0.5
-    # Anomalous points (far from training distribution)
-    X_anomaly = np.random.randn(20, 100).astype(np.float32) * 5.0 + 10.0
-    return np.vstack([X_normal, X_anomaly])
+    """80 normal points followed by 20 off-subspace anomalies."""
+    anomalies = np.random.default_rng(3).normal(size=(20, 100)).astype(np.float32) * 2
+    return np.vstack([_subspace_data(80, seed=2), anomalies])
 
 
 class TestAnomalyDetectorInit:
@@ -236,7 +244,8 @@ class TestAnomalyDetectorDetect:
 
         # The anomalous points (last 20) should have higher detection rate than
         # normal points (first 80). With a 90th percentile threshold, we expect
-        # ~10% of normal data to be flagged as anomalies.
+        # ~10% of normal data to be flagged as anomalies. (Checked robust over
+        # 30 model initialization seeds.)
         normal_anomaly_rate = result.is_anomaly[:80].mean()
         outlier_anomaly_rate = result.is_anomaly[80:].mean()
 

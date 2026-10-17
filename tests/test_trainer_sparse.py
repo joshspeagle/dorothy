@@ -438,3 +438,64 @@ class TestSharedLoopBehaviour:
         y = {"apogee": np.zeros((10, 3, N_PARAMS), np.float32)}
         with pytest.raises(ValueError, match="label sources"):
             trainer.fit_multi_labelset(X, y, X, y, has, has)
+
+
+class TestReviewRegressions:
+    """Regressions found in review of the trainer consolidation."""
+
+    def test_multi_head_model_fit_on_one_label_set(self, tmp_path):
+        """fit_multi_survey on a 2-head model trains and validates the first head."""
+        data = make_sparse_data()
+        config = make_config(tmp_path, multi_label=True, epochs=2)
+        trainer = Trainer(config)
+        X, has = {}, {}
+        for s in data.surveys:
+            arr = np.zeros((N_TOTAL, 3, len(data.wavelengths[s])), np.float32)
+            g = data.global_to_local[s]
+            m = g >= 0
+            arr[m, 0] = data.flux[s][g[m]]
+            arr[m, 1] = 0.1
+            arr[m, 2] = 1.0
+            X[s], has[s] = arr, m
+        tr, va = split()
+        history = trainer.fit_multi_survey(
+            {s: x[tr] for s, x in X.items()},
+            data.labels[tr],
+            {s: x[va] for s, x in X.items()},
+            data.labels[va],
+            {s: h[tr] for s, h in has.items()},
+            {s: h[va] for s, h in has.items()},
+        )
+        assert len(history.val_losses) == 2
+        assert history.label_source_names == []
+
+    def test_final_model_is_last_epoch(self, tmp_path):
+        trainer = Trainer(make_config(tmp_path, epochs=4))
+        tr, va = split()
+        trainer.fit_multi_survey_sparse(make_sparse_data(), tr, va)
+        path = trainer.save_checkpoint(tmp_path / "ckpt")
+        best = torch.load(path / "best_model.pth", weights_only=True)
+        final = torch.load(path / "final_model.pth", weights_only=True)
+        for name in best:
+            assert torch.equal(best[name], trainer.model.state_dict()[name])
+        if trainer.history.best_epoch < 3:
+            assert any(not torch.equal(best[n], final[n]) for n in best)
+
+    def test_unknown_label_source_keys_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="label_source_weights"):
+            make_config(tmp_path, multi_label=True, label_source_weights={"galha": 1.0})
+        with pytest.raises(ValueError, match="head_dropout"):
+            ExperimentConfig(
+                name="x",
+                data=DataConfig(catalogue_path=tmp_path / "c.h5", surveys=list(WAVES)),
+                multi_head_model=MultiHeadModelConfig(
+                    survey_wavelengths=WAVES, head_dropout={"galah": 0.1}
+                ),
+            )
+
+    def test_no_matching_survey_raises(self):
+        from dorothy.models import MultiHeadMLP
+
+        model = MultiHeadMLP({"boss": 10}, n_parameters=2, latent_dim=16)
+        with pytest.raises(ValueError, match="match the model's surveys"):
+            model({"default": torch.zeros(2, 3, 10)})

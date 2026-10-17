@@ -10,11 +10,13 @@ All configurations use Pydantic v2 for validation and serialization.
 
 from __future__ import annotations
 
+import typing
+import warnings
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class NormalizationType(str, Enum):
@@ -56,6 +58,12 @@ class SchedulerType(str, Enum):
     CYCLIC = "cyclic"
     REDUCE_ON_PLATEAU = "reduce_on_plateau"
     COSINE_ANNEALING = "cosine_annealing"
+
+
+class _ConfigModel(BaseModel):
+    """Base for config sections: unknown keys are errors, not silently ignored."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 # The 11 stellar parameters predicted by DOROTHY models
@@ -101,7 +109,7 @@ def parameter_display_name(name: str) -> str:
     return name
 
 
-class DataConfig(BaseModel):
+class DataConfig(_ConfigModel):
     """Configuration for data loading and preprocessing.
 
     Loads data from the super-catalogue HDF5 file which contains multiple
@@ -183,6 +191,28 @@ class DataConfig(BaseModel):
         """Whether training with multiple label sources."""
         return len(self.label_sources) > 1
 
+    @model_validator(mode="before")
+    @classmethod
+    def accept_singular_keys(cls, values: Any) -> Any:
+        """Accept ``survey`` / ``label_source`` as aliases of the list fields.
+
+        Older docs used the singular forms, which were silently ignored (so
+        the defaults were used instead).
+        """
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        for single, plural in (
+            ("survey", "surveys"),
+            ("label_source", "label_sources"),
+        ):
+            if single in values:
+                if plural in values:
+                    raise ValueError(f"Use either '{single}' or '{plural}', not both")
+                value = values.pop(single)
+                values[plural] = [value] if isinstance(value, str) else list(value)
+        return values
+
     @field_validator("parameter_names")
     @classmethod
     def validate_parameter_names(cls, v: list[str] | None) -> list[str] | None:
@@ -202,7 +232,7 @@ class DataConfig(BaseModel):
         return self
 
 
-class ModelConfig(BaseModel):
+class ModelConfig(_ConfigModel):
     """Configuration for the neural network architecture.
 
     The default architecture follows the standard DOROTHY MLP:
@@ -271,7 +301,7 @@ class CombinationMode(str, Enum):
     CONCAT = "concat"
 
 
-class MultiHeadModelConfig(BaseModel):
+class MultiHeadModelConfig(_ConfigModel):
     """Configuration for multi-head MLP architecture.
 
     Used when training on multiple surveys with different wavelength grids.
@@ -398,7 +428,7 @@ class MultiHeadModelConfig(BaseModel):
         return list(self.survey_wavelengths.keys())
 
 
-class SchedulerConfig(BaseModel):
+class SchedulerConfig(_ConfigModel):
     """Configuration for learning rate schedulers.
 
     Attributes:
@@ -454,7 +484,7 @@ class SchedulerConfig(BaseModel):
         return self
 
 
-class OptimizerConfig(BaseModel):
+class OptimizerConfig(_ConfigModel):
     """Configuration for optimizers.
 
     Attributes:
@@ -483,7 +513,7 @@ class OptimizerConfig(BaseModel):
     )
 
 
-class TrainingConfig(BaseModel):
+class TrainingConfig(_ConfigModel):
     """Configuration for the training process.
 
     Attributes:
@@ -559,7 +589,7 @@ class TrainingConfig(BaseModel):
         return v
 
 
-class LabelMaskingConfig(BaseModel):
+class LabelMaskingConfig(_ConfigModel):
     """Configuration for dynamic label masking during training.
 
     Label masking is a training-time augmentation that randomly masks labels
@@ -627,7 +657,7 @@ class LabelMaskingConfig(BaseModel):
         return self
 
 
-class InputMaskingConfig(BaseModel):
+class InputMaskingConfig(_ConfigModel):
     """Configuration for dynamic input (spectrum) masking during training.
 
     Input masking is a training-time augmentation that randomly masks portions
@@ -716,7 +746,39 @@ class InputMaskingConfig(BaseModel):
         return self
 
 
-class ExperimentConfig(BaseModel):
+def _config_section_model(annotation: Any) -> type[BaseModel] | None:
+    """The config model class in a field annotation (e.g. ``X | None``)."""
+    candidates = typing.get_args(annotation) or (annotation,)
+    for candidate in candidates:
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+            return candidate
+    return None
+
+
+def _drop_unknown_keys(
+    model: type[BaseModel], values: dict, prefix: str, dropped: list[str]
+) -> dict:
+    """Copy of ``values`` without keys ``model`` (or its sections) don't define.
+
+    Used for checkpoint configs, which may contain keys from older versions.
+    """
+    allowed = set(model.model_fields)
+    if model is DataConfig:
+        allowed |= {"survey", "label_source"}  # accepted aliases
+    out = {}
+    for key, value in values.items():
+        if key not in allowed:
+            dropped.append(f"{prefix}{key}")
+            continue
+        field = model.model_fields.get(key)
+        section = _config_section_model(field.annotation) if field else None
+        if section is not None and isinstance(value, dict):
+            value = _drop_unknown_keys(section, value, f"{prefix}{key}.", dropped)
+        out[key] = value
+    return out
+
+
+class ExperimentConfig(_ConfigModel):
     """Top-level configuration for a DOROTHY experiment.
 
     This is the main configuration class that combines all sub-configurations
@@ -806,8 +868,6 @@ class ExperimentConfig(BaseModel):
 
         # Warn if using standard MLP with multi-survey data
         if self.model is not None and self.data.is_multi_survey:
-            import warnings
-
             warnings.warn(
                 f"Using standard MLP with multi-survey data ({self.data.surveys}). "
                 "Consider using 'multi_head_model' for better performance.",
@@ -821,6 +881,23 @@ class ExperimentConfig(BaseModel):
                 "Cannot specify both 'model' and 'multi_head_model'. "
                 "Use 'model' for single-survey or 'multi_head_model' for multi-survey."
             )
+
+        # Per-label-source settings must name configured label sources
+        sources = set(self.data.label_sources)
+        unknown = set(self.training.label_source_weights) - sources
+        if unknown:
+            raise ValueError(
+                f"training.label_source_weights has unknown label sources "
+                f"{sorted(unknown)}; configured: {self.data.label_sources}"
+            )
+        if self.multi_head_model is not None:
+            heads = set(self.multi_head_model.label_sources or self.data.label_sources)
+            unknown = set(self.multi_head_model.head_dropout) - heads
+            if unknown:
+                raise ValueError(
+                    f"multi_head_model.head_dropout has unknown label sources "
+                    f"{sorted(unknown)}; heads: {sorted(heads)}"
+                )
 
         # Keep the model's output size in sync with the catalogue's parameters
         if self.data.parameter_names is not None:
@@ -905,9 +982,11 @@ class ExperimentConfig(BaseModel):
         older checkpoints reproducible. Checkpoints saved before
         ``data.normalize_spectra`` existed were trained on un-normalized
         catalogue spectra, so the flag defaults to False for them -- except
-        configs from the ``dorothy_update`` branch, recognizable by their
-        ``multi_head_model.head_dropout`` entry, whose sparse and single-survey
-        loaders already normalized spectra. A warning is issued either way.
+        configs from the ``dorothy_update`` branch, recognizable by a
+        ``multi_head_model.head_dropout`` entry or 20 predicted parameters,
+        whose sparse and single-survey loaders already normalized spectra. A
+        warning is issued either way. Settings this version no longer has are
+        ignored with a warning.
 
         Args:
             path: Path to the checkpoint's ``config.yaml``.
@@ -920,15 +999,31 @@ class ExperimentConfig(BaseModel):
         with open(path) as f:
             data = yaml.full_load(f)
 
+        # Keys from older versions (since removed) are ignored, not errors
+        dropped: list[str] = []
+        data = _drop_unknown_keys(cls, data, "", dropped)
+        if dropped:
+            warnings.warn(
+                f"Ignoring settings in {path} that this version doesn't use: "
+                f"{', '.join(dropped)}",
+                UserWarning,
+                stacklevel=2,
+            )
+
         data_section = data.setdefault("data", {})
         if "normalize_spectra" not in data_section:
+            # dorothy_update configs: head_dropout (multi-head) or 20 outputs
+            # (its only parameter set; main supported only 11 at the time)
             mh_section = data.get("multi_head_model") or {}
-            normalized = "head_dropout" in mh_section and not data_section.get(
+            model_section = data.get("model") or {}
+            n_params = mh_section.get(
+                "n_parameters", model_section.get("output_features", 22) // 2
+            )
+            from_update_branch = "head_dropout" in mh_section or n_params == 20
+            normalized = from_update_branch and not data_section.get(
                 "use_dense_loading", False
             )
             data_section["normalize_spectra"] = normalized
-            import warnings
-
             warnings.warn(
                 f"Checkpoint config {path} predates data.normalize_spectra; "
                 f"assuming normalize_spectra={normalized}. Add it to the "
@@ -936,6 +1031,24 @@ class ExperimentConfig(BaseModel):
                 UserWarning,
                 stacklevel=2,
             )
+        # Dropout is irrelevant once trained: drop head_dropout entries for
+        # heads the model doesn't have rather than refusing to load
+        mh_section = data.get("multi_head_model") or {}
+        if mh_section.get("head_dropout"):
+            heads = set(
+                mh_section.get("label_sources")
+                or data_section.get("label_sources", ["apogee"])
+            )
+            unknown = set(mh_section["head_dropout"]) - heads
+            if unknown:
+                warnings.warn(
+                    f"Ignoring head_dropout for unknown heads {sorted(unknown)}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                for key in unknown:
+                    del mh_section["head_dropout"][key]
+
         if "catalogue_path" in data_section:
             data_section["catalogue_path"] = Path(data_section["catalogue_path"])
         if "output_dir" in data:

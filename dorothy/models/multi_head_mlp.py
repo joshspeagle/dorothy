@@ -458,34 +458,7 @@ class MultiHeadMLP(nn.Module):
         Raises:
             KeyError: If survey is not in the model's encoders.
         """
-        if survey not in self.encoders:
-            raise KeyError(f"Unknown survey '{survey}'. Available: {self.survey_names}")
-
-        # Encode
-        latent = self.encoders[survey](x)  # (batch, latent_dim)
-
-        # For concat mode with single survey, pad with zeros for other surveys
-        if self.combination_mode == "concat":
-            batch_size = latent.shape[0]
-            survey_idx = self.survey_names.index(survey)
-
-            # Create full latent with zeros
-            full_latent = torch.zeros(
-                batch_size,
-                self.n_surveys * self.latent_dim,
-                device=latent.device,
-                dtype=latent.dtype,
-            )
-            # Insert this survey's latent at the right position
-            start_idx = survey_idx * self.latent_dim
-            end_idx = start_idx + self.latent_dim
-            full_latent[:, start_idx:end_idx] = latent
-
-            latent = full_latent
-
-        # Through trunk and output
-        features = self.trunk(latent)
-        return self.output_head(features)
+        return self.output_head(self._forward_single_to_trunk(x, survey))
 
     def forward_multi(
         self,
@@ -510,70 +483,7 @@ class MultiHeadMLP(nn.Module):
             Samples must have data from at least one survey.
             If a sample has no data from any survey, the output will be zeros.
         """
-        batch_size = next(iter(inputs.values())).shape[0]
-        device = next(iter(inputs.values())).device
-        dtype = next(iter(inputs.values())).dtype
-
-        if self.combination_mode == "concat":
-            # Initialize full concatenated latent
-            combined = torch.zeros(
-                batch_size, self.n_surveys * self.latent_dim, device=device, dtype=dtype
-            )
-
-            for i, survey_name in enumerate(self.survey_names):
-                if survey_name not in inputs:
-                    continue
-
-                x = inputs[survey_name]
-                mask = has_data.get(
-                    survey_name, torch.ones(batch_size, dtype=torch.bool, device=device)
-                )
-
-                if mask.any():
-                    # Encode samples that have this survey's data
-                    latent = self.encoders[survey_name](x)  # (batch, latent_dim)
-
-                    # Insert at correct position
-                    start_idx = i * self.latent_dim
-                    end_idx = start_idx + self.latent_dim
-
-                    # Use mask to only update relevant samples
-                    mask_expanded = mask.unsqueeze(1).expand(-1, self.latent_dim)
-                    combined[:, start_idx:end_idx] = torch.where(
-                        mask_expanded, latent, combined[:, start_idx:end_idx]
-                    )
-
-        else:  # mean combination
-            # Accumulate weighted sum
-            combined = torch.zeros(
-                batch_size, self.latent_dim, device=device, dtype=dtype
-            )
-            count = torch.zeros(batch_size, 1, device=device, dtype=dtype)
-
-            for survey_name in self.survey_names:
-                if survey_name not in inputs:
-                    continue
-
-                x = inputs[survey_name]
-                mask = has_data.get(
-                    survey_name, torch.ones(batch_size, dtype=torch.bool, device=device)
-                )
-
-                if mask.any():
-                    latent = self.encoders[survey_name](x)  # (batch, latent_dim)
-
-                    # Add to sum for samples with this survey
-                    mask_float = mask.float().unsqueeze(1)
-                    combined = combined + latent * mask_float
-                    count = count + mask_float
-
-            # Average (avoid division by zero)
-            count = count.clamp(min=1)
-            combined = combined / count
-
-        # Through trunk and output
-        features = self.trunk(combined)
-        return self.output_head(features)
+        return self.output_head(self._forward_to_trunk(inputs, has_data))
 
     def forward(
         self,
@@ -593,27 +503,7 @@ class MultiHeadMLP(nn.Module):
         Returns:
             Predictions of shape (batch, 2, n_parameters).
         """
-        if isinstance(x, dict):
-            # Multi-survey mode
-            if has_data is None:
-                # Assume all samples have all surveys
-                batch_size = next(iter(x.values())).shape[0]
-                device = next(iter(x.values())).device
-                has_data = {
-                    name: torch.ones(batch_size, dtype=torch.bool, device=device)
-                    for name in x
-                }
-            return self.forward_multi(x, has_data)
-        else:
-            # Single survey mode
-            if survey is None:
-                if len(self.survey_names) == 1:
-                    survey = self.survey_names[0]
-                else:
-                    raise ValueError(
-                        "Must specify survey for single-tensor input with multiple surveys"
-                    )
-            return self.forward_single(x, survey)
+        return self.output_head(self._trunk_features(x, survey, has_data))
 
     def forward_for_label_source(
         self,
@@ -645,27 +535,9 @@ class MultiHeadMLP(nn.Module):
                 f"Available: {self.label_sources}"
             )
 
-        # Get trunk features using existing forward logic
-        if isinstance(x, dict):
-            # Multi-survey mode
-            if has_data is None:
-                batch_size = next(iter(x.values())).shape[0]
-                device = next(iter(x.values())).device
-                has_data = {
-                    name: torch.ones(batch_size, dtype=torch.bool, device=device)
-                    for name in x
-                }
-            features = self._forward_to_trunk(x, has_data)
-        else:
-            # Single survey mode
-            if survey is None:
-                if len(self.survey_names) == 1:
-                    survey = self.survey_names[0]
-                else:
-                    raise ValueError("Must specify survey for single-tensor input")
-            features = self._forward_single_to_trunk(x, survey)
-
-        return self.output_heads[label_source](features)
+        return self.output_heads[label_source](
+            self._trunk_features(x, survey, has_data)
+        )
 
     def forward_all_label_sources(
         self,
@@ -686,28 +558,38 @@ class MultiHeadMLP(nn.Module):
             Dict mapping label source names to predictions.
             Each prediction has shape (batch, 2, n_parameters).
         """
-        # Get trunk features
+        features = self._trunk_features(x, survey, has_data)
+        return {source: head(features) for source, head in self.output_heads.items()}
+
+    def _trunk_features(
+        self,
+        x: torch.Tensor | dict[str, torch.Tensor],
+        survey: str | None,
+        has_data: dict[str, torch.Tensor] | None,
+    ) -> torch.Tensor:
+        """Shared trunk features for single-tensor or dict (multi-survey) input."""
         if isinstance(x, dict):
             if has_data is None:
+                # Assume all samples have all provided surveys
                 batch_size = next(iter(x.values())).shape[0]
                 device = next(iter(x.values())).device
                 has_data = {
                     name: torch.ones(batch_size, dtype=torch.bool, device=device)
                     for name in x
                 }
-            features = self._forward_to_trunk(x, has_data)
-        else:
-            if survey is None:
-                if len(self.survey_names) == 1:
-                    survey = self.survey_names[0]
-                else:
-                    raise ValueError("Must specify survey for single-tensor input")
-            features = self._forward_single_to_trunk(x, survey)
-
-        return {source: head(features) for source, head in self.output_heads.items()}
+            return self._forward_to_trunk(x, has_data)
+        if survey is None:
+            if len(self.survey_names) != 1:
+                raise ValueError(
+                    "Must specify survey for single-tensor input with multiple surveys"
+                )
+            survey = self.survey_names[0]
+        return self._forward_single_to_trunk(x, survey)
 
     def _forward_single_to_trunk(self, x: torch.Tensor, survey: str) -> torch.Tensor:
         """Forward through encoder and trunk for single survey."""
+        if survey not in self.encoders:
+            raise KeyError(f"Unknown survey '{survey}'. Available: {self.survey_names}")
         latent = self.encoders[survey](x)
 
         if self.combination_mode == "concat":
@@ -733,6 +615,11 @@ class MultiHeadMLP(nn.Module):
         has_data: dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """Forward through encoders and trunk for multi-survey."""
+        if not any(name in self.encoders for name in inputs):
+            raise ValueError(
+                f"None of the input surveys {list(inputs)} match the model's "
+                f"surveys {self.survey_names}"
+            )
         batch_size = next(iter(inputs.values())).shape[0]
         device = next(iter(inputs.values())).device
         dtype = next(iter(inputs.values())).dtype
@@ -790,6 +677,7 @@ class MultiHeadMLP(nn.Module):
         self,
         x: torch.Tensor,
         survey: str,
+        level: str = "encoder",
     ) -> torch.Tensor:
         """Get latent embeddings for a survey's input.
 
@@ -798,10 +686,18 @@ class MultiHeadMLP(nn.Module):
         Args:
             x: Input tensor of shape (batch, 3, n_wavelengths).
             survey: Name of the survey.
+            level: "encoder" for the survey encoder's latent vector, or
+                "trunk" for the shared trunk features (comparable across
+                surveys, and the input to every output head).
 
         Returns:
-            Latent embeddings of shape (batch, latent_dim).
+            Embeddings of shape (batch, latent_dim) for "encoder" or
+            (batch, trunk output dim) for "trunk".
         """
+        if level == "trunk":
+            return self._forward_single_to_trunk(x, survey)
+        if level != "encoder":
+            raise ValueError(f"level must be 'encoder' or 'trunk', got {level!r}")
         return self.encoders[survey](x)
 
     def count_parameters(self) -> int:
