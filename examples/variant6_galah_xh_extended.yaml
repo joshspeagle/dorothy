@@ -1,0 +1,81 @@
+# DOROTHY Training Configuration - Variant 6
+# All Surveys Input -> APOGEE + GALAH heads, 20 parameters with [X/H] abundances
+# DESI + BOSS + LAMOST LRS + LAMOST MRS -> APOGEE, GALAH
+#
+# Based on Diego's dorothy_update run (variant5_all_surveys_norm_new_lr), the
+# first configuration trained with per-spectrum flux normalization restored.
+#
+# Requires a catalogue built with the extended element set and [X/H] scale:
+#   python scripts/build_catalogue_v2.py --elements extended --abundance-scale x_h \
+#       --output data/super_catalogue_xh_extended.h5
+# Parameter names (teff, logg, fe_h, mg_h, ..., sr_h) are read from the catalogue.
+
+name: variant6_galah_xh_extended
+
+data:
+  catalogue_path: data/super_catalogue_xh_extended.h5
+  surveys:
+    - desi
+    - boss
+    - lamost_lrs
+    - lamost_mrs
+  label_sources:
+    - apogee
+    - galah
+  train_ratio: 0.7
+  val_ratio: 0.2
+  max_flag_bits: -1  # Allow partial labels, per-parameter mask handles validity
+  normalize_spectra: true  # Per-spectrum median/IQR flux normalization
+
+# Multi-head MLP for multi-survey training
+# survey_wavelengths and label_sources are auto-populated
+multi_head_model:
+  latent_dim: 256
+  encoder_hidden: [512, 256]
+  trunk_hidden: [512, 256]
+  output_hidden: [64]
+  combination_mode: concat
+  normalization: layernorm
+  activation: gelu
+  dropout: 0.0
+  head_dropout:  # Per-label-source output head dropout (falls back to dropout)
+    galah: 0.0
+
+training:
+  epochs: 1500
+  batch_size: 512
+  learning_rate: 0.001
+  loss: heteroscedastic
+  gradient_clip: 10.0
+  scatter_floor: 0.01
+  save_every: 50
+  optimizer:
+    type: adamw
+    weight_decay: 0.05
+  scheduler:
+    type: one_cycle
+    max_lr: 0.001
+    pct_start: 0.1
+    div_factor: 100.0
+    final_div_factor: 1.0
+
+# Dynamic label masking: randomly mask label sets and individual parameters
+label_masking:
+  enabled: true
+  p_labelset_min: 0.3
+  p_labelset_max: 1.0
+  p_label_min: 0.3
+  p_label_max: 1.0
+
+# Dynamic input masking: hierarchically mask surveys and wavelength blocks
+input_masking:
+  enabled: true
+  p_survey_min: 0.3
+  p_survey_max: 1.0
+  f_max: 0.5
+  p_block_min: 0.3
+  p_block_max: 1.0
+
+output_dir: outputs
+seed: 42
+device: auto

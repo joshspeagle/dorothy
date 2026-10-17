@@ -18,7 +18,7 @@ Usage:
     # Using real data from variant5 checkpoint (default: training distribution weighting)
     python examples/ablation_saliency_example.py \
         --checkpoint outputs/variant5_all_surveys_masked/variant5_all_surveys_masked_final \
-        --catalogue data/super_catalogue_clean.h5 \
+        --catalogue data/super_catalogue.h5 \
         --survey boss \
         --index 0
 
@@ -35,16 +35,16 @@ import argparse
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import h5py
 import numpy as np
 import torch
-import yaml
 
 from dorothy.analysis import (
     AblationSaliencyAnalyzer,
     plot_ablation_parameter_saliency,
     plot_ablation_saliency_heatmap,
 )
+from dorothy.config.schema import ExperimentConfig
+from dorothy.data import CatalogueLoader
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.models import MultiHeadMLP
 
@@ -106,37 +106,21 @@ def create_synthetic_spectrum(
 def load_model_from_checkpoint(
     checkpoint_path: Path,
     device: str = "cpu",
-) -> tuple[MultiHeadMLP, LabelNormalizer | None]:
-    """Load MultiHeadMLP model from checkpoint directory.
+) -> tuple[MultiHeadMLP, LabelNormalizer | None, ExperimentConfig]:
+    """Load a MultiHeadMLP model from a checkpoint directory.
+
+    The architecture (including label sources and per-head dropout) is rebuilt
+    from the checkpoint's saved config.
 
     Args:
         checkpoint_path: Path to checkpoint directory.
         device: Device to load model on.
 
     Returns:
-        Tuple of (model, normalizer).
+        Tuple of (model, normalizer, config).
     """
-    # Load config (use unsafe_load for Python objects like tuples)
-    config_path = checkpoint_path / "config.yaml"
-    with open(config_path) as f:
-        config = yaml.unsafe_load(f)
-
-    # Extract model config
-    model_config = config["multi_head_model"]
-
-    # Create model
-    model = MultiHeadMLP(
-        survey_configs=model_config["survey_wavelengths"],
-        n_parameters=model_config["n_parameters"],
-        latent_dim=model_config["latent_dim"],
-        encoder_hidden=model_config["encoder_hidden"],
-        trunk_hidden=model_config["trunk_hidden"],
-        output_hidden=model_config["output_hidden"],
-        combination_mode=model_config.get("combination_mode", "concat"),
-        normalization=model_config.get("normalization", "batchnorm"),
-        activation=model_config.get("activation", "relu"),
-        dropout=model_config.get("dropout", 0.0),
-    )
+    config = ExperimentConfig.load_checkpoint_config(checkpoint_path / "config.yaml")
+    model = MultiHeadMLP.from_config(config.multi_head_model)
 
     # Load weights
     model_path = checkpoint_path / "best_model.pth"
@@ -150,90 +134,57 @@ def load_model_from_checkpoint(
     if normalizer_path.exists():
         normalizer = LabelNormalizer.load(normalizer_path)
 
-    return model, normalizer
+    return model, normalizer, config
 
 
 def load_spectrum_from_catalogue(
     catalogue_path: Path,
     survey: str,
     index: int,
+    normalize_spectra: bool = True,
 ) -> tuple[torch.Tensor, np.ndarray, int]:
-    """Load a spectrum from the super-catalogue.
+    """Load a spectrum from the super-catalogue as a 3-channel model input.
 
     Args:
         catalogue_path: Path to HDF5 catalogue.
-        survey: Survey name (e.g., "boss", "desi").
+        survey: Survey name (e.g., "boss", "desi", "lamost_mrs").
         index: Index of spectrum to load.
+        normalize_spectra: Apply the same per-spectrum normalization as in
+            training (use the checkpoint's ``data.normalize_spectra``).
 
     Returns:
         Tuple of (X, wavelength, gaia_id).
     """
-    with h5py.File(catalogue_path, "r") as f:
-        # Load spectrum data
-        flux = f[f"surveys/{survey}/flux"][index]
-        ivar = f[f"surveys/{survey}/ivar"][index]
-        wavelength = f[f"surveys/{survey}/wavelength"][:].astype(np.float32)
-
-        # Convert ivar to error and mask
-        error = np.where(ivar > 0, 1.0 / np.sqrt(ivar), 0.0).astype(np.float32)
-        mask = (ivar > 0).astype(np.float32)
-
-        # Get gaia_id from the aligned labels (spectra and labels are 1:1 by index)
-        label_key = f"apogee_{survey}"
-        if f"labels/{label_key}/gaia_id" in f:
-            gaia_id = int(f[f"labels/{label_key}/gaia_id"][index])
-        else:
-            # Fallback to metadata (for backwards compatibility)
-            gaia_id = int(f["metadata/gaia_id"][index])
-
-    # Stack into input tensor
-    X = torch.tensor(np.stack([flux, error, mask], axis=0), dtype=torch.float32)
-
-    return X, wavelength, gaia_id
+    X, wavelength, gaia_id = CatalogueLoader(catalogue_path).load_spectrum(
+        survey, index, normalize_spectra=normalize_spectra
+    )
+    return torch.from_numpy(X), wavelength, gaia_id
 
 
 def load_labels_from_catalogue(
     catalogue_path: Path,
     survey: str,
-    gaia_id: int,
-    index: int | None = None,
+    index: int,
+    label_source: str = "apogee",
 ) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
-    """Load labels for a given Gaia ID from the super-catalogue.
+    """Load labels for a catalogue row (spectra and labels are row-aligned).
 
     Args:
         catalogue_path: Path to HDF5 catalogue.
-        survey: Survey name (e.g., "boss", "desi").
-        gaia_id: Gaia DR3 source ID to look up.
-        index: Optional direct index (spectra and labels are aligned 1:1).
+        survey: Survey name (used to resolve v1 per-survey label groups).
+        index: Catalogue row index.
+        label_source: Label source to load (e.g. "apogee", "galah").
 
     Returns:
         Tuple of (label_values, label_errors) or (None, None) if not found.
     """
-    # Labels are stored as apogee_{survey}
-    label_key = f"apogee_{survey}"
-
-    with h5py.File(catalogue_path, "r") as f:
-        if f"labels/{label_key}" not in f:
-            return None, None
-
-        # If index provided, use it directly (spectra and labels are aligned)
-        if index is not None:
-            label_values = f[f"labels/{label_key}/values"][index]
-            label_errors = f[f"labels/{label_key}/errors"][index]
-            return label_values.astype(np.float32), label_errors.astype(np.float32)
-
-        # Otherwise search by gaia_id
-        label_gaia_ids = f[f"labels/{label_key}/gaia_id"][:]
-        label_values = f[f"labels/{label_key}/values"][:]
-        label_errors = f[f"labels/{label_key}/errors"][:]
-
-    # Find index for this gaia_id
-    matches = np.where(label_gaia_ids == gaia_id)[0]
-    if len(matches) == 0:
+    labels = CatalogueLoader(catalogue_path).load_labels_for_index(
+        index, label_source=label_source, survey=survey
+    )
+    if labels is None:
         return None, None
-
-    idx = matches[0]
-    return label_values[idx].astype(np.float32), label_errors[idx].astype(np.float32)
+    values, errors, _flags = labels
+    return values, errors
 
 
 def main():
@@ -323,9 +274,11 @@ def main():
 
     # Load model and normalizer
     normalizer = None
+    normalize_spectra = True
     if args.checkpoint is not None and not args.demo:
         print(f"Loading model from {args.checkpoint}")
-        model, normalizer = load_model_from_checkpoint(args.checkpoint, device)
+        model, normalizer, config = load_model_from_checkpoint(args.checkpoint, device)
+        normalize_spectra = config.data.normalize_spectra
         print(f"Model loaded: surveys={model.survey_names}")
         if normalizer is not None:
             print("Normalizer loaded for denormalized predictions")
@@ -334,8 +287,12 @@ def main():
         model = create_demo_model()
 
     # Create ablation analyzer
+    parameter_names = list(normalizer.parameters) if normalizer is not None else None
     analyzer = AblationSaliencyAnalyzer(
-        model, device=device, batch_size=args.batch_size
+        model,
+        device=device,
+        batch_size=args.batch_size,
+        parameter_names=parameter_names,
     )
     print(f"Ablation saliency analyzer created on device: {analyzer.device}")
 
@@ -351,13 +308,13 @@ def main():
             f"Loading spectrum from {args.catalogue} (survey={args.survey}, index={args.index})"
         )
         X, wavelength, gaia_id = load_spectrum_from_catalogue(
-            args.catalogue, args.survey, args.index
+            args.catalogue, args.survey, args.index, normalize_spectra
         )
         print(f"  Gaia DR3 {gaia_id}")
 
         # Load labels for this object (use index since spectra and labels are aligned)
         label_values, label_errors = load_labels_from_catalogue(
-            args.catalogue, args.survey, gaia_id, index=args.index
+            args.catalogue, args.survey, args.index
         )
         if label_values is not None:
             print("  Labels loaded from catalogue")
