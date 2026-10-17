@@ -376,6 +376,11 @@ class SaliencyAnalyzer:
     ]:
         """Compute Jacobian using torch.autograd.
 
+        All 2 * n_params rows are computed in one batched backward pass
+        (``is_grads_batched``), which turns the per-row matrix-vector products
+        into matrix-matrix products. Models whose backward cannot be batched
+        fall back to one backward pass per row.
+
         Args:
             X: Input tensor of shape (3, N) - [flux, error, mask].
             survey: Survey name for MultiHeadMLP.
@@ -408,6 +413,39 @@ class SaliencyAnalyzer:
         jac_mean_error = torch.zeros(n_params, N, device=self.device)
         jac_lns_flux = torch.zeros(n_params, N, device=self.device)
         jac_lns_error = torch.zeros(n_params, N, device=self.device)
+
+        # Row k of the identity selects output k, so grads[k] = d output_k / dX
+        # for all outputs [means..., log_scatter...] in a single backward pass.
+        flat_output = output[0].reshape(-1)  # (2 * n_params,)
+        try:
+            (grads,) = torch.autograd.grad(
+                flat_output,
+                X,
+                grad_outputs=torch.eye(
+                    flat_output.numel(),
+                    device=flat_output.device,
+                    dtype=flat_output.dtype,
+                ),
+                retain_graph=True,
+                is_grads_batched=True,
+            )
+        except RuntimeError:
+            grads = None  # Backward not batchable for this model: loop below
+
+        if grads is not None:
+            grads = grads.reshape(2, n_params, *X.shape)  # (2, n_params, 3, N)
+            jac_mean_flux.copy_(grads[0, :, 0, :])
+            jac_mean_error.copy_(grads[0, :, 1, :])
+            jac_lns_flux.copy_(grads[1, :, 0, :])
+            jac_lns_error.copy_(grads[1, :, 1, :])
+            return (
+                jac_mean_flux,
+                jac_mean_error,
+                jac_lns_flux,
+                jac_lns_error,
+                means.detach(),
+                log_scatter.detach(),
+            )
 
         # Compute gradients for each output parameter
         for i in range(n_params):

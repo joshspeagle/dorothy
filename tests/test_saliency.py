@@ -500,6 +500,71 @@ class TestWithMultiHeadMLP:
         assert result_boss.jacobian_mean_flux.shape[1] == 100
         assert result_desi.jacobian_mean_flux.shape[1] == 150
 
+    @staticmethod
+    def _per_output_jacobian(model, X, survey):
+        """Reference Jacobian: one autograd.grad call per model output."""
+        X = X.clone().requires_grad_(True)
+        out = model.forward_single(X.unsqueeze(0), survey)[0]  # (2, n_params)
+        rows = [
+            torch.autograd.grad(out[k, i], X, retain_graph=True)[0]
+            for k in range(2)
+            for i in range(out.shape[1])
+        ]
+        return torch.stack(rows).view(2, out.shape[1], *X.shape)
+
+    def test_jacobian_matches_per_output_gradients(self, multi_head_model):
+        """The batched Jacobian equals per-output gradients, row by row."""
+        analyzer = SaliencyAnalyzer(multi_head_model, device="cpu")
+        torch.manual_seed(0)
+        X = torch.randn(3, 150)
+        X[2] = (torch.rand(150) > 0.2).float()
+
+        jmf, jme, jlf, jle, means, lns = analyzer._compute_jacobian(X, "desi")
+        ref = self._per_output_jacobian(multi_head_model, X, "desi")
+
+        for got, want in [
+            (jmf, ref[0, :, 0]),
+            (jme, ref[0, :, 1]),
+            (jlf, ref[1, :, 0]),
+            (jle, ref[1, :, 1]),
+        ]:
+            assert got.shape == (11, 150)
+            torch.testing.assert_close(
+                got, want, rtol=0, atol=1e-5 * want.abs().max().item()
+            )
+        with torch.no_grad():
+            out = multi_head_model.forward_single(X.unsqueeze(0), "desi")[0]
+        assert torch.equal(means, out[0])
+        assert torch.equal(lns, out[1])
+
+    def test_jacobian_falls_back_when_batching_fails(
+        self, multi_head_model, monkeypatch
+    ):
+        """If the batched backward raises, the per-output loop is used."""
+        analyzer = SaliencyAnalyzer(multi_head_model, device="cpu")
+        torch.manual_seed(1)
+        X = torch.randn(3, 100)
+        batched = analyzer._compute_jacobian(X, "boss")
+
+        real_grad = torch.autograd.grad
+        calls = {"batched": 0}
+
+        def grad_without_batching(*args, **kwargs):
+            if kwargs.get("is_grads_batched"):
+                calls["batched"] += 1
+                raise RuntimeError("batching rule not implemented")
+            return real_grad(*args, **kwargs)
+
+        monkeypatch.setattr(torch.autograd, "grad", grad_without_batching)
+        looped = analyzer._compute_jacobian(X, "boss")
+
+        assert calls["batched"] == 1
+        ref = self._per_output_jacobian(multi_head_model, X, "boss")
+        assert torch.equal(looped[0], ref[0, :, 0])
+        assert torch.equal(looped[3], ref[1, :, 1])
+        for a, b in zip(batched, looped, strict=True):
+            torch.testing.assert_close(a, b, rtol=0, atol=1e-5 * b.abs().max().item())
+
 
 # =============================================================================
 # Ablation Saliency Tests
