@@ -95,18 +95,18 @@ class TensorBatchSource:
 def _rows_to(
     tensor: torch.Tensor, idx: torch.Tensor, device: torch.device
 ) -> torch.Tensor:
-    """Rows ``idx`` of a host tensor, on ``device``.
+    """Rows ``idx`` of a tensor, as a new tensor on ``device``.
 
-    For CUDA the rows are gathered into pinned memory and copied
+    Host rows bound for CUDA are gathered into pinned memory and copied
     asynchronously. PyTorch's caching host allocator keeps a pinned block
     from being reused until its copy has completed, so no host sync is needed.
     """
-    if device.type != "cuda" or tensor.device.type != "cpu":
+    if tensor.device.type != "cpu":
         return tensor[idx].to(device)
-    shape = (len(idx), *tensor.shape[1:])
-    pinned = torch.empty(shape, dtype=tensor.dtype, pin_memory=True)
-    torch.index_select(tensor, 0, idx, out=pinned)
-    return pinned.to(device, non_blocking=True)
+    pin = device.type == "cuda"
+    out = torch.empty((len(idx), *tensor.shape[1:]), dtype=tensor.dtype, pin_memory=pin)
+    torch.index_select(tensor, 0, idx, out=out)
+    return out.to(device, non_blocking=pin)
 
 
 def _numpy_to(array: np.ndarray, device: torch.device) -> torch.Tensor:
@@ -151,16 +151,12 @@ class SparseBatchSource:
 
     def _gather(self, array: np.ndarray, local: np.ndarray) -> torch.Tensor:
         """Rows ``local`` of a sparse survey array, as a device tensor."""
+        source = torch.from_numpy(array)
+        index = torch.from_numpy(np.asarray(local, dtype=np.int64))
         dtype = torch.get_default_dtype()
-        if self.device.type != "cuda":
-            return torch.from_numpy(array[local]).to(self.device, dtype)
-        pinned = torch.empty((len(local), array.shape[1]), dtype=dtype, pin_memory=True)
-        out = pinned.numpy()
-        if array.dtype == out.dtype:
-            np.take(array, local, axis=0, out=out)
-        else:
-            out[...] = array[local]
-        return pinned.to(self.device, non_blocking=True)
+        if source.dtype != dtype:
+            return source.index_select(0, index).to(self.device, dtype)
+        return _rows_to(source, index, self.device)
 
     def build_batch(self, global_indices: np.ndarray) -> Batch:
         """Assemble a dense batch for the given global star indices.

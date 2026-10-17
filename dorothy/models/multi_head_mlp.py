@@ -733,33 +733,42 @@ class MultiHeadMLP(nn.Module):
         first = next(iter(inputs.values()))
         batch_size, device, dtype = first.shape[0], first.device, first.dtype
 
+        # Surveys present in the inputs, with their availability masks
+        surveys = []
+        for i, survey_name in enumerate(self.survey_names):
+            if survey_name in inputs:
+                mask = has_data.get(survey_name)
+                if mask is None:
+                    mask = torch.ones(batch_size, dtype=torch.bool, device=device)
+                surveys.append((i, survey_name, mask))
+        # Number of rows with data per survey, in one host transfer
+        n_rows = (
+            torch.stack([(mask != 0).sum() for _, _, mask in surveys]).tolist()
+            if surveys
+            else []
+        )
+
         # (survey index, latent, rows, mask): latent has every row when rows
         # is None, else only the given rows. With a mask (whole batch encoded
         # because rows are not independent) only the masked rows count.
         encoded: list[tuple[int, torch.Tensor, torch.Tensor | None, torch.Tensor]] = []
-        for i, survey_name in enumerate(self.survey_names):
-            if survey_name not in inputs:
+        for (i, survey_name, mask), n in zip(surveys, n_rows, strict=True):
+            if n == 0:
                 continue
             x = inputs[survey_name]
             encoder = self.encoders[survey_name]
-            mask = has_data.get(survey_name)
-            if mask is None:
-                mask = torch.ones(batch_size, dtype=torch.bool, device=device)
-                encoded.append((i, encoder(x), None, mask))
-            elif (
-                not self.encode_present_rows_only
+            if (
+                n == batch_size
+                or not self.encode_present_rows_only
                 or mask.dtype != torch.bool
                 or not self._rows_are_independent(encoder)
             ):
-                if mask.any():
-                    encoded.append((i, encoder(x), None, mask))
+                encoded.append((i, encoder(x), None, mask))
             else:
-                rows = mask.nonzero().squeeze(1)
-                if rows.numel() == batch_size:
-                    encoded.append((i, encoder(x), None, mask))
-                elif rows.numel() > 0:
-                    latent = encoder(x.index_select(0, rows))
-                    encoded.append((i, latent, rows, mask))
+                # Indices of the rows with data, in order (a stable sort puts
+                # them first), without another host sync
+                rows = torch.argsort((~mask).to(torch.uint8), stable=True)[:n]
+                encoded.append((i, encoder(x.index_select(0, rows)), rows, mask))
 
         if self.combination_mode == "concat":
             blocks = [

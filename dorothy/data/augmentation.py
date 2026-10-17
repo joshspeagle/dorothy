@@ -97,13 +97,17 @@ class DynamicLabelMasking:
         else:
             return self._apply_single(y, p_keep_label)
 
-    def _apply_single(self, y: torch.Tensor, p_keep: float) -> torch.Tensor:
+    def _apply_single(
+        self, y: torch.Tensor, p_keep: float, has_any_label: bool | None = None
+    ) -> torch.Tensor:
         """
         Apply label masking to a single labelset (vectorized).
 
         Args:
             y: Tensor of shape (batch, 3, n_params).
             p_keep: Probability of keeping each label.
+            has_any_label: Whether any entry of y is a valid label
+                (``(y[:, 2] > 0).any()``), if already known on the host.
 
         Returns:
             Masked tensor with same shape.
@@ -117,7 +121,9 @@ class DynamicLabelMasking:
 
         # Check if any samples have available labels
         any_available = available.any(dim=1)  # (batch,)
-        if not any_available.any():
+        if has_any_label is None:
+            has_any_label = bool(any_available.any())
+        if not has_any_label:
             # No samples have any available labels, return unchanged
             return y
 
@@ -126,8 +132,7 @@ class DynamicLabelMasking:
 
         # Guaranteed keeper: select one available label per sample
         # Use highest random value among available as the guaranteed keeper
-        rand_for_guaranteed = rand.clone()
-        rand_for_guaranteed[~available] = -float("inf")
+        rand_for_guaranteed = rand.masked_fill(~available, -float("inf"))
         guaranteed_idx = rand_for_guaranteed.argmax(dim=1)  # (batch,)
 
         # Bernoulli mask: keep if random < p_keep AND available
@@ -203,8 +208,9 @@ class DynamicLabelMasking:
         rand_labelset = torch.rand(batch_size, n_labelsets, device=device, dtype=dtype)
 
         # Guaranteed keeper: select one available labelset per sample
-        rand_for_guaranteed = rand_labelset.clone()
-        rand_for_guaranteed[~labelset_available] = -float("inf")
+        rand_for_guaranteed = rand_labelset.masked_fill(
+            ~labelset_available, -float("inf")
+        )
         guaranteed_labelset_idx = rand_for_guaranteed.argmax(dim=1)  # (batch,)
 
         # Bernoulli mask for labelsets
@@ -217,19 +223,31 @@ class DynamicLabelMasking:
         # Don't modify samples with no available labelsets
         keep_labelset = keep_labelset | ~any_labelset_available.unsqueeze(1)
 
+        # Per labelset: does any sample keep it, and does it have any valid
+        # label? Read in one host transfer instead of one sync per check.
+        flags = torch.cat(
+            [
+                keep_labelset.any(dim=0),
+                torch.stack([(y_dict[name][:, 2, :] > 0).any() for name in labelsets]),
+            ]
+        ).tolist()
+        kept_any, has_any_label = flags[:n_labelsets], flags[n_labelsets:]
+
         # Apply masking to each labelset
         y_out = {}
         for i, name in enumerate(labelsets):
             y_tensor = y_dict[name]
             labelset_kept = keep_labelset[:, i]  # (batch,)
 
-            if not labelset_kept.any():
+            if not kept_any[i]:
                 # This labelset is completely masked for all samples
                 y_out[name] = torch.zeros_like(y_tensor)
                 continue
 
             # Apply label-level masking
-            y_masked = self._apply_single(y_tensor, p_keep_label)
+            y_masked = self._apply_single(
+                y_tensor, p_keep_label, has_any_label=has_any_label[i]
+            )
 
             # Zero out samples where this labelset is not kept
             labelset_mask = labelset_kept.float().view(-1, 1, 1)  # (batch, 1, 1)
@@ -381,8 +399,7 @@ class DynamicInputMasking:
         rand_survey = torch.rand(batch_size, n_surveys, device=device, dtype=dtype)
 
         # Guaranteed keeper: select one available survey per sample
-        rand_for_guaranteed = rand_survey.clone()
-        rand_for_guaranteed[~survey_available] = -float("inf")
+        rand_for_guaranteed = rand_survey.masked_fill(~survey_available, -float("inf"))
         guaranteed_survey_idx = rand_for_guaranteed.argmax(dim=1)  # (batch,)
 
         # Bernoulli mask for surveys
@@ -395,13 +412,23 @@ class DynamicInputMasking:
         # Don't modify samples with no available surveys
         keep_survey = keep_survey | ~any_survey_available.unsqueeze(1)
 
+        # Per survey: does any sample keep it, and does it have any valid
+        # pixel? Read in one host transfer instead of one sync per check.
+        flags = torch.cat(
+            [
+                keep_survey.any(dim=0),
+                torch.stack([(X[name][:, 2, :] != 0).any() for name in surveys]),
+            ]
+        ).tolist()
+        kept_any, has_any_pixel = flags[:n_surveys], flags[n_surveys:]
+
         # Apply masking to each survey
         X_out = {}
         for i, name in enumerate(surveys):
             X_tensor = X[name]
             survey_kept = keep_survey[:, i]  # (batch,)
 
-            if not survey_kept.any():
+            if not kept_any[i]:
                 # This survey is completely masked for all samples
                 X_out[name] = (
                     X_tensor.zero_() if inplace else torch.zeros_like(X_tensor)
@@ -412,7 +439,9 @@ class DynamicInputMasking:
             # not kept. Both masks are 0/1, so they are combined first and
             # applied to the spectra in a single pass.
             survey_mask = survey_kept.to(X_tensor.dtype).unsqueeze(1)  # (batch, 1)
-            keep = self._block_keep_mask(X_tensor, n_wavelengths[name])
+            keep = self._block_keep_mask(
+                X_tensor, n_wavelengths[name], has_any_pixel=has_any_pixel[i]
+            )
             keep = survey_mask if keep is None else keep * survey_mask
             X_out[name] = (
                 X_tensor.mul_(keep.unsqueeze(1))
@@ -445,7 +474,9 @@ class DynamicInputMasking:
             return X
         return X.mul_(keep.unsqueeze(1)) if inplace else X * keep.unsqueeze(1)
 
-    def _block_keep_mask(self, X: torch.Tensor, N: int) -> torch.Tensor | None:
+    def _block_keep_mask(
+        self, X: torch.Tensor, N: int, has_any_pixel: bool | None = None
+    ) -> torch.Tensor | None:
         """
         Draw the block-based wavelength keep mask for a single survey.
 
@@ -461,6 +492,8 @@ class DynamicInputMasking:
         Args:
             X: Tensor of shape (batch, 3, N_wavelengths).
             N: Number of wavelengths in this survey.
+            has_any_pixel: Whether any pixel of X is valid
+                (``(X[:, 2] != 0).any()``), if already known on the host.
 
         Returns:
             Keep mask of shape (batch, N) with values 0/1 in X's dtype, or
@@ -510,7 +543,9 @@ class DynamicInputMasking:
 
         # Check if any samples have available blocks
         any_block_available = block_available.any(dim=1)  # (batch,)
-        if not any_block_available.any():
+        if has_any_pixel is None:
+            has_any_pixel = bool(any_block_available.any())
+        if not has_any_pixel:
             # No samples have any available blocks, leave X unchanged
             return None
 
@@ -518,8 +553,7 @@ class DynamicInputMasking:
         rand_block = torch.rand(batch_size, n_blocks, device=device, dtype=dtype)
 
         # Guaranteed keeper: select one available block per sample
-        rand_for_guaranteed = rand_block.clone()
-        rand_for_guaranteed[~block_available] = -float("inf")
+        rand_for_guaranteed = rand_block.masked_fill(~block_available, -float("inf"))
         guaranteed_block_idx = rand_for_guaranteed.argmax(dim=1)  # (batch,)
 
         # Bernoulli mask for blocks

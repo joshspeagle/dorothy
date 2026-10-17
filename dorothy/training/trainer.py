@@ -987,10 +987,12 @@ class Trainer:
             denominator = sum(w * c for w, c in zip(weights, counts, strict=True))
             return numerator / torch.clamp(denominator, min=1.0)
 
+        # Which sources have any valid label, in one host transfer
+        has_labels = torch.stack(counts).gt(0).tolist()
         terms = [
             (w, s / c)
-            for w, s, c in zip(weights, sums, counts, strict=True)
-            if c.item() > 0
+            for w, s, c, ok in zip(weights, sums, counts, has_labels, strict=True)
+            if ok
         ]
         if not terms or sum(w for w, _ in terms) == 0:
             return sums[0] * 0.0
@@ -1160,8 +1162,11 @@ class Trainer:
         step_scheduler = self.scheduler is not None and not isinstance(
             self.scheduler, ReduceLROnPlateau
         )
-        total_loss = 0.0
-        total_grad_norm = 0.0
+        # Summed on the device in float64 (as the Python floats were) and read
+        # once per epoch, so steps do not wait for the GPU. MPS has no float64.
+        acc_device = self.device if self.device.type != "mps" else torch.device("cpu")
+        total_loss = torch.zeros((), dtype=torch.float64, device=acc_device)
+        total_grad_norm = torch.zeros((), dtype=torch.float64, device=acc_device)
         n_batches = 0
 
         for batch in source.batches(batch_size, rng):
@@ -1177,15 +1182,17 @@ class Trainer:
             with autocast(device_type=self.device.type, enabled=use_amp):
                 loss = self._combine_losses(self._forward(batch), batch.y)
 
-            total_grad_norm += self._backward_and_step(loss, gradient_clip)
+            grad_norm = self._backward_and_step(loss, gradient_clip)
+            total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
                 self.scheduler.step()
             self.history.learning_rates.append(self.optimizer.param_groups[0]["lr"])
 
-            total_loss += loss.item()
+            total_loss += loss.detach().to(acc_device).double()
             n_batches += 1
 
-        return total_loss / max(n_batches, 1), total_grad_norm / max(n_batches, 1)
+        n = max(n_batches, 1)
+        return total_loss.item() / n, total_grad_norm.item() / n
 
     def _run(
         self,
@@ -1348,7 +1355,7 @@ class Trainer:
         self,
         loss: torch.Tensor,
         gradient_clip: float,
-    ) -> float:
+    ) -> torch.Tensor:
         """Backward pass, gradient clipping, and optimizer step.
 
         This unified helper handles both AMP (mixed precision) and standard
@@ -1359,7 +1366,8 @@ class Trainer:
             gradient_clip: Max gradient norm for clipping (0 or negative = no clip).
 
         Returns:
-            The gradient norm (before clipping if clipping is applied).
+            The gradient norm (before clipping if clipping is applied), as a
+            0-dim tensor on the device (not read back, to avoid a host sync).
         """
         # Backward pass with gradient scaling for AMP
         if self.scaler is not None:
@@ -1374,7 +1382,7 @@ class Trainer:
         grad_norm = torch.nn.utils.clip_grad_norm_(
             self.model.parameters(),
             max_norm=clip_value,
-        ).item()
+        ).detach()
 
         # Optimizer step with scaler if using AMP
         if self.scaler is not None:
