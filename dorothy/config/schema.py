@@ -497,6 +497,13 @@ class TrainingConfig(BaseModel):
         save_every: Save checkpoint every N epochs (0 = only save final).
         early_stopping_patience: Epochs without improvement before stopping (0 = disabled).
         scatter_floor: Minimum scatter floor (s_0) for heteroscedastic loss.
+        label_source_weighting: How losses from multiple label sources (output
+            heads) are combined, for training and for selecting the best epoch.
+            "per_label" (default) gives every valid label equal weight;
+            "per_source" averages each head's mean loss, so a smaller label
+            source gets as much total weight as a larger one.
+        label_source_weights: Optional relative weight per label source
+            (default 1.0), e.g. ``{"galah": 0.5}``.
     """
 
     epochs: int = Field(default=300, ge=1, le=10000, description="Number of epochs")
@@ -524,15 +531,32 @@ class TrainingConfig(BaseModel):
     )
     scatter_floor: float = Field(
         default=0.01,
-        ge=0,
+        gt=0,
         le=1.0,
         description="Minimum scatter floor for heteroscedastic loss",
+    )
+    label_source_weighting: Literal["per_label", "per_source"] = Field(
+        default="per_label",
+        description="Combine label-source losses per valid label or per source",
+    )
+    label_source_weights: dict[str, float] = Field(
+        default_factory=dict,
+        description="Relative loss weight per label source (default 1.0)",
     )
     amp: bool = Field(
         default=False,
         description="Enable mixed precision training (AMP). Disabled by default "
         "due to numerical instability with large encoder inputs.",
     )
+
+    @field_validator("label_source_weights")
+    @classmethod
+    def validate_label_source_weights(cls, v: dict[str, float]) -> dict[str, float]:
+        """Ensure label source weights are non-negative."""
+        for source, w in v.items():
+            if w < 0:
+                raise ValueError(f"label_source_weights['{source}'] must be >= 0")
+        return v
 
 
 class LabelMaskingConfig(BaseModel):

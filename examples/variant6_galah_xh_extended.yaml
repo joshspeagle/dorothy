@@ -49,6 +49,10 @@ training:
   gradient_clip: 10.0
   scatter_floor: 0.01
   save_every: 50
+  # How APOGEE and GALAH head losses are combined. per_source (each head's mean
+  # loss counts equally) is what the dorothy_update run used; the default,
+  # per_label, gives every valid label equal weight instead.
+  label_source_weighting: per_source
   optimizer:
     type: adamw
     weight_decay: 0.05
