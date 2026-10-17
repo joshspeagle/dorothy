@@ -203,6 +203,57 @@ def _column(label_data: np.ndarray, name: str) -> np.ndarray | None:
     return None
 
 
+def clean_pixels(flux: np.ndarray, ivar: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """float32 copies of flux/ivar with non-finite pixels zeroed (ivar 0 = masked)."""
+    flux = np.asarray(flux, dtype=np.float32)
+    ivar = np.asarray(ivar, dtype=np.float32)
+    bad = ~(np.isfinite(flux) & np.isfinite(ivar))
+    return np.where(bad, 0, flux), np.where(bad, 0, ivar)
+
+
+def spectrum_snr(
+    flux: np.ndarray, ivar: np.ndarray, chunk_size: int = 4096
+) -> np.ndarray:
+    """Median per-pixel S/N, |flux| * sqrt(ivar), over pixels with ivar > 0.
+
+    Rows without valid pixels get 0. Expects finite inputs (see clean_pixels).
+    """
+    snr = np.zeros(len(flux), dtype=np.float32)
+    for start in range(0, len(flux), chunk_size):
+        f = flux[start : start + chunk_size]
+        iv = ivar[start : start + chunk_size]
+        valid = iv > 0
+        pixel_snr = np.where(valid, np.abs(f) * np.sqrt(np.where(valid, iv, 0)), np.nan)
+        has_valid = valid.any(axis=1)
+        if has_valid.any():
+            snr[start : start + chunk_size][has_valid] = np.nanmedian(
+                pixel_snr[has_valid], axis=1
+            )
+    return snr
+
+
+def select_best(
+    targets: np.ndarray, scores: np.ndarray, current: np.ndarray
+) -> np.ndarray:
+    """Pick, for each target row, the highest-scoring candidate if it beats ``current``.
+
+    Args:
+        targets: Output row of each candidate.
+        scores: Candidate scores (higher is better).
+        current: Score of what each output row holds now.
+
+    Returns:
+        Indices of the candidates to write, at most one per target row. Ties
+        go to the earlier candidate, and to the current row.
+    """
+    order = np.lexsort((-scores, targets))
+    sorted_targets = targets[order]
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = sorted_targets[1:] != sorted_targets[:-1]
+    best = order[first]
+    return best[scores[best] > current[targets[best]]]
+
+
 def extract_apogee_labels(
     label_data: np.ndarray,
     elements: list[str] = CORE_ELEMENTS,
@@ -486,62 +537,45 @@ def build_catalogue(
                     source_indices = np.where(valid_mask)[0][matches]
                     target_indices = out_indices[matches]
 
-                    # Only fill empty slots (SNR == 0)
-                    empty_mask = out_snr[target_indices] == 0
-                    source_idx = source_indices[empty_mask]
-                    target_idx = target_indices[empty_mask]
+                    if survey == "lamost_mrs":
+                        flux_b, ivar_b = clean_pixels(
+                            hdul["SPECTRA_B"].data["FLUX_B"][source_indices],
+                            hdul["SPEC_IVAR_B"].data["IVAR_B"][source_indices],
+                        )
+                        flux_r, ivar_r = clean_pixels(
+                            hdul["SPECTRA_R"].data["FLUX_R"][source_indices],
+                            hdul["SPEC_IVAR_R"].data["IVAR_R"][source_indices],
+                        )
+                        snr_vals = spectrum_snr(  # S/N over both arms
+                            np.concatenate([flux_b, flux_r], axis=1),
+                            np.concatenate([ivar_b, ivar_r], axis=1),
+                        )
+                    else:
+                        flux, ivar = clean_pixels(
+                            hdul["SPECTRA"].data["FLUX"][source_indices],
+                            hdul["SPEC_IVAR"].data["IVAR"][source_indices],
+                        )
+                        snr_vals = spectrum_snr(flux, ivar)
 
-                    n_to_add = len(source_idx)
+                    # Keep each star's highest-S/N spectrum (over repeat
+                    # observations and files); spectra without valid pixels
+                    # (S/N 0) are never stored
+                    best = select_best(target_indices, snr_vals, out_snr)
+                    source_idx = source_indices[best]
+                    target_idx = target_indices[best]
+                    n_replaced = int(np.sum(out_snr[target_idx] > 0))
+                    n_to_add = len(best) - n_replaced
 
-                    if n_to_add > 0:
+                    if len(best) > 0:
                         if survey == "lamost_mrs":
-                            flux_b = hdul["SPECTRA_B"].data["FLUX_B"].astype(np.float32)
-                            flux_r = hdul["SPECTRA_R"].data["FLUX_R"].astype(np.float32)
-                            ivar_b = (
-                                hdul["SPEC_IVAR_B"].data["IVAR_B"].astype(np.float32)
-                            )
-                            ivar_r = (
-                                hdul["SPEC_IVAR_R"].data["IVAR_R"].astype(np.float32)
-                            )
-
-                            # Vectorized assignment
-                            out_spectra[target_idx, 0, :n_wave_b] = flux_b[source_idx]
-                            out_spectra[target_idx, 1, :n_wave_b] = ivar_b[source_idx]
-                            out_spectra[target_idx, 2, :n_wave_r] = flux_r[source_idx]
-                            out_spectra[target_idx, 3, :n_wave_r] = ivar_r[source_idx]
-
-                            # Compute SNR from blue arm (vectorized)
-                            snr_vals = np.zeros(n_to_add, dtype=np.float32)
-                            for i, (si, _ti) in enumerate(
-                                zip(source_idx, target_idx, strict=False)
-                            ):
-                                valid = ivar_b[si] > 0
-                                if valid.sum() > 0:
-                                    snr_vals[i] = np.median(
-                                        np.abs(flux_b[si, valid])
-                                        * np.sqrt(ivar_b[si, valid])
-                                    )
-                            out_snr[target_idx] = snr_vals
+                            out_spectra[target_idx, 0, :n_wave_b] = flux_b[best]
+                            out_spectra[target_idx, 1, :n_wave_b] = ivar_b[best]
+                            out_spectra[target_idx, 2, :n_wave_r] = flux_r[best]
+                            out_spectra[target_idx, 3, :n_wave_r] = ivar_r[best]
                         else:
-                            flux_data = hdul["SPECTRA"].data["FLUX"].astype(np.float32)
-                            ivar_data = (
-                                hdul["SPEC_IVAR"].data["IVAR"].astype(np.float32)
-                            )
-
-                            # Vectorized assignment (fast!)
-                            out_flux[target_idx] = flux_data[source_idx]
-                            out_ivar[target_idx] = ivar_data[source_idx]
-
-                            # Compute SNR (vectorized where possible)
-                            snr_vals = np.zeros(n_to_add, dtype=np.float32)
-                            for i, si in enumerate(source_idx):
-                                valid = ivar_data[si] > 0
-                                if valid.sum() > 0:
-                                    snr_vals[i] = np.median(
-                                        np.abs(flux_data[si, valid])
-                                        * np.sqrt(ivar_data[si, valid])
-                                    )
-                            out_snr[target_idx] = snr_vals
+                            out_flux[target_idx] = flux[best]
+                            out_ivar[target_idx] = ivar[best]
+                        out_snr[target_idx] = snr_vals[best]
 
                         # Load RA/Dec if available
                         if "RVTAB" in [h.name for h in hdul]:
@@ -569,7 +603,13 @@ def build_catalogue(
                                 ra[coord_target] = rvtab[ra_col][coord_source]
                                 dec[coord_target] = rvtab[dec_col][coord_source]
 
-                    print(f"{n_to_add:,} stars ({format_time(time.time() - t0_file)})")
+                    replaced = (
+                        f", {n_replaced:,} replaced by higher S/N" if n_replaced else ""
+                    )
+                    print(
+                        f"{n_to_add:,} stars{replaced} "
+                        f"({format_time(time.time() - t0_file)})"
+                    )
 
             # Write to HDF5 in bulk
             print("    Writing to HDF5...", end=" ", flush=True)
@@ -616,7 +656,8 @@ def build_catalogue(
             values = np.zeros((n_total, n_params), dtype=np.float32)
             errors = np.zeros((n_total, n_params), dtype=np.float32)
             flags = np.zeros((n_total, n_params), dtype=np.uint8)
-            has_labels = np.zeros(n_total, dtype=bool)
+            # Valid labels in each star's stored row (-1: nothing stored yet)
+            n_valid = np.full(n_total, -1, dtype=np.int64)
 
             # Process each survey file with this label source
             for survey in ["boss", "desi", "lamost_lrs", "lamost_mrs"]:
@@ -660,17 +701,22 @@ def build_catalogue(
                     source_indices = np.where(valid_mask)[0][matches]
                     target_indices = out_indices[matches]
 
-                    # Only fill empty slots
-                    empty_mask = ~has_labels[target_indices]
-                    source_idx = source_indices[empty_mask]
-                    target_idx = target_indices[empty_mask]
+                    # Keep each star's row with the most valid labels (earlier
+                    # files win ties), so a row without usable labels can't
+                    # block a valid one from a later file
+                    file_valid = np.sum((file_errs > 0) & (file_flags == 0), axis=1)
+                    best = select_best(
+                        target_indices, file_valid[source_indices], n_valid
+                    )
+                    source_idx = source_indices[best]
+                    target_idx = target_indices[best]
 
-                    n_added = len(source_idx)
-                    if n_added > 0:
+                    n_added = int(np.sum(n_valid[target_idx] < 0))
+                    if len(best) > 0:
                         values[target_idx] = file_vals[source_idx]
                         errors[target_idx] = file_errs[source_idx]
                         flags[target_idx] = file_flags[source_idx]
-                        has_labels[target_idx] = True
+                        n_valid[target_idx] = file_valid[source_idx]
 
                     print(f"{n_added:,} stars ({format_time(time.time() - t0_file)})")
 
@@ -684,9 +730,11 @@ def build_catalogue(
             label_grp.create_dataset("flags", data=flags)
             label_grp.create_dataset("gaia_id", data=all_gaia_ids)
 
-            n_with_labels = int(has_labels.sum())
+            n_with_labels = int(np.sum(n_valid > 0))
             print(f"done ({format_time(time.time() - t0_write)})")
-            print(f"    Total stars with {label_source} labels: {n_with_labels:,}")
+            print(
+                f"    Total stars with valid {label_source} labels: {n_with_labels:,}"
+            )
             stats["labels"][label_source] = {"n_with_labels": n_with_labels}
 
         print(f"\n  Pass 3 completed in {format_time(time.time() - t0_pass3)}")

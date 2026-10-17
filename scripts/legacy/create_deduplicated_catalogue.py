@@ -2,6 +2,10 @@
 """
 Create a deduplicated super-catalogue by removing duplicate observations.
 
+Deprecated: this works on v1 catalogues only (per-survey ``apogee_<survey>``
+label groups). Catalogues built by ``scripts/build_catalogue_v2.py`` already
+have one row per star, keeping each star's highest-S/N spectrum.
+
 This script processes a super-catalogue HDF5 file and removes duplicate
 observations for stars that appear multiple times in a survey. For each
 star with multiple observations, it either:
@@ -9,7 +13,7 @@ star with multiple observations, it either:
   - Takes the observation with highest SNR if chi2 >= threshold
 
 Usage:
-    python scripts/create_deduplicated_catalogue.py \\
+    python scripts/legacy/create_deduplicated_catalogue.py \\
         data/super_catalogue.h5 \\
         data/super_catalogue_clean.h5 \\
         --surveys lamost_lrs lamost_mrs \\
@@ -463,14 +467,14 @@ def main():
         epilog="""
 Examples:
   # Deduplicate all surveys with default settings
-  python scripts/create_deduplicated_catalogue.py data/super_catalogue.h5 data/super_catalogue_clean.h5
+  python scripts/legacy/create_deduplicated_catalogue.py data/super_catalogue.h5 data/super_catalogue_clean.h5
 
   # Deduplicate specific surveys
-  python scripts/create_deduplicated_catalogue.py data/super_catalogue.h5 data/super_catalogue_clean.h5 \\
+  python scripts/legacy/create_deduplicated_catalogue.py data/super_catalogue.h5 data/super_catalogue_clean.h5 \\
       --surveys lamost_lrs lamost_mrs
 
   # Use custom chi2 threshold
-  python scripts/create_deduplicated_catalogue.py data/super_catalogue.h5 data/super_catalogue_clean.h5 \\
+  python scripts/legacy/create_deduplicated_catalogue.py data/super_catalogue.h5 data/super_catalogue_clean.h5 \\
       --chi2-threshold 3.0
 """,
     )

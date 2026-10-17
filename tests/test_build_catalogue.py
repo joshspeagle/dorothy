@@ -216,3 +216,133 @@ def test_xh_without_fe_h_is_masked(builder):
     data = rfn.repack_fields(data)
     values, errors, flags = builder.extract_galah_labels(data, ["mg"], "x_h")
     assert np.all(errors[:, 3] == 0) and np.all(flags[:, 3] == 0)
+
+
+def test_select_best_prefers_higher_score_then_earlier(builder):
+    targets = np.array([3, 1, 3, 1, 2])
+    scores = np.array([5.0, 2.0, 7.0, 2.0, 0.0])
+    current = np.array([0.0, 0.0, 0.0, 6.0])
+    # Row 1: tie -> first candidate; row 2: score 0 doesn't beat 0;
+    # row 3: 7 beats 5 and the current 6
+    assert sorted(builder.select_best(targets, scores, current)) == [1, 2]
+
+
+def test_spectrum_snr_ignores_masked_and_empty_rows(builder):
+    flux = np.array([[2.0, 4.0, 100.0], [1.0, 1.0, 1.0]], dtype=np.float32)
+    ivar = np.array([[1.0, 4.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
+    np.testing.assert_allclose(builder.spectrum_snr(flux, ivar), [5.0, 0.0])
+
+
+def _write_spectra_file(path, gaia_ids, flux, ivar, label_hdu):
+    hdus = [
+        fits.PrimaryHDU(),
+        _table("GAIA_ID", {"GAIA_ID": np.asarray(gaia_ids, dtype=np.int64)}),
+        _table("WAVELENGTH", {"WAVELENGTH": np.linspace(3600, 9000, N_WAVE)}),
+        _table("SPECTRA", {"FLUX": flux}),
+        _table("SPEC_IVAR", {"IVAR": ivar}),
+        label_hdu,
+    ]
+    fits.HDUList(hdus).writeto(path)
+
+
+def _nan_rows(hdu, rows):
+    """Copy of a label table with every float column NaN in the given rows."""
+    data = hdu.data.copy()
+    for name in data.dtype.names:
+        if data[name].dtype.kind == "f":
+            data[name][rows] = np.nan
+    return fits.BinTableHDU(data, name=hdu.name)
+
+
+def test_bad_first_rows_do_not_block_later_files(builder, tmp_path):
+    """An unusable first match (NaN labels / spectrum) must not lock out later ones."""
+    rng = np.random.default_rng(1)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    ids = np.arange(1, N_STARS + 1)
+    flux = (rng.normal(size=(N_STARS, N_WAVE)) + 10).astype(np.float32)
+    ivar = np.ones_like(flux)
+
+    # BOSS x APOGEE: star 1 has NaN labels and an all-NaN spectrum
+    bad_flux = flux.copy()
+    bad_flux[0] = np.nan
+    boss_apogee = _nan_rows(_apogee_hdu(rng, N_STARS), [0])
+    _write_spectra_file(
+        raw / "BOSSxAPOGEE_training.fits", ids, bad_flux, ivar, boss_apogee
+    )
+    # BOSS x GALAH: star 1 again, with a valid spectrum; star 2 observed
+    # twice, the repeat with 4x the inverse variance
+    galah_ids = np.concatenate([ids, [2]])
+    galah_flux = np.concatenate([flux, flux[1:2] + 1]).astype(np.float32)
+    galah_ivar = np.ones_like(galah_flux)
+    galah_ivar[-1] = 4.0
+    _write_spectra_file(
+        raw / "BOSSxGALAH_training.fits",
+        galah_ids,
+        galah_flux,
+        galah_ivar,
+        _galah_hdu(rng, N_STARS + 1),
+    )
+    # LAMOST LRS x APOGEE: valid labels for star 1
+    lrs_apogee = _apogee_hdu(rng, N_STARS)
+    _write_spectra_file(
+        raw / "LAMOST_LRSxAPOGEE_training.fits", ids, flux, ivar, lrs_apogee
+    )
+
+    out = tmp_path / "cat.h5"
+    builder.build_catalogue(raw, out, verbose=False)
+    import h5py
+
+    with h5py.File(out, "r") as f:
+        row = {g: i for i, g in enumerate(f["metadata"]["gaia_id"][:])}
+        boss_flux = f["surveys"]["boss"]["flux"][:]
+        boss_ivar = f["surveys"]["boss"]["ivar"][:]
+        boss_snr = f["surveys"]["boss"]["snr"][:]
+        teff = f["labels"]["apogee"]["values"][:, 0]
+
+    # Star 1: spectrum from the GALAH file, labels from the LRS file
+    np.testing.assert_allclose(boss_flux[row[1]], flux[0])
+    assert boss_snr[row[1]] > 0
+    assert teff[row[1]] == pytest.approx(lrs_apogee.data["TEFF"][0], rel=1e-6)
+    # Other stars keep the first file's labels
+    assert teff[row[3]] == pytest.approx(boss_apogee.data["TEFF"][2], rel=1e-6)
+    # Star 2: the higher-S/N repeat observation is kept
+    np.testing.assert_allclose(boss_flux[row[2]], flux[1] + 1)
+    np.testing.assert_allclose(boss_ivar[row[2]], 4.0)
+    assert np.isfinite(boss_flux).all()
+
+
+def test_lamost_mrs_snr_uses_both_arms(builder, tmp_path):
+    rng = np.random.default_rng(2)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    n, n_b, n_r = 3, 10, 12
+    ids = np.arange(1, n + 1)
+    flux_b = (rng.normal(size=(n, n_b)) + 10).astype(np.float32)
+    flux_r = (rng.normal(size=(n, n_r)) + 10).astype(np.float32)
+    ivar_b = np.ones_like(flux_b)
+    ivar_r = np.ones_like(flux_r)
+    ivar_b[0] = 0.0  # star 1: blue arm entirely masked
+    hdus = [
+        fits.PrimaryHDU(),
+        _table("GAIA_ID", {"GAIA_ID": ids}),
+        _table("WAVELENGTH_B", {"WAVELENGTH_B": np.linspace(4950, 5350, n_b)}),
+        _table("WAVELENGTH_R", {"WAVELENGTH_R": np.linspace(6300, 6800, n_r)}),
+        _table("SPECTRA_B", {"FLUX_B": flux_b}),
+        _table("SPEC_IVAR_B", {"IVAR_B": ivar_b}),
+        _table("SPECTRA_R", {"FLUX_R": flux_r}),
+        _table("SPEC_IVAR_R", {"IVAR_R": ivar_r}),
+        _apogee_hdu(rng, n),
+    ]
+    fits.HDUList(hdus).writeto(raw / "LAMOST_MRSxAPOGEE.fits")
+
+    out = tmp_path / "cat.h5"
+    builder.build_catalogue(raw, out, verbose=False)
+    import h5py
+
+    with h5py.File(out, "r") as f:
+        snr = f["surveys"]["lamost_mrs"]["snr"][:]
+        spectra = f["surveys"]["lamost_mrs"]["spectra"][:]
+    assert np.all(snr > 0)
+    np.testing.assert_allclose(snr[0], np.median(np.abs(flux_r[0])), rtol=1e-6)
+    np.testing.assert_allclose(spectra[0, 2, :n_r], flux_r[0])

@@ -37,6 +37,7 @@ python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
 | `add_lamost_mrs_to_hdf5.py` | Added LAMOST MRS from `data/raw/lamost_mrs/*.npy` |
 | `add_gaia_ids_to_hdf5.py` | Cross-matched 2MASS IDs to Gaia DR3 |
 | `fix_wavelengths.py` | Fixed wavelength grid issues in v1 catalogue |
+| `create_deduplicated_catalogue.py` | Stacked or dropped repeat observations in v1 catalogues (v2 catalogues have one row per star, keeping the highest-S/N spectrum) |
 
 ## Related Files
 
