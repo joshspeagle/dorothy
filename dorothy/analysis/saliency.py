@@ -856,20 +856,13 @@ class AblationSaliencyAnalyzer:
         Returns:
             Tensor of shape (len(positions), 3, N) with ablations applied.
         """
-        batch_size = len(positions)
+        # Window mask (batch, N): True inside [pos, pos + block_size)
+        starts = torch.as_tensor(positions, device=X.device).unsqueeze(1)
+        pixel = torch.arange(X.shape[1], device=X.device)
+        in_window = (pixel >= starts) & (pixel < starts + block_size)
 
-        # Replicate X for each position
-        X_batch = X.unsqueeze(0).expand(batch_size, -1, -1).clone()
-
-        # Apply ablation for each position
-        for i, pos in enumerate(positions):
-            end_pos = pos + block_size
-            # Zero out flux, error, and mask in the ablation window
-            X_batch[i, 0, pos:end_pos] = 0.0  # flux
-            X_batch[i, 1, pos:end_pos] = 0.0  # error
-            X_batch[i, 2, pos:end_pos] = 0.0  # mask
-
-        return X_batch
+        # Zero out flux, error, and mask in the ablation window
+        return torch.where(in_window.unsqueeze(1), X.new_zeros(()), X)
 
     def _aggregate_to_pixels(
         self,
@@ -897,20 +890,22 @@ class AblationSaliencyAnalyzer:
 
         importance = np.zeros((n_params, n_wavelengths), dtype=np.float32)
 
-        for i in range(n_wavelengths):
-            if not natural_mask[i]:
-                # Already masked pixel - zero importance
-                continue
+        # Windows that cover pixel i start at positions max(0, i-B+1) to
+        # min(i, n_pos-1). Window sums come from float64 prefix sums over
+        # positions, so each pixel's mean costs O(1) instead of O(B).
+        pixels = np.flatnonzero(natural_mask)  # masked pixels keep zero importance
+        start_pos = np.maximum(0, pixels - block_size + 1)
+        end_pos = np.minimum(pixels + 1, n_positions)
+        keep = end_pos > start_pos
+        pixels, start_pos, end_pos = pixels[keep], start_pos[keep], end_pos[keep]
 
-            # Windows that cover this pixel start at positions max(0, i-B+1) to min(i, n_pos-1)
-            start_pos = max(0, i - block_size + 1)
-            end_pos = min(i + 1, n_positions)
+        prefix = np.zeros((n_params, n_positions + 1), dtype=np.float64)
+        np.cumsum(per_position_metrics, axis=1, dtype=np.float64, out=prefix[:, 1:])
 
-            if end_pos > start_pos:
-                # Average the metrics from all covering windows
-                importance[:, i] = per_position_metrics[:, start_pos:end_pos].mean(
-                    axis=1
-                )
+        # Average the metrics from all covering windows
+        importance[:, pixels] = (prefix[:, end_pos] - prefix[:, start_pos]) / (
+            end_pos - start_pos
+        )
 
         return importance
 

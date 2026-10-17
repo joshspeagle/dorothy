@@ -809,6 +809,37 @@ class TestAblationSaliencyAnalyzer:
         assert np.all(result.delta_mu == 0)
         assert np.all(result.fisher_weighted == 0)
 
+    def test_create_ablated_batch_zeroes_windows(self, analyzer):
+        """Each row zeroes all three channels inside its own window only."""
+        X = torch.randn(3, 50)
+        positions = [0, 7, 45]
+        batch = analyzer._create_ablated_batch(X, positions, block_size=6)
+
+        expected = X.unsqueeze(0).repeat(len(positions), 1, 1)
+        for i, pos in enumerate(positions):
+            expected[i, :, pos : pos + 6] = 0.0
+        assert batch.is_contiguous()
+        assert torch.equal(batch, expected)
+
+    @pytest.mark.parametrize("block_size", [1, 4, 30, 50])
+    def test_aggregate_to_pixels_matches_window_means(self, analyzer, block_size):
+        """Per-pixel values are means over the windows covering each pixel."""
+        rng = np.random.default_rng(0)
+        n_wavelengths = 50
+        n_positions = n_wavelengths - block_size + 1
+        metrics = rng.normal(size=(3, n_positions)).astype(np.float32)
+        mask = rng.random(n_wavelengths) > 0.2
+
+        result = analyzer._aggregate_to_pixels(metrics, block_size, n_wavelengths, mask)
+
+        expected = np.zeros((3, n_wavelengths), dtype=np.float32)
+        for i in np.flatnonzero(mask):
+            lo, hi = max(0, i - block_size + 1), min(i + 1, n_positions)
+            expected[:, i] = metrics[:, lo:hi].mean(axis=1)
+        assert result.dtype == np.float32
+        assert np.all(result[:, ~mask] == 0)
+        np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-7)
+
 
 class TestAblationWithMultiHeadMLP:
     """Tests with the actual MultiHeadMLP model."""
