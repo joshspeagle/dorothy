@@ -326,6 +326,7 @@ class DynamicInputMasking:
         self,
         X: dict[str, torch.Tensor],
         n_wavelengths: dict[str, int],
+        inplace: bool = False,
     ) -> dict[str, torch.Tensor]:
         """
         Apply hierarchical input masking to multi-survey data.
@@ -334,6 +335,9 @@ class DynamicInputMasking:
             X: Dict mapping survey names to tensors of shape (batch, 3, N_wavelengths).
                 Each tensor has channels [flux, error, mask].
             n_wavelengths: Dict mapping survey names to number of wavelengths.
+            inplace: Mask the tensors in X in place instead of returning
+                masked copies (the result is identical). Saves a copy of
+                every spectrum when the caller owns X.
 
         Returns:
             Dict with same keys, with masking applied to each survey.
@@ -357,7 +361,7 @@ class DynamicInputMasking:
             # Single survey, just apply block-level masking
             return {
                 surveys[0]: self._apply_block_masking(
-                    X[surveys[0]], n_wavelengths[surveys[0]]
+                    X[surveys[0]], n_wavelengths[surveys[0]], inplace=inplace
                 )
             }
 
@@ -399,21 +403,51 @@ class DynamicInputMasking:
 
             if not survey_kept.any():
                 # This survey is completely masked for all samples
-                X_out[name] = torch.zeros_like(X_tensor)
+                X_out[name] = (
+                    X_tensor.zero_() if inplace else torch.zeros_like(X_tensor)
+                )
                 continue
 
-            # Apply block-level masking
-            X_masked = self._apply_block_masking(X_tensor, n_wavelengths[name])
-
-            # Zero out samples where this survey is not kept
-            survey_mask = survey_kept.float().view(-1, 1, 1)  # (batch, 1, 1)
-            X_out[name] = X_masked * survey_mask
+            # Block-level masking, then zero out samples where this survey is
+            # not kept. Both masks are 0/1, so they are combined first and
+            # applied to the spectra in a single pass.
+            survey_mask = survey_kept.to(X_tensor.dtype).unsqueeze(1)  # (batch, 1)
+            keep = self._block_keep_mask(X_tensor, n_wavelengths[name])
+            keep = survey_mask if keep is None else keep * survey_mask
+            X_out[name] = (
+                X_tensor.mul_(keep.unsqueeze(1))
+                if inplace
+                else X_tensor * keep.unsqueeze(1)
+            )
 
         return X_out
 
-    def _apply_block_masking(self, X: torch.Tensor, N: int) -> torch.Tensor:
+    def _apply_block_masking(
+        self, X: torch.Tensor, N: int, inplace: bool = False
+    ) -> torch.Tensor:
         """
         Apply block-based wavelength masking to a single survey (vectorized).
+
+        See :meth:`_block_keep_mask` for how blocks are drawn. Flux, error
+        and mask are zeroed where a block is dropped.
+
+        Args:
+            X: Tensor of shape (batch, 3, N_wavelengths).
+            N: Number of wavelengths in this survey.
+            inplace: Modify X in place instead of returning a masked copy.
+
+        Returns:
+            Masked tensor with same shape (X itself if no sample has any
+            valid pixel).
+        """
+        keep = self._block_keep_mask(X, N)
+        if keep is None:
+            return X
+        return X.mul_(keep.unsqueeze(1)) if inplace else X * keep.unsqueeze(1)
+
+    def _block_keep_mask(self, X: torch.Tensor, N: int) -> torch.Tensor | None:
+        """
+        Draw the block-based wavelength keep mask for a single survey.
 
         Uses random offset to shift block boundaries, creating partial blocks
         at the beginning and end of the spectrum. This prevents the model from
@@ -429,7 +463,8 @@ class DynamicInputMasking:
             N: Number of wavelengths in this survey.
 
         Returns:
-            Masked tensor with same shape.
+            Keep mask of shape (batch, N) with values 0/1 in X's dtype, or
+            None if no sample has any valid pixel (X is then left unchanged).
         """
         if X.dim() != 3 or X.shape[1] != 3:
             raise ValueError(f"Expected shape (batch, 3, N), got {X.shape}")
@@ -462,22 +497,22 @@ class DynamicInputMasking:
         # Sample p_keep for blocks
         p_keep_block = np.random.uniform(self.p_block_min, self.p_block_max)
 
-        # Get natural mask
-        mask = X[:, 2, :]  # (batch, N)
+        # Natural mask: which pixels are valid (non-zero mask channel)
+        valid = X[:, 2, :] != 0  # (batch, N)
 
-        # Pad mask: add `offset` zeros at front, then pad to multiple of block_size
-        # This naturally shifts the block boundaries
-        mask_padded = torch.nn.functional.pad(mask, (offset, post_pad), value=0)
+        # Pad: add `offset` invalid pixels at front, then pad to a multiple of
+        # block_size. This naturally shifts the block boundaries
+        valid_padded = torch.nn.functional.pad(valid, (offset, post_pad), value=False)
 
         # Reshape to (batch, n_blocks, block_size) and check if any valid per block
-        mask_blocks = mask_padded.view(batch_size, n_blocks, block_size)
-        block_available = mask_blocks.any(dim=2)  # (batch, n_blocks)
+        valid_blocks = valid_padded.view(batch_size, n_blocks, block_size)
+        block_available = valid_blocks.any(dim=2)  # (batch, n_blocks)
 
         # Check if any samples have available blocks
         any_block_available = block_available.any(dim=1)  # (batch,)
         if not any_block_available.any():
-            # No samples have any available blocks, return unchanged
-            return X
+            # No samples have any available blocks, leave X unchanged
+            return None
 
         # Generate random values for block selection
         rand_block = torch.rand(batch_size, n_blocks, device=device, dtype=dtype)
@@ -497,22 +532,12 @@ class DynamicInputMasking:
         # Don't modify samples with no available blocks
         keep_block = keep_block | ~any_block_available.unsqueeze(1)
 
-        # Expand block mask to wavelength mask
-        # (batch, n_blocks) -> (batch, n_blocks, block_size) -> (batch, padded_length)
-        wavelength_keep_padded = keep_block.unsqueeze(2).expand(-1, -1, block_size)
-        wavelength_keep_padded = wavelength_keep_padded.reshape(batch_size, -1)
-
-        # Extract the original N wavelengths (skip the offset padding at front)
-        wavelength_keep = wavelength_keep_padded[:, offset : offset + N]
-
-        # Apply masking
-        X_out = X.clone()
-        keep_float = wavelength_keep.float()
-        X_out[:, 2, :] = mask * keep_float  # Update mask
-        X_out[:, 0, :] = X[:, 0, :] * keep_float  # Zero masked flux
-        X_out[:, 1, :] = X[:, 1, :] * keep_float  # Zero masked error
-
-        return X_out
+        # Expand block mask to wavelength mask: wavelength j lies in padded
+        # position offset + j, i.e. in block (offset + j) // block_size
+        block_of_wavelength = (
+            torch.arange(offset, offset + N, device=device) // block_size
+        )
+        return keep_block.to(dtype).index_select(1, block_of_wavelength)
 
     def __repr__(self) -> str:
         """Return string representation."""

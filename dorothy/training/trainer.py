@@ -941,8 +941,11 @@ class Trainer:
         DynamicInputMasking zeroes out whole surveys (including the mask
         channel). The model must then treat that survey as missing, exactly as
         at inference time, rather than encoding an all-zero spectrum.
+
+        The batch tensors are freshly built for this step, so they are masked
+        in place.
         """
-        X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+        X_batch = self._input_masking(X_batch, self._survey_wavelengths, inplace=True)
         has_data_batch = {
             survey: has_data_batch[survey] & (X_batch[survey][:, 2, :] > 0).any(dim=1)
             for survey in has_data_batch
