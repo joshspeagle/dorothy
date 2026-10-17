@@ -35,6 +35,19 @@ from dorothy.models.utils import get_activation, get_normalization
 if TYPE_CHECKING:
     from dorothy.config.schema import MultiHeadModelConfig
 
+# Layers whose output for a row depends only on that row, in any mode (see
+# MultiHeadMLP._rows_are_independent)
+_ROWWISE_MODULES: tuple[type[nn.Module], ...] = (
+    nn.Sequential,
+    nn.Flatten,
+    nn.Linear,
+    nn.LayerNorm,
+    nn.GELU,
+    nn.ReLU,
+    nn.SiLU,
+    nn.Identity,
+)
+
 
 class SurveyEncoder(nn.Module):
     """Encoder network for a single survey's spectral data.
@@ -278,6 +291,11 @@ class MultiHeadMLP(nn.Module):
         encoders: ModuleDict of survey encoders.
         trunk: Shared trunk network.
         output_head: Output prediction head.
+        encode_present_rows_only: With multi-survey input, run each encoder
+            only on the rows that have that survey's data (default True).
+            The rows without data are discarded either way, so this changes
+            results only by float rounding (a different GEMM size); set it
+            to False to encode every row, as earlier versions did.
 
     Example:
         >>> model = MultiHeadMLP(
@@ -294,6 +312,8 @@ class MultiHeadMLP(nn.Module):
         ...             "lamost": torch.ones(32, dtype=torch.bool)}
         >>> output = model.forward_multi(inputs, has_data)
     """
+
+    encode_present_rows_only: bool = True
 
     def __init__(
         self,
@@ -510,70 +530,8 @@ class MultiHeadMLP(nn.Module):
             Samples must have data from at least one survey.
             If a sample has no data from any survey, the output will be zeros.
         """
-        batch_size = next(iter(inputs.values())).shape[0]
-        device = next(iter(inputs.values())).device
-        dtype = next(iter(inputs.values())).dtype
-
-        if self.combination_mode == "concat":
-            # Initialize full concatenated latent
-            combined = torch.zeros(
-                batch_size, self.n_surveys * self.latent_dim, device=device, dtype=dtype
-            )
-
-            for i, survey_name in enumerate(self.survey_names):
-                if survey_name not in inputs:
-                    continue
-
-                x = inputs[survey_name]
-                mask = has_data.get(
-                    survey_name, torch.ones(batch_size, dtype=torch.bool, device=device)
-                )
-
-                if mask.any():
-                    # Encode samples that have this survey's data
-                    latent = self.encoders[survey_name](x)  # (batch, latent_dim)
-
-                    # Insert at correct position
-                    start_idx = i * self.latent_dim
-                    end_idx = start_idx + self.latent_dim
-
-                    # Use mask to only update relevant samples
-                    mask_expanded = mask.unsqueeze(1).expand(-1, self.latent_dim)
-                    combined[:, start_idx:end_idx] = torch.where(
-                        mask_expanded, latent, combined[:, start_idx:end_idx]
-                    )
-
-        else:  # mean combination
-            # Accumulate weighted sum
-            combined = torch.zeros(
-                batch_size, self.latent_dim, device=device, dtype=dtype
-            )
-            count = torch.zeros(batch_size, 1, device=device, dtype=dtype)
-
-            for survey_name in self.survey_names:
-                if survey_name not in inputs:
-                    continue
-
-                x = inputs[survey_name]
-                mask = has_data.get(
-                    survey_name, torch.ones(batch_size, dtype=torch.bool, device=device)
-                )
-
-                if mask.any():
-                    latent = self.encoders[survey_name](x)  # (batch, latent_dim)
-
-                    # Add to sum for samples with this survey
-                    mask_float = mask.float().unsqueeze(1)
-                    combined = combined + latent * mask_float
-                    count = count + mask_float
-
-            # Average (avoid division by zero)
-            count = count.clamp(min=1)
-            combined = combined / count
-
         # Through trunk and output
-        features = self.trunk(combined)
-        return self.output_head(features)
+        return self.output_head(self._forward_to_trunk(inputs, has_data))
 
     def forward(
         self,
@@ -733,58 +691,104 @@ class MultiHeadMLP(nn.Module):
         has_data: dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """Forward through encoders and trunk for multi-survey."""
-        batch_size = next(iter(inputs.values())).shape[0]
-        device = next(iter(inputs.values())).device
-        dtype = next(iter(inputs.values())).dtype
+        return self.trunk(self._combine_encodings(inputs, has_data))
+
+    @staticmethod
+    def _rows_are_independent(encoder: nn.Module) -> bool:
+        """Whether the encoder maps each row independently of the others.
+
+        True when every layer is row-wise (Linear, LayerNorm, activations),
+        or is a BatchNorm using running statistics or a Dropout in eval mode.
+        In training mode BatchNorm uses batch statistics and Dropout draws
+        random numbers per batch element, so the whole batch must be encoded
+        as before.
+        """
+        for module in encoder.modules():
+            if isinstance(module, (SurveyEncoder, *_ROWWISE_MODULES)):
+                continue
+            if isinstance(module, nn.Dropout) and not module.training:
+                continue
+            if (
+                isinstance(module, nn.BatchNorm1d)
+                and not module.training
+                and module.track_running_stats
+            ):
+                continue
+            return False
+        return True
+
+    def _combine_encodings(
+        self,
+        inputs: dict[str, torch.Tensor],
+        has_data: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Encode each survey and combine the encodings (concat or mean).
+
+        Rows without a survey's data contribute nothing (zeros in concat
+        mode, excluded from the mean). When the encoder maps rows
+        independently, only the rows that have data are encoded, which skips
+        most of the encoder work for low-coverage surveys; the result is the
+        same as encoding every row and discarding the rows without data.
+        """
+        first = next(iter(inputs.values()))
+        batch_size, device, dtype = first.shape[0], first.device, first.dtype
+
+        # (survey index, latent, rows, mask): latent has every row when rows
+        # is None, else only the given rows. With a mask (whole batch encoded
+        # because rows are not independent) only the masked rows count.
+        encoded: list[tuple[int, torch.Tensor, torch.Tensor | None, torch.Tensor]] = []
+        for i, survey_name in enumerate(self.survey_names):
+            if survey_name not in inputs:
+                continue
+            x = inputs[survey_name]
+            encoder = self.encoders[survey_name]
+            mask = has_data.get(survey_name)
+            if mask is None:
+                mask = torch.ones(batch_size, dtype=torch.bool, device=device)
+                encoded.append((i, encoder(x), None, mask))
+            elif (
+                not self.encode_present_rows_only
+                or mask.dtype != torch.bool
+                or not self._rows_are_independent(encoder)
+            ):
+                if mask.any():
+                    encoded.append((i, encoder(x), None, mask))
+            else:
+                rows = mask.nonzero().squeeze(1)
+                if rows.numel() == batch_size:
+                    encoded.append((i, encoder(x), None, mask))
+                elif rows.numel() > 0:
+                    latent = encoder(x.index_select(0, rows))
+                    encoded.append((i, latent, rows, mask))
 
         if self.combination_mode == "concat":
-            combined = torch.zeros(
-                batch_size, self.n_surveys * self.latent_dim, device=device, dtype=dtype
-            )
-
-            for i, survey_name in enumerate(self.survey_names):
-                if survey_name not in inputs:
-                    continue
-
-                x = inputs[survey_name]
-                mask = has_data.get(
-                    survey_name, torch.ones(batch_size, dtype=torch.bool, device=device)
-                )
-
-                if mask.any():
-                    latent = self.encoders[survey_name](x)
-                    start_idx = i * self.latent_dim
-                    end_idx = start_idx + self.latent_dim
+            blocks = [
+                torch.zeros(batch_size, self.latent_dim, device=device, dtype=dtype)
+                for _ in self.survey_names
+            ]
+            for i, latent, rows, mask in encoded:
+                if rows is not None:
+                    blocks[i] = blocks[i].index_copy(0, rows, latent.to(dtype))
+                else:
+                    # Missing rows stay zero
                     mask_expanded = mask.unsqueeze(1).expand(-1, self.latent_dim)
-                    combined[:, start_idx:end_idx] = torch.where(
-                        mask_expanded, latent, combined[:, start_idx:end_idx]
-                    )
+                    blocks[i] = torch.where(mask_expanded, latent, blocks[i]).to(dtype)
+            return torch.cat(blocks, dim=1)
 
-        else:  # mean combination
-            combined = torch.zeros(
-                batch_size, self.latent_dim, device=device, dtype=dtype
-            )
-            count = torch.zeros(batch_size, 1, device=device, dtype=dtype)
+        # Mean combination: accumulate the sum and count of available surveys
+        combined = torch.zeros(batch_size, self.latent_dim, device=device, dtype=dtype)
+        count = torch.zeros(batch_size, 1, device=device, dtype=dtype)
+        for _, latent, rows, mask in encoded:
+            mask_float = mask.float().unsqueeze(1)
+            if rows is not None:
+                combined = combined.index_add(0, rows, latent.to(dtype))
+            else:
+                combined = combined + latent * mask_float
+            count = count + mask_float
 
-            for survey_name in self.survey_names:
-                if survey_name not in inputs:
-                    continue
-
-                x = inputs[survey_name]
-                mask = has_data.get(
-                    survey_name, torch.ones(batch_size, dtype=torch.bool, device=device)
-                )
-
-                if mask.any():
-                    latent = self.encoders[survey_name](x)
-                    mask_float = mask.float().unsqueeze(1)
-                    combined = combined + latent * mask_float
-                    count = count + mask_float
-
-            count = count.clamp(min=1)
-            combined = combined / count
-
-        return self.trunk(combined)
+        # Average (avoid division by zero)
+        count = count.clamp(min=1)
+        return combined / count
 
     def get_embeddings(
         self,
