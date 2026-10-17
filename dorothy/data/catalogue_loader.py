@@ -26,7 +26,6 @@ from typing import Literal
 import h5py
 import numpy as np
 
-
 # 11 stellar parameters in standard order
 PARAMETER_NAMES = [
     "teff",
@@ -1482,6 +1481,19 @@ class CatalogueLoader:
                 valid_indices = np.where(valid_mask)[0]
                 survey_valid_indices[survey] = valid_indices
                 print(f"  {len(valid_indices):,} stars with data")
+
+            # Always check for duplicates - require pre-deduplicated catalogue
+            dup_meta: dict[str, dict] = {}
+            for survey in surveys:
+                ids = all_gaia_ids[survey_valid_indices[survey]]
+                ids = ids[ids > 0]
+                unique_ids, counts = np.unique(ids, return_counts=True)
+                dup_ids = unique_ids[counts > 1]
+                dup_meta[survey] = {
+                    "duplicate_gaia_ids": set(dup_ids.tolist()),
+                    "duplicate_indices": np.where(np.isin(ids, dup_ids))[0],
+                }
+            self._check_for_duplicates(dup_meta, surveys)
 
             print(f"Total unique stars: {n_total:,}")
 
