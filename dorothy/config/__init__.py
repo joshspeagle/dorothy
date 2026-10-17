@@ -12,7 +12,6 @@ from dorothy.config.schema import (
     TrainingConfig,
 )
 
-
 __all__ = [
     "ExperimentConfig",
     "DataConfig",

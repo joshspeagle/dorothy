@@ -29,7 +29,6 @@ import torch.nn as nn
 
 from dorothy.models.utils import get_activation, get_normalization
 
-
 if TYPE_CHECKING:
     from dorothy.config.schema import ModelConfig
 

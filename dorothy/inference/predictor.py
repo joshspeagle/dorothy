@@ -27,7 +27,6 @@ from numpy.typing import NDArray
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.models import MLP
 
-
 if TYPE_CHECKING:
     from dorothy.config.schema import ExperimentConfig
 

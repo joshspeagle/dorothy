@@ -18,7 +18,6 @@ from dorothy.analysis.saliency import (
     plot_saliency_heatmap,
 )
 
-
 __all__ = [
     # Anomaly detection
     "AnomalyDetector",

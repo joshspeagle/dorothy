@@ -52,7 +52,6 @@ from dorothy.losses.heteroscedastic import HeteroscedasticLoss
 from dorothy.models.mlp import MLP
 from dorothy.models.multi_head_mlp import MultiHeadMLP
 
-
 if TYPE_CHECKING:
     from dorothy.config.schema import ExperimentConfig
 

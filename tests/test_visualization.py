@@ -29,7 +29,6 @@ from dorothy.visualization.training_plots import (
     plot_zscore_calibration,
 )
 
-
 # =============================================================================
 # Helper Function Tests
 # =============================================================================

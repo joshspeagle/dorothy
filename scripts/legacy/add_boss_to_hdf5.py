@@ -23,7 +23,6 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-
 # 11 stellar parameters in standard order
 PARAMETER_NAMES = [
     "teff",

@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -11,31 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          pip install black ruff
+      # Versions match .pre-commit-config.yaml and the [dev] extras
+      - name: Install linters
+        run: pip install black==24.10.0 ruff==0.14.0
 
-      - name: Format with black
-        run: black dorothy/ tests/
+      - name: Check formatting (black)
+        run: black --check --diff dorothy/ tests/ scripts/ examples/
 
-      - name: Fix with ruff
-        run: ruff check --fix dorothy/ tests/
-
-      - name: Commit formatting changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "style: auto-format with black and ruff"
-          commit_user_name: "github-actions[bot]"
-          commit_user_email: "github-actions[bot]@users.noreply.github.com"
+      - name: Lint (ruff)
+        run: ruff check dorothy/ tests/ scripts/ examples/
 
   test:
     runs-on: ubuntu-latest

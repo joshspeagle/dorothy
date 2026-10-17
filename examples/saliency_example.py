@@ -41,7 +41,6 @@ from dorothy.analysis import (
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.models import MultiHeadMLP
 
-
 if TYPE_CHECKING:
     pass
 

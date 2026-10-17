@@ -22,7 +22,6 @@ from torch import nn
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.inference.evaluator import EvaluationResult, Evaluator
 
-
 if TYPE_CHECKING:
     from dorothy.config.schema import ExperimentConfig
     from dorothy.data.normalizer import LabelNormalizer

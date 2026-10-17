@@ -27,7 +27,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
     from numpy.typing import NDArray

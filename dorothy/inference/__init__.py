@@ -23,7 +23,6 @@ from dorothy.inference.predictor import (
     predict_from_fits,
 )
 
-
 __all__ = [
     "Predictor",
     "PredictionResult",

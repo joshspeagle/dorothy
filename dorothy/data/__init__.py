@@ -25,7 +25,6 @@ from dorothy.data.fits_loader import (
 )
 from dorothy.data.normalizer import LabelNormalizer, ParameterStats
 
-
 __all__ = [
     # FITS loading
     "FITSLoader",

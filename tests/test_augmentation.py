@@ -17,7 +17,6 @@ from dorothy.data.augmentation import (
     DynamicLabelMasking,
 )
 
-
 # ============================================================================
 # DynamicLabelMasking Tests
 # ============================================================================

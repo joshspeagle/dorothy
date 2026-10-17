@@ -8,7 +8,6 @@ from dorothy.models.multi_head_mlp import (
     SurveyEncoder,
 )
 
-
 __all__ = [
     "MLP",
     "MultiHeadMLP",

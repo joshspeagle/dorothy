@@ -29,7 +29,6 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-
 # Mapping from survey names to their label group names
 SURVEY_LABEL_MAP = {
     "boss": "apogee_boss",
