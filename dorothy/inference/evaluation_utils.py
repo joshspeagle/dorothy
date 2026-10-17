@@ -40,7 +40,7 @@ class HeadEvaluation:
     """Evaluation of one output head (label source) on a set of stars.
 
     Attributes:
-        label_source: Label source name ("default" for a single-head model).
+        label_source: Label source name of the head.
         normalized: Metrics in normalized space (comparable to training
             validation), or in raw model units without a normalizer.
         physical: Metrics in physical units (None without a normalizer).
@@ -67,10 +67,11 @@ class HeadEvaluation:
         return out
 
 
-def _label_keys(model: nn.Module) -> list[str]:
-    if isinstance(model, MultiHeadMLP):
+def _head_names(model: nn.Module, config: ExperimentConfig) -> list[str]:
+    """Label source of each output head (the configured one for a single head)."""
+    if isinstance(model, MultiHeadMLP) and model.label_sources != ["default"]:
         return list(model.label_sources)
-    return ["default"]
+    return list(config.data.label_sources[:1])
 
 
 def evaluate_model(
@@ -94,13 +95,14 @@ def evaluate_model(
         device: Device for inference.
 
     Returns:
-        Label source name -> HeadEvaluation, in the model's head order.
+        Label source name -> HeadEvaluation, in the model's head order. A
+        single-head model's head is named after the configured label source.
     """
     device = resolve_device(device)
     model.to(device)
     model.eval()
     rows = np.asarray(rows)
-    keys = _label_keys(model)
+    keys = _head_names(model, config)
     parameter_names = (
         list(normalizer.parameters)
         if normalizer is not None

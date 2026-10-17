@@ -579,17 +579,11 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         batch_size=args.batch_size,
         device=ckpt.device,
     )
-    # Name a single head after its label source
-    head_names = {
-        key: (config.data.label_sources[0] if key == "default" else key)
-        for key in results
-    }
-
     # Text / markdown summaries, one section per head
     fmt = "markdown" if args.format == "markdown" else "text"
     sections = []
-    for key, head in results.items():
-        source = f"[{head_names[key]}]"
+    for source_name, head in results.items():
+        source = f"[{source_name}]"
         if head.physical is not None:
             sections.append(
                 f"NORMALIZED SPACE METRICS (comparable to training validation) {source}\n"
@@ -615,9 +609,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     # JSON: primary head at the top level (backward compatible) + every head
     primary = next(iter(results.values()))
     output_dict = primary.to_dict()
-    output_dict["label_sources"] = {
-        head_names[k]: head.to_dict() for k, head in results.items()
-    }
+    output_dict["label_sources"] = {k: head.to_dict() for k, head in results.items()}
 
     if args.format == "json" and args.output is None:
         print(json.dumps(output_dict, indent=2))
@@ -639,7 +631,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
             plots_dir = args.plots_dir or checkpoint_path / "plots" / "evaluation"
             n_plots = 0
-            for key, head in results.items():
+            for source_name, head in results.items():
                 n_plots += len(
                     generate_evaluation_plots(
                         plots_dir,
@@ -649,7 +641,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                         head.y_err,
                         head.mask,
                         head.parameter_names,
-                        label_source=head_names[key],
+                        label_source=source_name,
                     )
                 )
             print(f"\nGenerated {n_plots} evaluation plots in: {plots_dir}")

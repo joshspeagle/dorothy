@@ -94,8 +94,8 @@ class TestEvaluateMatchesTraining:
                 [getattr(primary.normalized.metrics[p], metric) for p in PARAMS]
             )
             np.testing.assert_allclose(got, expected, rtol=1e-4, atol=1e-6)
+        assert list(results) == sources  # heads named by label source
         if len(sources) > 1:
-            assert list(results) == sources
             for source in sources:
                 expected = history.per_labelset_val_metrics[source]["rmse"][best]
                 got = np.array(
