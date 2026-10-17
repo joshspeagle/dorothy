@@ -127,6 +127,59 @@ ASPCAPFLAG_TEFF_BITS = (1 << 0) | (1 << 16)  # TEFF_WARN | TEFF_BAD
 ASPCAPFLAG_LOGG_BITS = (1 << 1) | (1 << 17)  # LOGG_WARN | LOGG_BAD
 
 
+def _float32_rows(column: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """``column.astype(np.float32)[rows]``, converting only the selected rows
+    (with memory-mapped FITS data, only those rows are read)."""
+    return column[rows].astype(np.float32)
+
+
+def median_snr(flux: np.ndarray, ivar: np.ndarray, chunk_rows: int = 256) -> np.ndarray:
+    """Per-spectrum SNR: median of |flux| * sqrt(ivar) over pixels with ivar > 0.
+
+    Returns float32 values, 0 for spectra without valid pixels. Equivalent to
+    ``np.median(np.abs(flux[i, valid]) * np.sqrt(ivar[i, valid]))`` row by row,
+    but vectorized: per chunk of rows, invalid pixels are set to +inf so they
+    sort last, rows are sorted once, and the middle element(s) of the valid
+    part are averaged with np.mean as np.median does. Rows whose products
+    include NaN (median NaN) are recomputed with np.median itself, so the
+    NaN returned is the same one.
+    """
+    n_rows = flux.shape[0]
+    snr = np.zeros(n_rows, dtype=np.float32)
+    # Buffers reused across chunks (entries at invalid pixels are never read)
+    shape = (min(chunk_rows, n_rows),) + flux.shape[1:]
+    root_buf = np.empty(shape, dtype=np.sqrt(ivar[:0]).dtype)
+    prod_buf = np.empty(shape, dtype=(np.abs(flux[:0]) * root_buf[:0]).dtype)
+    for start in range(0, n_rows, chunk_rows):
+        f = flux[start : start + chunk_rows]
+        iv = ivar[start : start + chunk_rows]
+        valid = iv > 0
+        root = root_buf[: len(f)]
+        np.sqrt(iv, out=root, where=valid)
+        prod = prod_buf[: len(f)]
+        np.abs(f, out=prod)
+        np.multiply(prod, root, out=prod, where=valid)
+        prod[~valid] = np.inf
+        counts = valid.sum(axis=1)
+        prod.sort(axis=1)
+        has_nan = np.isnan(prod[:, -1])  # NaNs sort after the +inf padding
+        rows = np.flatnonzero(counts > 0)
+        k = counts[rows]
+        for odd in (True, False):
+            sel = rows[(k % 2 == 1) == odd]
+            if len(sel) == 0:
+                continue
+            ks = counts[sel]
+            middle = [prod[sel, (ks - 1) // 2]]
+            if not odd:
+                middle.append(prod[sel, ks // 2])
+            snr[start + sel] = np.mean(np.stack(middle, axis=1), axis=1)
+        for i in np.flatnonzero(has_nan):
+            ok = iv[i] > 0
+            snr[start + i] = np.median(np.abs(f[i, ok]) * np.sqrt(iv[i, ok]))
+    return snr
+
+
 def get_gaia_id_column(data: np.ndarray) -> str:
     """Determine the Gaia ID column name from the data."""
     names = data.dtype.names
@@ -152,7 +205,7 @@ def collect_all_gaia_ids(
         - Sorted array of unique Gaia IDs
         - Dict mapping (survey, label_source) -> array of Gaia IDs for that file
     """
-    all_gaia_ids = set()
+    valid_id_arrays = []
     file_gaia_ids = {}
 
     for (survey, label_source), filename in input_files.items():
@@ -172,7 +225,7 @@ def collect_all_gaia_ids(
             valid_mask = gaia_ids > 0
             valid_ids = gaia_ids[valid_mask]
 
-            all_gaia_ids.update(valid_ids)
+            valid_id_arrays.append(valid_ids)
             file_gaia_ids[(survey, label_source)] = gaia_ids
 
             if verbose:
@@ -181,7 +234,10 @@ def collect_all_gaia_ids(
                 )
 
     print("    Sorting and deduplicating...")
-    sorted_ids = np.array(sorted(all_gaia_ids), dtype=np.int64)
+    if valid_id_arrays:
+        sorted_ids = np.unique(np.concatenate(valid_id_arrays))
+    else:
+        sorted_ids = np.array([], dtype=np.int64)
     return sorted_ids, file_gaia_ids
 
 
@@ -485,54 +541,40 @@ def build_catalogue(
                     n_to_add = len(source_idx)
 
                     if n_to_add > 0:
+                        # Convert only the rows being added
                         if survey == "lamost_mrs":
-                            flux_b = hdul["SPECTRA_B"].data["FLUX_B"].astype(np.float32)
-                            flux_r = hdul["SPECTRA_R"].data["FLUX_R"].astype(np.float32)
-                            ivar_b = (
-                                hdul["SPEC_IVAR_B"].data["IVAR_B"].astype(np.float32)
-                            )
-                            ivar_r = (
-                                hdul["SPEC_IVAR_R"].data["IVAR_R"].astype(np.float32)
+                            flux_b, flux_r, ivar_b, ivar_r = (
+                                _float32_rows(hdul[hdu].data[col], source_idx)
+                                for hdu, col in (
+                                    ("SPECTRA_B", "FLUX_B"),
+                                    ("SPECTRA_R", "FLUX_R"),
+                                    ("SPEC_IVAR_B", "IVAR_B"),
+                                    ("SPEC_IVAR_R", "IVAR_R"),
+                                )
                             )
 
                             # Vectorized assignment
-                            out_spectra[target_idx, 0, :n_wave_b] = flux_b[source_idx]
-                            out_spectra[target_idx, 1, :n_wave_b] = ivar_b[source_idx]
-                            out_spectra[target_idx, 2, :n_wave_r] = flux_r[source_idx]
-                            out_spectra[target_idx, 3, :n_wave_r] = ivar_r[source_idx]
+                            out_spectra[target_idx, 0, :n_wave_b] = flux_b
+                            out_spectra[target_idx, 1, :n_wave_b] = ivar_b
+                            out_spectra[target_idx, 2, :n_wave_r] = flux_r
+                            out_spectra[target_idx, 3, :n_wave_r] = ivar_r
 
                             # Compute SNR from blue arm (vectorized)
-                            snr_vals = np.zeros(n_to_add, dtype=np.float32)
-                            for i, (si, _ti) in enumerate(
-                                zip(source_idx, target_idx, strict=False)
-                            ):
-                                valid = ivar_b[si] > 0
-                                if valid.sum() > 0:
-                                    snr_vals[i] = np.median(
-                                        np.abs(flux_b[si, valid])
-                                        * np.sqrt(ivar_b[si, valid])
-                                    )
-                            out_snr[target_idx] = snr_vals
+                            out_snr[target_idx] = median_snr(flux_b, ivar_b)
                         else:
-                            flux_data = hdul["SPECTRA"].data["FLUX"].astype(np.float32)
-                            ivar_data = (
-                                hdul["SPEC_IVAR"].data["IVAR"].astype(np.float32)
+                            flux_data = _float32_rows(
+                                hdul["SPECTRA"].data["FLUX"], source_idx
+                            )
+                            ivar_data = _float32_rows(
+                                hdul["SPEC_IVAR"].data["IVAR"], source_idx
                             )
 
                             # Vectorized assignment (fast!)
-                            out_flux[target_idx] = flux_data[source_idx]
-                            out_ivar[target_idx] = ivar_data[source_idx]
+                            out_flux[target_idx] = flux_data
+                            out_ivar[target_idx] = ivar_data
 
-                            # Compute SNR (vectorized where possible)
-                            snr_vals = np.zeros(n_to_add, dtype=np.float32)
-                            for i, si in enumerate(source_idx):
-                                valid = ivar_data[si] > 0
-                                if valid.sum() > 0:
-                                    snr_vals[i] = np.median(
-                                        np.abs(flux_data[si, valid])
-                                        * np.sqrt(ivar_data[si, valid])
-                                    )
-                            out_snr[target_idx] = snr_vals
+                            # Compute SNR (vectorized)
+                            out_snr[target_idx] = median_snr(flux_data, ivar_data)
 
                         # Load RA/Dec if available
                         if "RVTAB" in [h.name for h in hdul]:
