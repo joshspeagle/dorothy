@@ -7,7 +7,7 @@ containing survey spectra matched with APOGEE and GALAH stellar parameters.
 
 Input files (in data/raw_catalogues/):
     - BOSSxAPOGEE_training.fits, BOSSxGALAH_training.fits
-    - DESIxAPOGEE_training.fits, DESIxGALAH_training.fits
+    - DESIxAPOGEE_training[_dr1].fits, DESIxGALAH_training[_dr1].fits
     - LAMOST_LRSxAPOGEE_training.fits, LAMOST_LRSxGALAH_training.fits
     - LAMOST_MRSxAPOGEE.fits, LAMOST_MRSxGALAH.fits
 
@@ -18,6 +18,10 @@ Usage:
     python scripts/build_catalogue_v2.py
     python scripts/build_catalogue_v2.py --output data/super_catalogue.h5
     python scripts/build_catalogue_v2.py --dry-run  # Print stats only
+
+    # 20 parameters (17 elements) with [X/H] abundances
+    python scripts/build_catalogue_v2.py --elements extended --abundance-scale x_h \
+        --output data/super_catalogue_xh_extended.h5
 """
 
 from __future__ import annotations
@@ -44,118 +48,76 @@ def format_time(seconds: float) -> str:
         return f"{seconds/3600:.1f}hr"
 
 
-# 11 stellar parameters in standard order
-PARAMETER_NAMES = [
-    "teff",
-    "logg",
-    "fe_h",
-    "mg_fe",
-    "c_fe",
-    "si_fe",
-    "ni_fe",
-    "al_fe",
-    "ca_fe",
-    "n_fe",
-    "mn_fe",
-]
+# Abundance element sets (in output column order, after teff, logg, fe_h)
+CORE_ELEMENTS = ["mg", "c", "si", "ni", "al", "ca", "n", "mn"]
+EXTENDED_ELEMENTS = CORE_ELEMENTS + ["o", "na", "k", "ti", "v", "cr", "co", "ba", "sr"]
+ELEMENT_SETS = {"core": CORE_ELEMENTS, "extended": EXTENDED_ELEMENTS}
 
-# Input file mapping: (survey, label_source) -> filename
-INPUT_FILES = {
-    ("boss", "apogee"): "BOSSxAPOGEE_training.fits",
-    ("boss", "galah"): "BOSSxGALAH_training.fits",
-    ("desi", "apogee"): "DESIxAPOGEE_training.fits",
-    ("desi", "galah"): "DESIxGALAH_training.fits",
-    ("lamost_lrs", "apogee"): "LAMOST_LRSxAPOGEE_training.fits",
-    ("lamost_lrs", "galah"): "LAMOST_LRSxGALAH_training.fits",
-    ("lamost_mrs", "apogee"): "LAMOST_MRSxAPOGEE.fits",
-    ("lamost_mrs", "galah"): "LAMOST_MRSxGALAH.fits",
+# Column index of each element in the APOGEE DR17 allStar X_H / X_H_ERR arrays
+APOGEE_X_H_INDEX = {
+    "c": 0,
+    "n": 2,
+    "o": 3,
+    "na": 4,
+    "mg": 5,
+    "al": 6,
+    "si": 7,
+    "k": 10,
+    "ca": 11,
+    "ti": 12,
+    "v": 14,
+    "cr": 15,
+    "mn": 16,
+    "co": 18,
+    "ni": 19,
 }
 
-# APOGEE column mappings (UPPERCASE)
-APOGEE_COLUMNS = {
-    "value": [
-        "TEFF",
-        "LOGG",
-        "FE_H",
-        "MG_FE",
-        "C_FE",
-        "SI_FE",
-        "NI_FE",
-        "AL_FE",
-        "CA_FE",
-        "N_FE",
-        "MN_FE",
-    ],
-    "error": [
-        "TEFF_ERR",
-        "LOGG_ERR",
-        "FE_H_ERR",
-        "MG_FE_ERR",
-        "C_FE_ERR",
-        "SI_FE_ERR",
-        "NI_FE_ERR",
-        "AL_FE_ERR",
-        "CA_FE_ERR",
-        "N_FE_ERR",
-        "MN_FE_ERR",
-    ],
-    "flag": [
-        None,
-        None,
-        "FE_H_FLAG",
-        "MG_FE_FLAG",
-        "C_FE_FLAG",
-        "SI_FE_FLAG",
-        "NI_FE_FLAG",
-        "AL_FE_FLAG",
-        "CA_FE_FLAG",
-        "N_FE_FLAG",
-        "MN_FE_FLAG",
-    ],
+
+def get_parameter_names(
+    elements: list[str] = CORE_ELEMENTS, abundance_scale: str = "x_fe"
+) -> list[str]:
+    """Output parameter names: teff, logg, fe_h, then one abundance per element.
+
+    Args:
+        elements: Elements to include, in output order.
+        abundance_scale: "x_fe" for [X/Fe] or "x_h" for [X/H] abundances.
+    """
+    if abundance_scale not in ("x_fe", "x_h"):
+        raise ValueError(
+            f"abundance_scale must be 'x_fe' or 'x_h', got {abundance_scale}"
+        )
+    suffix = "fe" if abundance_scale == "x_fe" else "h"
+    return ["teff", "logg", "fe_h"] + [f"{el}_{suffix}" for el in elements]
+
+
+# Default (v2) parameter set: 11 parameters with [X/Fe] abundances
+PARAMETER_NAMES = get_parameter_names()
+
+# Input file candidates: (survey, label_source) -> filenames, first found is used
+INPUT_FILE_CANDIDATES = {
+    ("boss", "apogee"): ["BOSSxAPOGEE_training.fits"],
+    ("boss", "galah"): ["BOSSxGALAH_training.fits"],
+    ("desi", "apogee"): ["DESIxAPOGEE_training_dr1.fits", "DESIxAPOGEE_training.fits"],
+    ("desi", "galah"): ["DESIxGALAH_training_dr1.fits", "DESIxGALAH_training.fits"],
+    ("lamost_lrs", "apogee"): ["LAMOST_LRSxAPOGEE_training.fits"],
+    ("lamost_lrs", "galah"): ["LAMOST_LRSxGALAH_training.fits"],
+    ("lamost_mrs", "apogee"): ["LAMOST_MRSxAPOGEE.fits"],
+    ("lamost_mrs", "galah"): ["LAMOST_MRSxGALAH.fits"],
 }
 
-# GALAH column mappings (lowercase)
-GALAH_COLUMNS = {
-    "value": [
-        "teff",
-        "logg",
-        "fe_h",
-        "mg_fe",
-        "c_fe",
-        "si_fe",
-        "ni_fe",
-        "al_fe",
-        "ca_fe",
-        "n_fe",
-        "mn_fe",
-    ],
-    "error": [
-        "e_teff",
-        "e_logg",
-        "e_fe_h",
-        "e_mg_fe",
-        "e_c_fe",
-        "e_si_fe",
-        "e_ni_fe",
-        "e_al_fe",
-        "e_ca_fe",
-        "e_n_fe",
-        "e_mn_fe",
-    ],
-    "flag": [
-        None,
-        None,
-        "flag_fe_h",
-        "flag_mg_fe",
-        "flag_c_fe",
-        "flag_si_fe",
-        "flag_ni_fe",
-        "flag_al_fe",
-        "flag_ca_fe",
-        "flag_n_fe",
-        "flag_mn_fe",
-    ],
-}
+
+def resolve_input_files(input_dir: Path) -> dict[tuple[str, str], str]:
+    """Pick the first existing candidate filename for each (survey, label) pair.
+
+    Pairs with no file present map to their first candidate (reported as
+    missing and skipped later).
+    """
+    resolved = {}
+    for key, candidates in INPUT_FILE_CANDIDATES.items():
+        existing = [c for c in candidates if (input_dir / c).exists()]
+        resolved[key] = existing[0] if existing else candidates[0]
+    return resolved
+
 
 # APOGEE ASPCAPFLAG bit positions for parameter-specific flags
 # Reference: https://www.sdss4.org/dr17/irspec/apogee-bitmasks/
@@ -179,7 +141,9 @@ def get_gaia_id_column(data: np.ndarray) -> str:
 
 
 def collect_all_gaia_ids(
-    input_dir: Path, verbose: bool = True
+    input_dir: Path,
+    input_files: dict[tuple[str, str], str],
+    verbose: bool = True,
 ) -> tuple[np.ndarray, dict]:
     """
     Scan all FITS files to collect union of all unique Gaia IDs.
@@ -191,7 +155,7 @@ def collect_all_gaia_ids(
     all_gaia_ids = set()
     file_gaia_ids = {}
 
-    for (survey, label_source), filename in INPUT_FILES.items():
+    for (survey, label_source), filename in input_files.items():
         path = input_dir / filename
         if not path.exists():
             if verbose:
@@ -221,88 +185,145 @@ def collect_all_gaia_ids(
     return sorted_ids, file_gaia_ids
 
 
+def _finalize_labels(
+    values: np.ndarray, errors: np.ndarray, flags: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Zero non-finite values/errors and flag them."""
+    bad = ~np.isfinite(values) | ~np.isfinite(errors)
+    values[bad] = 0.0
+    errors[bad] = 0.0
+    flags[bad] = 1
+    return values, errors, flags
+
+
+def _column(label_data: np.ndarray, name: str) -> np.ndarray | None:
+    """Return a column as float64, or None if absent."""
+    if name in label_data.dtype.names:
+        return np.asarray(label_data[name], dtype=np.float64)
+    return None
+
+
 def extract_apogee_labels(
     label_data: np.ndarray,
+    elements: list[str] = CORE_ELEMENTS,
+    abundance_scale: str = "x_fe",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Extract and format APOGEE labels to standard order."""
+    """Extract APOGEE labels in standard order (teff, logg, fe_h, abundances).
+
+    For ``abundance_scale="x_h"``, uses the allStar ``X_H`` / ``X_H_ERR``
+    arrays when present, otherwise [X/Fe] + [Fe/H] with errors added in
+    quadrature. Elements APOGEE does not measure are left zero and flagged.
+    """
+    names = label_data.dtype.names
     n_stars = len(label_data)
-    values = np.zeros((n_stars, 11), dtype=np.float32)
-    errors = np.zeros((n_stars, 11), dtype=np.float32)
-    flags = np.zeros((n_stars, 11), dtype=np.uint8)
+    n_params = 3 + len(elements)
+    values = np.zeros((n_stars, n_params), dtype=np.float64)
+    errors = np.zeros((n_stars, n_params), dtype=np.float64)
+    flags = np.zeros((n_stars, n_params), dtype=np.uint8)
 
-    for i, col in enumerate(APOGEE_COLUMNS["value"]):
-        if col in label_data.dtype.names:
-            values[:, i] = label_data[col]
+    for i, col in enumerate(["TEFF", "LOGG", "FE_H"]):
+        val, err = _column(label_data, col), _column(label_data, f"{col}_ERR")
+        if val is not None:
+            values[:, i] = val
+        if err is not None:
+            errors[:, i] = err
 
-    for i, col in enumerate(APOGEE_COLUMNS["error"]):
-        if col in label_data.dtype.names:
-            errors[:, i] = label_data[col]
+    # teff/logg: only their parameter-specific ASPCAPFLAG bits (not e.g. VMICRO_WARN)
+    if "ASPCAPFLAG" in names:
+        aspcapflag = label_data["ASPCAPFLAG"]
+        flags[:, 0] = ((aspcapflag & ASPCAPFLAG_TEFF_BITS) != 0).astype(np.uint8)
+        flags[:, 1] = ((aspcapflag & ASPCAPFLAG_LOGG_BITS) != 0).astype(np.uint8)
+    if "FE_H_FLAG" in names:
+        flags[:, 2] = (label_data["FE_H_FLAG"] != 0).astype(np.uint8)
 
-    # Handle flags
-    aspcapflag = (
-        label_data["ASPCAPFLAG"] if "ASPCAPFLAG" in label_data.dtype.names else None
-    )
+    has_x_h = "X_H" in names
+    for k, el in enumerate(elements):
+        i = 3 + k
+        col = f"{el.upper()}_FE"
+        x_fe, x_fe_err = _column(label_data, col), _column(label_data, f"{col}_ERR")
+        flag_col = f"{col}_FLAG"
+        if flag_col in names:
+            flags[:, i] = (label_data[flag_col] != 0).astype(np.uint8)
 
-    for i, col in enumerate(APOGEE_COLUMNS["flag"]):
-        if col is None:
-            # For teff/logg, use only parameter-specific ASPCAPFLAG bits
-            if aspcapflag is not None:
-                if i == 0:  # TEFF - use only TEFF_WARN (bit 0) and TEFF_BAD (bit 16)
-                    flags[:, i] = ((aspcapflag & ASPCAPFLAG_TEFF_BITS) != 0).astype(
-                        np.uint8
-                    )
-                elif i == 1:  # LOGG - use only LOGG_WARN (bit 1) and LOGG_BAD (bit 17)
-                    flags[:, i] = ((aspcapflag & ASPCAPFLAG_LOGG_BITS) != 0).astype(
-                        np.uint8
-                    )
-        elif col in label_data.dtype.names:
-            flags[:, i] = (label_data[col] != 0).astype(np.uint8)
+        if abundance_scale == "x_h" and has_x_h and el in APOGEE_X_H_INDEX:
+            idx = APOGEE_X_H_INDEX[el]
+            values[:, i] = label_data["X_H"][:, idx]
+            if "X_H_ERR" in names:
+                errors[:, i] = label_data["X_H_ERR"][:, idx]
+            elif x_fe_err is not None:
+                errors[:, i] = np.hypot(x_fe_err, errors[:, 2])
+        elif x_fe is not None:
+            if abundance_scale == "x_h":
+                values[:, i] = x_fe + values[:, 2]
+                errors[:, i] = np.hypot(
+                    x_fe_err if x_fe_err is not None else 0.0, errors[:, 2]
+                )
+                flags[:, i] |= flags[:, 2]
+            else:
+                values[:, i] = x_fe
+                if x_fe_err is not None:
+                    errors[:, i] = x_fe_err
+        else:
+            flags[:, i] = 1  # Not measured by APOGEE
 
-    # Handle NaN/inf values
-    bad_values = ~np.isfinite(values)
-    bad_errors = ~np.isfinite(errors)
-    values[bad_values] = 0.0
-    errors[bad_errors] = 0.0
-    flags[bad_values | bad_errors] = 1
-
-    return values, errors, flags
+    values, errors, flags = _finalize_labels(values, errors, flags)
+    return values.astype(np.float32), errors.astype(np.float32), flags
 
 
 def extract_galah_labels(
     label_data: np.ndarray,
+    elements: list[str] = CORE_ELEMENTS,
+    abundance_scale: str = "x_fe",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Extract and format GALAH labels to standard order."""
+    """Extract GALAH labels in standard order (teff, logg, fe_h, abundances).
+
+    For ``abundance_scale="x_h"``, abundances are [X/Fe] + [Fe/H] with errors
+    added in quadrature, and are flagged whenever [Fe/H] is flagged.
+    """
+    names = label_data.dtype.names
     n_stars = len(label_data)
-    values = np.zeros((n_stars, 11), dtype=np.float32)
-    errors = np.zeros((n_stars, 11), dtype=np.float32)
-    flags = np.zeros((n_stars, 11), dtype=np.uint8)
+    n_params = 3 + len(elements)
+    values = np.zeros((n_stars, n_params), dtype=np.float64)
+    errors = np.zeros((n_stars, n_params), dtype=np.float64)
+    flags = np.zeros((n_stars, n_params), dtype=np.uint8)
 
-    for i, col in enumerate(GALAH_COLUMNS["value"]):
-        if col in label_data.dtype.names:
-            values[:, i] = label_data[col]
+    for i, col in enumerate(["teff", "logg", "fe_h"]):
+        val, err = _column(label_data, col), _column(label_data, f"e_{col}")
+        if val is not None:
+            values[:, i] = val
+        if err is not None:
+            errors[:, i] = err
 
-    for i, col in enumerate(GALAH_COLUMNS["error"]):
-        if col in label_data.dtype.names:
-            errors[:, i] = label_data[col]
+    # teff/logg use the stellar-parameter flag; fe_h its own flag
+    if "flag_sp" in names:
+        flag_sp = (label_data["flag_sp"] != 0).astype(np.uint8)
+        flags[:, 0] = flag_sp
+        flags[:, 1] = flag_sp
+    if "flag_fe_h" in names:
+        flags[:, 2] = (label_data["flag_fe_h"] != 0).astype(np.uint8)
 
-    # Handle flags
-    flag_sp = label_data["flag_sp"] if "flag_sp" in label_data.dtype.names else None
+    for k, el in enumerate(elements):
+        i = 3 + k
+        col = f"{el}_fe"
+        x_fe, x_fe_err = _column(label_data, col), _column(label_data, f"e_{col}")
+        if f"flag_{col}" in names:
+            flags[:, i] = (label_data[f"flag_{col}"] != 0).astype(np.uint8)
+        if x_fe is None:
+            flags[:, i] = 1  # Not measured by GALAH
+            continue
+        if abundance_scale == "x_h":
+            values[:, i] = x_fe + values[:, 2]
+            errors[:, i] = np.hypot(
+                x_fe_err if x_fe_err is not None else 0.0, errors[:, 2]
+            )
+            flags[:, i] |= flags[:, 2]
+        else:
+            values[:, i] = x_fe
+            if x_fe_err is not None:
+                errors[:, i] = x_fe_err
 
-    for i, col in enumerate(GALAH_COLUMNS["flag"]):
-        if col is None:
-            if flag_sp is not None:
-                flags[:, i] = (flag_sp != 0).astype(np.uint8)
-        elif col in label_data.dtype.names:
-            flags[:, i] = (label_data[col] != 0).astype(np.uint8)
-
-    # Handle NaN/inf values
-    bad_values = ~np.isfinite(values)
-    bad_errors = ~np.isfinite(errors)
-    values[bad_values] = 0.0
-    errors[bad_errors] = 0.0
-    flags[bad_values | bad_errors] = 1
-
-    return values, errors, flags
+    values, errors, flags = _finalize_labels(values, errors, flags)
+    return values.astype(np.float32), errors.astype(np.float32), flags
 
 
 def build_catalogue(
@@ -310,9 +331,19 @@ def build_catalogue(
     output_path: Path,
     verbose: bool = True,
     dry_run: bool = False,
+    elements: list[str] = CORE_ELEMENTS,
+    abundance_scale: str = "x_fe",
 ) -> dict[str, Any]:
     """
     Build unified super-catalogue from raw FITS files.
+
+    Args:
+        input_dir: Directory with the cross-matched FITS files.
+        output_path: Output HDF5 path.
+        verbose: Print per-file progress.
+        dry_run: Print what would be processed without writing output.
+        elements: Abundance elements to include (after teff, logg, fe_h).
+        abundance_scale: "x_fe" ([X/Fe]) or "x_h" ([X/H]) abundances.
 
     Uses vectorized operations for efficiency:
     1. Build mapping from gaia_id to output index
@@ -320,6 +351,9 @@ def build_catalogue(
     3. Write to HDF5 in bulk operations
     """
     build_start = time.time()
+    parameter_names = get_parameter_names(elements, abundance_scale)
+    n_params = len(parameter_names)
+    input_files = resolve_input_files(input_dir)
     print("=" * 70)
     print("DOROTHY Super-Catalogue Builder v2 (Vectorized)")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -328,7 +362,7 @@ def build_catalogue(
     # Pass 1: Collect all unique Gaia IDs
     print("\n[Pass 1/3] Collecting Gaia IDs from all files...")
     t0 = time.time()
-    all_gaia_ids, file_gaia_ids = collect_all_gaia_ids(input_dir, verbose)
+    all_gaia_ids, file_gaia_ids = collect_all_gaia_ids(input_dir, input_files, verbose)
     n_total = len(all_gaia_ids)
 
     # Build fast lookup: gaia_id -> output row index
@@ -386,7 +420,7 @@ def build_catalogue(
                 key = (survey, label_source)
                 if key in file_gaia_ids:
                     files_for_survey.append(
-                        (label_source, INPUT_FILES[key], file_gaia_ids[key])
+                        (label_source, input_files[key], file_gaia_ids[key])
                     )
 
             if not files_for_survey:
@@ -570,9 +604,9 @@ def build_catalogue(
             sys.stdout.flush()
 
             # Initialize output arrays
-            values = np.zeros((n_total, 11), dtype=np.float32)
-            errors = np.zeros((n_total, 11), dtype=np.float32)
-            flags = np.zeros((n_total, 11), dtype=np.uint8)
+            values = np.zeros((n_total, n_params), dtype=np.float32)
+            errors = np.zeros((n_total, n_params), dtype=np.float32)
+            flags = np.zeros((n_total, n_params), dtype=np.uint8)
             has_labels = np.zeros(n_total, dtype=bool)
 
             # Process each survey file with this label source
@@ -581,7 +615,7 @@ def build_catalogue(
                 if key not in file_gaia_ids:
                     continue
 
-                filename = INPUT_FILES[key]
+                filename = input_files[key]
                 path = input_dir / filename
                 gaia_ids_file = file_gaia_ids[key]
 
@@ -598,11 +632,11 @@ def build_catalogue(
                     # Extract labels
                     if label_source == "apogee":
                         file_vals, file_errs, file_flags = extract_apogee_labels(
-                            label_data
+                            label_data, elements, abundance_scale
                         )
                     else:
                         file_vals, file_errs, file_flags = extract_galah_labels(
-                            label_data
+                            label_data, elements, abundance_scale
                         )
 
                     # Find valid mappings
@@ -650,7 +684,8 @@ def build_catalogue(
 
         # Set file attributes
         f.attrs["n_stars"] = n_total
-        f.attrs["parameter_names"] = PARAMETER_NAMES
+        f.attrs["parameter_names"] = parameter_names
+        f.attrs["abundance_scale"] = abundance_scale
         f.attrs["survey_names"] = ["boss", "desi", "lamost_lrs", "lamost_mrs"]
         f.attrs["label_sources"] = ["apogee", "galah"]
         f.attrs["creation_date"] = datetime.now().isoformat()
@@ -692,11 +727,31 @@ def main():
         help="Print statistics without creating output",
     )
     parser.add_argument(
-        "-v",
-        "--verbose",
+        "-q",
+        "--quiet",
         action="store_true",
-        default=True,
-        help="Verbose output (default: True)",
+        help="Less per-file progress output",
+    )
+    parser.add_argument(
+        "--elements",
+        choices=sorted(ELEMENT_SETS),
+        default="core",
+        help="Abundance set: core (8 elements, 11 params) or extended "
+        "(17 elements, 20 params). Default: core",
+    )
+    parser.add_argument(
+        "--abundance-scale",
+        choices=["x_fe", "x_h"],
+        default="x_fe",
+        help="Store abundances as [X/Fe] (x_fe) or [X/H] (x_h). Default: x_fe",
+    )
+    parser.add_argument(
+        "--X_H",
+        "--x-h",
+        dest="abundance_scale",
+        action="store_const",
+        const="x_h",
+        help="Shorthand for --abundance-scale x_h",
     )
 
     args = parser.parse_args()
@@ -715,7 +770,14 @@ def main():
         else:
             args.output = Path.cwd() / args.output
 
-    build_catalogue(args.input_dir, args.output, args.verbose, args.dry_run)
+    build_catalogue(
+        args.input_dir,
+        args.output,
+        verbose=not args.quiet,
+        dry_run=args.dry_run,
+        elements=ELEMENT_SETS[args.elements],
+        abundance_scale=args.abundance_scale,
+    )
 
 
 if __name__ == "__main__":
