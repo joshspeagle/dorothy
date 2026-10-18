@@ -929,6 +929,7 @@ class TestCatalogueLoaderMultiSurvey:
                 "errors", data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32)
             )
             apogee.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+            apogee.create_dataset("gaia_id", data=gaia_ids)
 
             # GALAH: has labels for stars 20-99 (80 stars)
             galah = labels.create_group("galah")
@@ -939,6 +940,7 @@ class TestCatalogueLoaderMultiSurvey:
                 "errors", data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32)
             )
             galah.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+            galah.create_dataset("gaia_id", data=gaia_ids)
 
             # Attributes
             f.attrs["n_stars"] = n_stars
@@ -1993,6 +1995,16 @@ class TestGaiaIds:
             f["labels/apogee/gaia_id"][...] = f["labels/apogee/gaia_id"][:][::-1]
         with pytest.raises(ValueError, match="does not match metadata/gaia_id"):
             CatalogueLoader(path).load_merged_sparse(["boss"])
+
+    @pytest.mark.parametrize("dense", [False, True])
+    def test_secondary_label_source_without_gaia_id_is_rejected(self, tmp_path, dense):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            del f["labels/galah/gaia_id"]
+        loader = CatalogueLoader(path)
+        load = loader.load_merged_for_training if dense else loader.load_merged_sparse
+        with pytest.raises(ValueError, match="/labels/galah has no gaia_id"):
+            load(["boss", "desi"], label_sources=["apogee", "galah"])
 
 
 class TestNanSnr:

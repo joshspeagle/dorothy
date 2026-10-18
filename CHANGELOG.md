@@ -80,6 +80,10 @@
 - `load_merged_sparse` read the primary label source in row order without
   checking its Gaia IDs, so labels stored in another order went to the wrong
   stars. It now raises `ValueError` when they differ from `metadata/gaia_id`.
+- `load_merged_sparse` and `load_merged_for_training` gave a second label
+  source without a `gaia_id` dataset a copy of the first source's labels, so
+  its head trained on them. They now raise `ValueError`, naming the label
+  group.
 
 ### Performance
 

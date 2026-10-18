@@ -248,6 +248,16 @@ def _match_ids(keys: np.ndarray, query: np.ndarray) -> tuple[np.ndarray, np.ndar
     return found, order[pos[found]].astype(np.intp, copy=False)
 
 
+def _label_gaia_ids(label_grp: h5py.Group) -> np.ndarray:
+    """The Gaia IDs of a label group's rows, which match its labels to stars."""
+    if "gaia_id" not in label_grp:
+        raise ValueError(
+            f"{label_grp.name} has no gaia_id dataset, which is needed to "
+            "match its labels to the catalogue stars"
+        )
+    return label_grp["gaia_id"][:]
+
+
 @dataclass
 class CatalogueData:
     """
@@ -1536,8 +1546,9 @@ class CatalogueLoader:
 
         Raises:
             ValueError: If duplicate observations are found in the catalogue,
-                or the primary label group's ``gaia_id`` differs from
-                ``metadata/gaia_id``.
+                the primary label group's ``gaia_id`` differs from
+                ``metadata/gaia_id``, or another label group in
+                ``label_sources`` has no ``gaia_id``.
 
         Examples:
             >>> sparse_data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
@@ -1708,17 +1719,12 @@ class CatalogueLoader:
                     label_grp = f["labels"][
                         self._resolve_label_source(surveys, source, f)
                     ]
-
-                    if "gaia_id" not in label_grp:
-                        # Can't properly align from file; duplicate primary labels
-                        labels_dict_out[source] = labels_3ch.copy()
-                        continue
+                    source_gaia_ids = _label_gaia_ids(label_grp)
 
                     # Load label data from file
                     source_values = label_grp["values"][:]
                     source_errors = label_grp["errors"][:]
                     source_flags = label_grp["flags"][:]
-                    source_gaia_ids = label_grp["gaia_id"][:]
 
                     # Initialize arrays aligned to merged gaia_ids
                     values = np.zeros((n_total, n_params), dtype=np.float32)
@@ -1976,6 +1982,11 @@ class CatalogueLoader:
                     indicating which stars have labels from that source.
                     Only present in multi-source mode; None in single-source mode.
 
+        Raises:
+            ValueError: If duplicate observations are found in the catalogue,
+                it has no Gaia IDs, or a label group in ``label_sources``
+                other than ``label_source`` has no ``gaia_id``.
+
         Example (single-source):
             >>> loader = CatalogueLoader("super_catalogue.h5")
             >>> X_dict, y, has_data, _ = loader.load_merged_for_training(
@@ -2051,25 +2062,18 @@ class CatalogueLoader:
                 raise ValueError("Catalogue has no 'labels' group")
 
             for source in label_sources:
-                # Check if this source matches the primary label source used in merged
-                # If so, use the already-aligned primary_labels from merged structure
-                # This is more reliable than re-loading and re-aligning from the file
                 label_grp = f["labels"][self._resolve_label_source(surveys, source, f)]
-                use_merged_primary = False
-
-                if "gaia_id" not in label_grp:
-                    # No gaia_id means we can't properly align from file
-                    # Use the already-aligned labels from merged structure instead
-                    use_merged_primary = True
-
-                if use_merged_primary:
-                    # Use the already-aligned labels from merged structure
+                if source == label_source and "gaia_id" not in label_grp:
+                    # load_merged matched the primary labels to stars by
+                    # catalogue row
                     values = merged.primary_labels.copy()
                     errors = merged.primary_errors.copy()
                     flags = merged.primary_flags.copy()
                     # Star has labels if at least one error is positive
                     has_labels = np.any(errors > 0, axis=1)
                 else:
+                    source_gaia_ids = _label_gaia_ids(label_grp)
+
                     # Load label data from file and remap by gaia_id
                     source_values = label_grp["values"][:]
                     source_errors = label_grp["errors"][:]
@@ -2080,8 +2084,6 @@ class CatalogueLoader:
                     errors = np.zeros((n_stars, n_params), dtype=np.float32)
                     flags = np.zeros((n_stars, n_params), dtype=np.uint8)
                     has_labels = np.zeros(n_stars, dtype=bool)
-
-                    source_gaia_ids = label_grp["gaia_id"][:]
 
                     # Map label source data to merged structure (vectorized):
                     # merged rows of the source IDs that exist in the merged set

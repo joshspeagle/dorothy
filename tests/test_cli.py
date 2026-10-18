@@ -615,6 +615,7 @@ class TestCLIMultiLabelsetIntegration:
                 data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01,
             )
             apogee.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+            apogee.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
 
             # GALAH: stars 20-99 only
             galah = labels.create_group("galah")
@@ -628,13 +629,16 @@ class TestCLIMultiLabelsetIntegration:
             galah_values[:, 2] = np.random.uniform(-1, 0.3, n_stars).astype(
                 np.float32
             )  # [Fe/H]
-            galah_values[:20] = np.nan  # No labels for first 20 stars
-            galah.create_dataset("values", data=galah_values)
-            galah.create_dataset(
-                "errors",
-                data=np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01,
+            galah_errors = (
+                np.abs(np.random.randn(n_stars, 11)).astype(np.float32) + 0.01
             )
+            # No labels for first 20 stars (error 0 masks them)
+            galah_values[:20] = np.nan
+            galah_errors[:20] = 0.0
+            galah.create_dataset("values", data=galah_values)
+            galah.create_dataset("errors", data=galah_errors)
             galah.create_dataset("flags", data=np.zeros((n_stars, 11), dtype=np.uint8))
+            galah.create_dataset("gaia_id", data=np.arange(n_stars, dtype=np.int64))
 
             f.attrs["n_stars"] = n_stars
             f.attrs["parameter_names"] = PARAMETER_NAMES
@@ -679,7 +683,7 @@ class TestCLIMultiLabelsetIntegration:
 
     def test_train_multi_labelset_completes(self, multi_labelset_config, capsys):
         """Test that multi-labelset training completes."""
-        main(["train", str(multi_labelset_config)])
+        assert main(["train", str(multi_labelset_config)]) == 0
 
         captured = capsys.readouterr()
         # Should mention multiple label sources
