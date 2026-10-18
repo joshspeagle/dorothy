@@ -223,6 +223,7 @@ class TestTrainingConfig:
         assert config.loss == LossType.HETEROSCEDASTIC
         assert config.gradient_clip == 10.0
         assert config.scatter_floor == 0.01
+        assert config.nll_warmup_fraction == 0.1
         assert config.ema_decay is None
 
     def test_scatter_floor_for_heteroscedastic_loss(self):

@@ -144,8 +144,12 @@ class HeteroscedasticLoss(nn.Module):
         self,
         output: torch.Tensor,
         target: torch.Tensor,
+        beta: float = 0.0,
     ) -> torch.Tensor:
         """Unreduced loss per (sample, parameter), zero where masked.
+
+        loss = sg(s^2)^beta * ((mu - y)^2 / s^2 + log(s^2)), the β-NLL of
+        Seitzer et al. (2022), where sg passes its value but no gradient.
 
         Masked entries are zeroed with ``torch.where`` (not multiplied by the
         mask), so non-finite values in masked entries cannot leak NaN into
@@ -155,18 +159,26 @@ class HeteroscedasticLoss(nn.Module):
             output: Model predictions of shape (batch_size, 2, n_parameters).
             target: Targets of shape (batch_size, 3, n_parameters) holding
                 [labels, label errors, mask].
+            beta: Exponent of the variance weight, in [0, 1].
 
         Returns:
             Tensor of shape (batch_size, n_parameters).
+
+        Raises:
+            ValueError: If output or target shapes don't match expectations,
+                or beta is outside [0, 1].
         """
         self._check_shapes(output, target)
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError(f"beta must be in [0, 1], got {beta}")
 
         mu = output[:, 0, :]
         y, mask = _safe_targets(mu, target)
         variance = self.get_predicted_scatter(output) ** 2
 
-        loss = (mu - y) ** 2 / variance + torch.log(variance)
-        return torch.where(mask > 0, loss * mask, torch.zeros_like(loss))
+        nll = (mu - y) ** 2 / variance + torch.log(variance)
+        weight = mask * variance.detach() ** beta
+        return torch.where(mask > 0, nll * weight, torch.zeros_like(nll))
 
     def forward(
         self,
@@ -309,9 +321,13 @@ class MaskedMSELoss(nn.Module):
         self.reduction = reduction
 
     def element_losses(
-        self, output: torch.Tensor, target: torch.Tensor
+        self, output: torch.Tensor, target: torch.Tensor, beta: float = 0.0
     ) -> torch.Tensor:
-        """Squared error per (sample, parameter), zero where masked."""
+        """Squared error per (sample, parameter), zero where masked.
+
+        ``beta`` has no effect: the squared error is the negative
+        log-likelihood with unit variance, whose β-NLL weight is 1.
+        """
         if output.shape[1:] != (2, self.n_parameters) or target.shape[1:] != (
             3,
             self.n_parameters,

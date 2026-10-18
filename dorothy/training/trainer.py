@@ -6,6 +6,7 @@ including:
 - Model and optimizer setup from configuration
 - Batch-wise training with gradient clipping
 - Learning rate scheduling (CyclicLR, ReduceOnPlateau, etc.)
+- A β-NLL warm-up of the loss
 - An optional exponential moving average of the weights
 - Validation evaluation and best model tracking
 - Checkpointing and training history
@@ -1071,6 +1072,7 @@ class Trainer:
         self,
         outputs: dict[str, torch.Tensor],
         targets: dict[str, torch.Tensor],
+        beta: float = 0.0,
     ) -> torch.Tensor:
         """Combine per-label-source losses into one scalar.
 
@@ -1083,7 +1085,7 @@ class Trainer:
         training = self.config.training
         sums, counts, weights = [], [], []
         for key, target in targets.items():
-            sums.append(self.loss_fn.element_losses(outputs[key], target).sum())
+            sums.append(self.loss_fn.element_losses(outputs[key], target, beta).sum())
             counts.append(target[:, 2, :].sum())
             weights.append(training.label_source_weights.get(key, 1.0))
 
@@ -1252,6 +1254,7 @@ class Trainer:
         rng: np.random.Generator,
         gradient_clip: float,
         first_step: int,
+        warmup_steps: int,
     ) -> tuple[float, float]:
         """Run one training epoch.
 
@@ -1261,7 +1264,10 @@ class Trainer:
             rng: Random number generator for shuffling.
             gradient_clip: Maximum gradient norm for clipping.
             first_step: Number of optimizer steps before this epoch, which
-                sets the steps that update the weight average.
+                numbers this epoch's steps for the weight average and the
+                warm-up.
+            warmup_steps: Optimizer steps over which β of the loss falls
+                from 1 to 0.
 
         Returns:
             Tuple of (average_loss, average_gradient_norm).
@@ -1297,7 +1303,8 @@ class Trainer:
                 outputs = self._forward(batch, label_errors)
             # exp(2 ln s) in the loss would otherwise run in 16 bits
             outputs = {k: v.float() for k, v in outputs.items()}
-            loss = self._combine_losses(outputs, batch.y)
+            beta = 1.0 - step / warmup_steps if step < warmup_steps else 0.0
+            loss = self._combine_losses(outputs, batch.y, beta)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
             if self._ema is not None and step % self._ema.every == 0:
@@ -1325,6 +1332,12 @@ class Trainer:
         n_epochs = training_config.epochs
         steps_per_epoch = (train_source.n_samples + batch_size - 1) // batch_size
         self.scheduler = self._create_scheduler(steps_per_epoch)
+        # mse has no warm-up, so early stopping must not wait for one
+        warmup_steps = (
+            round(training_config.nll_warmup_fraction * n_epochs * steps_per_epoch)
+            if isinstance(self.loss_fn, HeteroscedasticLoss)
+            else 0
+        )
 
         # Train/validate the label sources the data provides (a multi-head
         # model fit on one label set trains only that head)
@@ -1383,6 +1396,7 @@ class Trainer:
                 rng,
                 training_config.gradient_clip,
                 epoch * steps_per_epoch,
+                warmup_steps,
             )
             self.history.train_losses.append(train_loss)
             self.history.grad_norms.append(grad_norm)
@@ -1393,6 +1407,8 @@ class Trainer:
                     weight_updates[layer_name]
                 )
 
+            # A plateau in the warm-up, which trains on another loss, does not count
+            past_warmup = (epoch + 1) * steps_per_epoch > warmup_steps
             with self._averaged_weights():
                 val = self._evaluate(val_source)
                 val_loss = val["loss"]
@@ -1403,7 +1419,7 @@ class Trainer:
                     self.history.best_epoch = epoch
                     self._store_best_weights()
                     patience_counter = 0
-                else:
+                elif past_warmup:
                     patience_counter += 1
 
                 if (
@@ -1412,7 +1428,7 @@ class Trainer:
                 ):
                     self._save_epoch_checkpoint(epoch + 1)
 
-            if isinstance(self.scheduler, ReduceLROnPlateau):
+            if isinstance(self.scheduler, ReduceLROnPlateau) and past_warmup:
                 self.scheduler.step(val_loss)
 
             current_lr = self.optimizer.param_groups[0]["lr"]

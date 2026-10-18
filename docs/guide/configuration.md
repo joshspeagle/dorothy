@@ -91,7 +91,9 @@ The files `examples/variant*.yaml` cover the supported setups:
 :   Epochs, batch size, loss, optimizer, learning-rate schedule, gradient
     clipping, early stopping, mixed precision (`amp`, `amp_dtype`), weight
     averaging (`ema_decay`, `ema_cpu_every`, see
-    [Training](../methods/training.md#weight-averaging)), the fraction of
+    [Training](../methods/training.md#weight-averaging)), the warm-up of the
+    loss (`nll_warmup_fraction`, see
+    [Training](../methods/training.md#warm-up)), the fraction of
     stars trained without their label errors (`label_error_dropout`) and,
     with several label sources, how their losses combine
     (`label_source_weighting`, `label_source_weights`).

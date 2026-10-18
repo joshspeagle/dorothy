@@ -760,7 +760,7 @@ class TestTrainerMixedPrecision:
 
         # One batch, in the same order: the epoch loss is its loss before the step
         loss, _ = trainer._train_epoch(
-            source, n, np.random.default_rng(0), 10.0, first_step=0
+            source, n, np.random.default_rng(0), 10.0, first_step=0, warmup_steps=0
         )
         # Without the cast, exp runs in bf16 and this loss changes by 7e-4
         assert loss == pytest.approx(expected, rel=1e-6)
@@ -2160,3 +2160,52 @@ class TestWeightAverage:
         for file, state in weights_off.items():
             for name, value in state.items():
                 assert torch.equal(weights_zero[file][name], value), (file, name)
+
+
+class TestNllWarmup:
+    """The β-NLL warm-up (training.nll_warmup_fraction)."""
+
+    @pytest.mark.parametrize("fraction, warmup", [(0.0, 0), (0.4, 10)])
+    def test_beta_falls_linearly_to_zero_and_validation_uses_the_plain_nll(
+        self, simple_config, training_data, fraction, warmup
+    ):
+        """simple_config trains 5 epochs of 5 steps, so a fraction 0.4 warms
+        up over the first 10 steps, across an epoch boundary."""
+        simple_config.training.nll_warmup_fraction = fraction
+        trainer = Trainer(simple_config)
+        betas = {True: [], False: []}
+        element_losses = trainer.loss_fn.element_losses
+
+        def record(output, target, beta=0.0):
+            # Validation outputs come from a forward pass without gradients
+            betas[output.requires_grad].append(beta)
+            return element_losses(output, target, beta)
+
+        trainer.loss_fn.element_losses = record
+        X, y = training_data
+        trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        steps, validation = betas[True], betas[False]
+        assert steps[:warmup] == pytest.approx([1 - t / warmup for t in range(warmup)])
+        assert steps[warmup:] == [0.0] * (25 - warmup)  # exactly 0: the plain loss
+        assert validation == [0.0] * 5
+
+    def test_early_stopping_waits_for_the_end_of_the_warmup(
+        self, simple_config, training_data
+    ):
+        """A fraction 0.6 warms up over epochs 0 to 2, so with a constant
+        validation loss and patience 1, training stops after epoch 3, not 1."""
+        simple_config.training.nll_warmup_fraction = 0.6
+        simple_config.training.early_stopping_patience = 1
+        trainer = Trainer(simple_config)
+        evaluate = trainer._evaluate
+
+        def constant_loss(source):
+            val = evaluate(source)
+            val["loss"] = 1.0
+            return val
+
+        trainer._evaluate = constant_loss
+        X, y = training_data
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+        assert len(history.val_losses) == 4

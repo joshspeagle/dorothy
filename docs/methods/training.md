@@ -132,6 +132,43 @@ With several label sources, each head has its own loss, and
 `training.label_source_weights` multiplies each source's contribution, for
 example `{apogee: 1.0, galah: 0.5}`.
 
+### Warm-up
+
+The gradient $\partial\mathcal{L}/\partial\mu = 2(\mu - y)/s^2$ is small for
+a label with a large s, so its residual shrinks slowly and s stays large
+{cite:p}`seitzer2022pitfalls`. Training therefore starts with the β-NLL loss
+of that paper, which multiplies the loss of each label by $s^{2\beta}$:
+
+$$
+\mathcal{L}_\beta = \operatorname{sg}\left(s^{2\beta}\right)
+\left[\frac{(\mu - y)^2}{s^2} + \ln s^2\right],
+$$
+
+where sg (stop-gradient) passes the value of its argument but no gradient.
+For β = 1, $\partial\mathcal{L}_\beta/\partial\mu = 2(\mu - y)$, the gradient
+of the squared error, while s still learns from the residuals. For β = 0,
+$\mathcal{L}_\beta = \mathcal{L}$.
+
+β falls linearly from 1 to 0 over the first W optimizer steps of the run and
+then stays 0:
+
+$$
+\beta_t = \max\left(0,\ 1 - \frac{t}{W}\right), \qquad
+W = \operatorname{round}(f\, n_\text{epochs}\, n_\text{steps}),
+$$
+
+where t counts the optimizer steps from 0, $n_\text{steps}$ is the number of
+steps per epoch and f is `training.nll_warmup_fraction` (0.1 by default; 0
+turns the warm-up off). `loss: mse` has no warm-up.
+
+The validation loss is always $\mathcal{L}$, so the best epoch, early stopping
+and the `reduce_on_plateau` schedule compare all epochs on one objective.
+Early stopping and `reduce_on_plateau` count only the epochs that end after the
+warm-up. During the warm-up the model trains on $\mathcal{L}_\beta$, so a
+plateau of $\mathcal{L}$ does not show convergence. The training losses in the
+history are those of $\mathcal{L}_\beta$, so during the warm-up they are not
+comparable with the validation losses.
+
 ## Optimization
 
 The default optimizer is AdamW {cite:p}`loshchilov2019adamw` (`adam` and
@@ -153,9 +190,9 @@ After each epoch the model is evaluated on the validation stars. The epoch
 with the lowest validation loss is the best epoch; with several label sources
 the validation loss combines the heads as training does, and the history
 also records each head's own best epoch. Training stops early after
-`training.early_stopping_patience` epochs without improvement, if set. If no
-epoch has a finite validation loss, there is no best epoch, and training
-raises `RuntimeError`.
+`training.early_stopping_patience` epochs without improvement after the
+[warm-up](#warm-up), if set. If no epoch has a finite validation loss, there
+is no best epoch, and training raises `RuntimeError`.
 
 ## Weight averaging
 
@@ -234,7 +271,7 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 | `plots/` | Training plots; the bar charts of validation metrics show the best epoch |
 
 `dorothy train config.yaml --resume <checkpoint>` starts from the weights of
-an earlier run, with a new optimizer and schedule. `training.save_every: N`
-also saves the weights, the configuration and the normalization every N
-epochs, in `epoch_N/`. BatchNorm needs at least two stars per
-batch in training.
+an earlier run, with a new optimizer, schedule and warm-up.
+`training.save_every: N` also saves the weights, the configuration and the
+normalization every N epochs, in `epoch_N/`. BatchNorm needs at least two
+stars per batch in training.

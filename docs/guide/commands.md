@@ -19,7 +19,7 @@ and writes the checkpoint directory `<output_dir>/<name>/<name>_final/`
 |--------|--------|
 | `--device` | `auto` (default), `cuda`, `mps` or `cpu` |
 | `--output-dir` | Overrides `output_dir` |
-| `--resume` | Starts from the weights of an earlier checkpoint, with a new optimizer and schedule |
+| `--resume` | Starts from the weights of an earlier checkpoint, with a new optimizer, schedule and warm-up |
 
 ## evaluate
 

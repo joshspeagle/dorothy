@@ -581,13 +581,25 @@ class TrainingConfig(_ConfigModel):
         default=0, ge=0, description="Save checkpoint every N epochs"
     )
     early_stopping_patience: int = Field(
-        default=0, ge=0, description="Early stopping patience"
+        default=0,
+        ge=0,
+        description="Epochs without a lower validation loss before training "
+        "stops, counted after the β-NLL warm-up; 0 turns early stopping off",
     )
     scatter_floor: float = Field(
         default=0.01,
         gt=0,
         le=1.0,
         description="Minimum scatter floor for heteroscedastic loss",
+    )
+    nll_warmup_fraction: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of the optimizer steps of the run over which β of "
+        "the β-NLL loss falls linearly from 1 (mean-squared-error gradients for "
+        "the means) to 0 (the plain negative log-likelihood); 0 turns this "
+        "warm-up off. Applies to the heteroscedastic loss only.",
     )
     label_error_dropout: float = Field(
         default=0.5,
