@@ -280,6 +280,7 @@ class SaliencyAnalyzer:
 
         Args:
             X: Input spectrum of shape (3, N_wavelengths) - [flux, error, mask].
+                Masked pixels may hold any value, including NaN.
             wavelength: Wavelength array of shape (N,).
             survey: Survey name (required for MultiHeadMLP).
             gaia_id: Optional Gaia DR3 source ID for metadata.
@@ -295,15 +296,12 @@ class SaliencyAnalyzer:
         # Extract spectrum components (raw, before masking)
         spectrum_raw = X[0].detach().cpu().numpy()
         spectrum_error_raw = X[1].detach().cpu().numpy()
-        mask_channel = X[2].detach().cpu().numpy()
-        mask = mask_channel > 0.5  # Convert to boolean
+        valid = X[2] > 0.5
+        mask = valid.cpu().numpy()
 
-        # Apply mask to input exactly as the model sees it: (mask*flux, mask*err, mask)
-        # This ensures gradients are computed for the actual input the model receives
-        X_masked = X.clone()
-        X_masked[0] = X[0] * X[2]  # mask * flux
-        X_masked[1] = X[1] * X[2]  # mask * error
-        # X_masked[2] is already the mask
+        # The model sees masked pixels as zeros in every channel. Select them
+        # rather than multiply by the mask: masked entries may hold NaN or inf.
+        X_masked = torch.where(valid, X, 0.0)
 
         # Store the raw spectrum for visualization (so we can see the actual data)
         spectrum = spectrum_raw
@@ -748,6 +746,7 @@ class AblationSaliencyAnalyzer:
 
         Args:
             X: Input spectrum of shape (3, N_wavelengths) - [flux, error, mask].
+                Masked pixels may hold any value, including NaN.
             wavelength: Wavelength array of shape (N,).
             survey: Survey name (required for MultiHeadMLP).
             block_size: Fixed block size for ablation. If None, uses 5 pixels.
@@ -772,13 +771,12 @@ class AblationSaliencyAnalyzer:
         # Extract spectrum components
         spectrum_raw = X[0].detach().cpu().numpy()
         spectrum_error_raw = X[1].detach().cpu().numpy()
-        mask_channel = X[2].detach().cpu().numpy()
-        natural_mask = mask_channel > 0.5  # Boolean mask
+        valid = X[2] > 0.5
+        natural_mask = valid.cpu().numpy()
 
-        # Apply mask to input (as model sees it)
-        X_masked = X.clone()
-        X_masked[0] = X[0] * X[2]
-        X_masked[1] = X[1] * X[2]
+        # Input as the model sees it: masked pixels are zeros in every channel,
+        # selected rather than multiplied, as they may hold NaN or inf
+        X_masked = torch.where(valid, X, 0.0)
 
         # Get baseline predictions, and a shortcut that evaluates ablated inputs
         # without recomputing the model's input layer (None if not applicable)

@@ -10,6 +10,8 @@ Both analyzers take one spectrum of shape `(3, n_wavelengths)`, preprocessed
 as in training (for example from
 {py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum`), and
 its wavelength grid. For a multi-survey model, `survey` selects the encoder.
+The analyzers set the masked pixels to zero in all three channels before the
+model sees them, so masked pixels may hold any value, including NaN.
 
 ### Gradient saliency
 

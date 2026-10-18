@@ -1009,9 +1009,7 @@ class TestAblationInputLayerShortcut:
         X = torch.randn(3, n_wavelengths, generator=generator)
         X[2] = 1.0
         X[2, 20:30] = 0.0
-        X_masked = X.clone()
-        X_masked[:2] *= X[2]
-        return X, X_masked
+        return X, torch.where(X[2] > 0.5, X, 0.0)
 
     def test_layer_outputs_match_direct_forward(self, multi_head_model):
         """Model outputs with the shortcut match forwarding ablated inputs."""
@@ -1118,6 +1116,29 @@ def test_saliency_scatter_is_the_predicted_scatter():
     np.testing.assert_array_equal(ablation.uncertainties, expected)
     # Ablation moves ln s of parameter 0 by < 0.1, so it stays above LN_S_MAX
     assert np.all(ablation.delta_sigma[0] == 0)
+
+
+@pytest.mark.parametrize(
+    "analyzer_cls, kwargs",
+    [(SaliencyAnalyzer, {}), (AblationSaliencyAnalyzer, {"block_size": 5})],
+)
+def test_non_finite_masked_pixels_leave_saliency_unchanged(analyzer_cls, kwargs):
+    """NaN or infinity in masked pixels gives the results of zeros there."""
+    analyzer = analyzer_cls(SimpleLinearModel(), device="cpu")
+    X = torch.randn(3, 100, generator=torch.Generator().manual_seed(0))
+    X[2] = 1.0
+    X[:, 40:50] = 0.0
+    X_bad = X.clone()
+    X_bad[0, 40:45] = float("nan")
+    X_bad[1, 45:50] = float("inf")
+    wavelength = np.linspace(3600, 9000, 100).astype(np.float32)
+
+    clean = analyzer.compute_saliency(X, wavelength, **kwargs)
+    bad = analyzer.compute_saliency(X_bad, wavelength, **kwargs)
+
+    for name, value in vars(clean).items():
+        if name not in ("spectrum", "spectrum_error"):  # raw input, kept as given
+            np.testing.assert_array_equal(getattr(bad, name), value, err_msg=name)
 
 
 class TestAblationVisualization:

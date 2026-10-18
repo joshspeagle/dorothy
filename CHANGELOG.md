@@ -52,6 +52,8 @@
 - The saliency analyzers converted the predicted log-scatter ln s to a
   scatter without the clamp of `losses.predicted_scatter`, so their
   uncertainties disagreed with `Predictor` when ln s was outside [-10, 5].
+- A NaN or infinity in a masked pixel made the whole saliency map NaN: the
+  analyzers multiplied the flux and error by the mask.
 
 ### Performance
 
