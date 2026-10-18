@@ -1043,8 +1043,7 @@ class Trainer:
 
         The Evaluator selects each parameter's valid entries column by
         column, which is much faster on column-major copies. The values (and
-        their order) are unchanged. The z-scores divide by the predicted
-        scatter alone, which includes the label noise.
+        their order) are unchanged.
         """
         scatter = self._predicted_scatter(output)
         return {

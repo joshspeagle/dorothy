@@ -47,6 +47,9 @@ class HeadEvaluation:
         parameter_names: Parameter names, in column order.
         y_pred, pred_scatter, y_true, y_err, mask: Physical-unit arrays of
             shape (n_stars, n_params) (model units without a normalizer).
+        z_label_errors: The label errors that the z-scores add to the
+            predicted scatter: ``y_err`` for a model with an AdditiveOutput,
+            else None.
     """
 
     label_source: str
@@ -58,6 +61,7 @@ class HeadEvaluation:
     y_true: np.ndarray
     y_err: np.ndarray
     mask: np.ndarray
+    z_label_errors: np.ndarray | None
 
     def to_dict(self) -> dict:
         """Metrics as a JSON-serializable dict."""
@@ -172,6 +176,7 @@ def evaluate_model(
             y_true=y_true,
             y_err=y_err,
             mask=mask,
+            z_label_errors=y_err if additive else None,
         )
     return results
 

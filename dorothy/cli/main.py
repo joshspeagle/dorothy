@@ -640,9 +640,6 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
             plots_dir = args.plots_dir or checkpoint_path / "plots" / "evaluation"
             n_plots = 0
-            # Label errors enter the z-scores of the additive model only, as
-            # in evaluate_model
-            additive = not ckpt.model.label_aware_uncertainty
             for source_name, head in results.items():
                 n_plots += len(
                     generate_evaluation_plots(
@@ -650,7 +647,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                         head.y_pred,
                         head.y_true,
                         head.pred_scatter,
-                        head.y_err if additive else None,
+                        head.z_label_errors,
                         head.mask,
                         head.parameter_names,
                         label_source=source_name,

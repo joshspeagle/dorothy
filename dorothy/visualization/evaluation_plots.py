@@ -317,9 +317,6 @@ def plot_zscore_histograms(
         true: True label values, same shape.
         pred_unc: Predicted model scatter (including the scatter floor).
         label_err: Label measurement errors, or None to use pred_unc only.
-            Pass them only for the additive model of checkpoints saved
-            before label-aware uncertainty; a label-aware model's scatter
-            already includes the label noise.
         mask: Label validity mask (1 = valid), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in the title.

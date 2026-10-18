@@ -534,9 +534,7 @@ class Evaluator:
             pred_scatter: Predicted scatter (s) from the model, shape (n_samples, n_parameters).
             label_errors: Label measurement errors (sigma_label), shape (n_samples, n_parameters).
                 With them, z-scores divide by sqrt(sigma_label^2 + s^2) instead
-                of s: pass them only for the additive model of checkpoints
-                saved before label-aware uncertainty, whose s excludes the
-                label noise.
+                of s.
             mask: Optional mask of shape (n_samples, n_parameters). Values of 1 indicate
                 valid labels, 0 indicates masked labels. When provided, only valid samples
                 contribute to metrics for each parameter.

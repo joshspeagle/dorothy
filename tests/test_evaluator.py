@@ -1278,3 +1278,6 @@ def test_evaluate_model_adds_label_errors_to_z_scores_only_for_additive_models(
             assert result.metrics[name].z_robust_scatter == pytest.approx(
                 (p84 - p16) / 2, rel=1e-4
             )
+    # The dorothy evaluate plots take these errors for their z-scores
+    expected = None if label_aware else head["apogee"].y_err
+    assert head["apogee"].z_label_errors is expected
