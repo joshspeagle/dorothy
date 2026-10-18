@@ -104,10 +104,11 @@ model holds the averaged weights of the best epoch. The training steps, and
 the weight norms and updates in the history, use the trained weights.
 
 The average is one more copy of the weights on the training device, 4 bytes
-per parameter. Training with AdamW already holds four such copies (the
-weights, their gradients and two moment estimates), so the average adds 25%.
-If memory on the training device is short, `training.ema_cpu_every: k` keeps
-the average in CPU memory. It is then updated after the first optimizer step
+per parameter. Training with AdamW already holds five such copies: the
+weights, their gradients, the two moment estimates and the weights of the
+best epoch. If memory on the training device is short,
+`training.ema_cpu_every: k` keeps the average in CPU memory. Each update then
+copies the weights to CPU memory, so it runs after the first optimizer step
 and every k steps after that, with the decay $d^k$: over k steps, an average
 updated at every step also keeps the fraction $d^k$ of its old value, so both
 forget at the same rate.
