@@ -30,6 +30,7 @@ import torch.nn as nn
 
 from dorothy.config.schema import STELLAR_PARAMETERS
 from dorothy.losses import predicted_scatter
+from dorothy.utils import resolve_device
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -252,16 +253,7 @@ class SaliencyAnalyzer:
         self.scatter_floor = scatter_floor
         self.parameter_names = parameter_names or _default_parameter_names(model)
 
-        # Resolve device
-        if device == "auto":
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-            elif torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-            else:
-                self.device = torch.device("cpu")
-        else:
-            self.device = torch.device(device)
+        self.device = resolve_device(device)
 
         # Move model to device and set to eval mode
         self.model = self.model.to(self.device)
@@ -713,16 +705,7 @@ class AblationSaliencyAnalyzer:
         self.parameter_names = parameter_names or _default_parameter_names(model)
         self.batch_size = batch_size
 
-        # Resolve device
-        if device == "auto":
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-            elif torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-            else:
-                self.device = torch.device("cpu")
-        else:
-            self.device = torch.device(device)
+        self.device = resolve_device(device)
 
         # Move model to device and set to eval mode
         self.model = self.model.to(self.device)
