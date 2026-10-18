@@ -293,6 +293,26 @@ def _label_array(
     return np.stack([values, errors, valid.astype(np.float32)], axis=1)
 
 
+def _align_labels(
+    label_grp: h5py.Group, gaia_ids: np.ndarray, max_flag_bits: int
+) -> np.ndarray:
+    """A label group's labels for the stars ``gaia_ids``, matched by Gaia ID.
+
+    Returns the ``_label_array`` format (len(gaia_ids), 3, n_params); stars
+    without a row in the group get zeros, so their mask is 0.
+    """
+    found, idx = _match_ids(gaia_ids, _label_gaia_ids(label_grp))
+    rows = np.flatnonzero(found)
+    shape = (len(gaia_ids), label_grp["values"].shape[1])
+    values = np.zeros(shape, dtype=np.float32)
+    errors = np.zeros(shape, dtype=np.float32)
+    flags = np.zeros(shape, dtype=np.uint8)
+    values[idx] = label_grp["values"][:][rows]
+    errors[idx] = label_grp["errors"][:][rows]
+    flags[idx] = label_grp["flags"][:][rows]
+    return _label_array(values, errors, flags, max_flag_bits)
+
+
 @dataclass
 class CatalogueData:
     """
@@ -1729,32 +1749,8 @@ class CatalogueLoader:
                     label_grp = f["labels"][
                         self._resolve_label_source(surveys, source, f)
                     ]
-                    source_gaia_ids = _label_gaia_ids(label_grp)
-
-                    # Load label data from file
-                    source_values = label_grp["values"][:]
-                    source_errors = label_grp["errors"][:]
-                    source_flags = label_grp["flags"][:]
-
-                    # Initialize arrays aligned to merged gaia_ids
-                    values = np.zeros((n_total, n_params), dtype=np.float32)
-                    errors = np.zeros((n_total, n_params), dtype=np.float32)
-                    flags = np.zeros((n_total, n_params), dtype=np.uint8)
-
-                    # Map label source data to merged structure (vectorized):
-                    # merged rows of the source IDs that exist in the merged set
-                    valid_source_mask, merged_idx = _match_ids(
-                        all_gaia_ids, source_gaia_ids.astype(np.int64)
-                    )
-                    valid_source_idx = np.where(valid_source_mask)[0]
-
-                    # Bulk copy
-                    values[merged_idx] = source_values[valid_source_idx]
-                    errors[merged_idx] = source_errors[valid_source_idx]
-                    flags[merged_idx] = source_flags[valid_source_idx]
-
-                    labels_dict_out[source] = _label_array(
-                        values, errors, flags, max_flag_bits
+                    labels_dict_out[source] = _align_labels(
+                        label_grp, all_gaia_ids, max_flag_bits
                     )
 
             has_labels_dict_out = {
@@ -2030,10 +2026,7 @@ class CatalogueLoader:
         y_dict: dict[str, np.ndarray] = {}
         has_labels_dict: dict[str, np.ndarray] = {}
 
-        n_stars = merged.n_stars
-
         with h5py.File(self.path, "r") as f:
-            n_params = len(_read_parameter_names(f))
             if "labels" not in f:
                 raise ValueError("Catalogue has no 'labels' group")
 
@@ -2042,35 +2035,16 @@ class CatalogueLoader:
                 if source == label_source and "gaia_id" not in label_grp:
                     # load_merged matched the primary labels to stars by
                     # catalogue row
-                    values = merged.primary_labels
-                    errors = merged.primary_errors
-                    flags = merged.primary_flags
-                else:
-                    source_gaia_ids = _label_gaia_ids(label_grp)
-
-                    # Load label data from file and remap by gaia_id
-                    source_values = label_grp["values"][:]
-                    source_errors = label_grp["errors"][:]
-                    source_flags = label_grp["flags"][:]
-
-                    # Initialize arrays aligned to merged gaia_ids
-                    values = np.zeros((n_stars, n_params), dtype=np.float32)
-                    errors = np.zeros((n_stars, n_params), dtype=np.float32)
-                    flags = np.zeros((n_stars, n_params), dtype=np.uint8)
-
-                    # Map label source data to merged structure (vectorized):
-                    # merged rows of the source IDs that exist in the merged set
-                    valid_source_mask, merged_idx = _match_ids(
-                        merged.gaia_ids, source_gaia_ids.astype(np.int64)
+                    y_dict[source] = _label_array(
+                        merged.primary_labels,
+                        merged.primary_errors,
+                        merged.primary_flags,
+                        max_flag_bits,
                     )
-                    valid_source_idx = np.where(valid_source_mask)[0]
-
-                    # Bulk copy
-                    values[merged_idx] = source_values[valid_source_idx]
-                    errors[merged_idx] = source_errors[valid_source_idx]
-                    flags[merged_idx] = source_flags[valid_source_idx]
-
-                y_dict[source] = _label_array(values, errors, flags, max_flag_bits)
+                else:
+                    y_dict[source] = _align_labels(
+                        label_grp, merged.gaia_ids, max_flag_bits
+                    )
                 # A star has labels if one survives the flag filter
                 has_labels_dict[source] = (y_dict[source][:, 2, :] > 0).any(axis=1)
 
