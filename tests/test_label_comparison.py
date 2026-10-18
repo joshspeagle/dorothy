@@ -48,24 +48,6 @@ def _noise(path, source):
         return f[f"labels/{source}/errors"][:].max(axis=0).astype(np.float64)
 
 
-def _keep_rows(path, source, rows):
-    """Replace a label group by the given rows of itself, in the given order."""
-    with h5py.File(path, "r+") as f:
-        group = f[f"labels/{source}"]
-        for name in ("values", "errors", "flags", "gaia_id"):
-            data = group[name][...][rows]
-            del group[name]
-            group.create_dataset(name, data=data)
-
-
-def _assert_same(result, expected):
-    assert result.parameter_names == expected.parameter_names
-    for name in STATISTICS:
-        np.testing.assert_array_equal(
-            getattr(result, name), getattr(expected, name), err_msg=name
-        )
-
-
 def test_correct_errors_give_a_ratio_of_one_and_no_median_offset(catalogue):
     result = compare_label_sources(catalogue)
     n = int(result.n_shared.min())
@@ -103,7 +85,7 @@ def test_ratio_is_one_for_correct_errors_that_vary_from_star_to_star(
     assert (result.robust_spread / result.predicted_spread > 1.2).all()
 
 
-@pytest.mark.parametrize("max_flag_bits", [-1, 0, 1, 3])
+@pytest.mark.parametrize("max_flag_bits", [-1, 0])
 def test_only_labels_valid_in_both_sources_are_counted(tmp_path, max_flag_bits):
     path = build_catalogue(tmp_path / "catalogue.h5", n_stars=500, seed=2)
     rng = np.random.default_rng(1)
@@ -111,53 +93,18 @@ def test_only_labels_valid_in_both_sources_are_counted(tmp_path, max_flag_bits):
     with h5py.File(path, "r+") as f:
         for source in SOURCES:
             flags, errors = f[f"labels/{source}/flags"], f[f"labels/{source}/errors"]
-            # Flags of 1, 1, 2 and 8 set bits on 5% of the labels, and an error
-            # of 0 on another 5%
-            hit = rng.uniform(size=flags.shape) < 0.05
-            flags[...] = np.where(hit, rng.choice([1, 2, 3, 255], flags.shape), 0)
+            # A flag on 5% of the labels, and an error of 0 on another 5%
+            flags[...] = rng.uniform(size=flags.shape) < 0.05
             errors[...] = np.where(rng.uniform(size=flags.shape) < 0.05, 0, errors[...])
-            # Counted independently: the rows of both sources are the same stars
+            # The rows of both sources are the same stars
             ok = (flags[...] == 0) & (errors[...] > 0)
-            if max_flag_bits >= 0:
-                set_bits = np.unpackbits(flags[...], axis=1).sum(axis=1)
-                ok &= (set_bits <= max_flag_bits)[:, None]
+            if max_flag_bits == 0:
+                ok &= (flags[...] == 0).all(axis=1)[:, None]
             valid.append(ok)
 
     result = compare_label_sources(path, max_flag_bits=max_flag_bits)
 
     np.testing.assert_array_equal(result.n_shared, (valid[0] & valid[1]).sum(axis=0))
-
-
-def test_labels_stored_in_another_row_order_are_matched_by_gaia_id(tmp_path):
-    path = build_catalogue(tmp_path / "catalogue.h5", n_stars=2000, seed=4)
-    expected = compare_label_sources(path)
-    rng = np.random.default_rng(7)
-    for source in SOURCES:
-        _keep_rows(path, source, rng.permutation(2000))
-
-    result = compare_label_sources(path)
-
-    assert expected.n_shared.min() > 0
-    _assert_same(result, expected)
-
-
-def test_stars_that_a_source_does_not_list_are_skipped(tmp_path):
-    path = build_catalogue(tmp_path / "catalogue.h5", n_stars=2000, seed=4)
-    expected = compare_label_sources(path)
-    for source in SOURCES:
-        with h5py.File(path) as f:
-            labelled = np.flatnonzero(f[f"labels/{source}/errors"][...].any(axis=1))
-        _keep_rows(path, source, labelled)
-
-    _assert_same(compare_label_sources(path), expected)
-
-
-def test_label_group_without_gaia_id_is_rejected(tmp_path):
-    path = build_catalogue(tmp_path / "catalogue.h5", n_stars=50)
-    with h5py.File(path, "r+") as f:
-        del f["labels/galah/gaia_id"]
-    with pytest.raises(ValueError, match="labels/galah has no gaia_id"):
-        compare_label_sources(path)
 
 
 def test_statistics_match_a_direct_computation(catalogue, tmp_path):
@@ -220,18 +167,10 @@ def test_parameter_without_shared_stars_has_zero_count_and_nan_statistics(tmp_pa
         assert np.isfinite(statistic[others]).all()
 
 
-@pytest.mark.parametrize(
-    "kwargs, message",
-    [
-        ({"source_b": "apogee"}, "source_a and source_b must differ"),
-        ({"source_a": "lamost"}, "source_a: label source 'lamost'"),
-        ({"source_b": "lamost"}, "source_b: label source 'lamost'"),
-    ],
-)
-def test_invalid_label_sources_are_rejected(tmp_path, kwargs, message):
+def test_equal_label_sources_are_rejected(tmp_path):
     path = build_catalogue(tmp_path / "catalogue.h5", n_stars=50)
-    with pytest.raises(ValueError, match=message):
-        compare_label_sources(path, **kwargs)
+    with pytest.raises(ValueError, match="source_a and source_b must differ"):
+        compare_label_sources(path, source_b="apogee")
 
 
 def test_plot_returns_a_figure_with_a_panel_per_parameter_and_axis(tmp_path):

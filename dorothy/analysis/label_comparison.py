@@ -19,17 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import h5py
 import numpy as np
 from numpy.typing import NDArray
 
 from dorothy.config.schema import parameter_display_name
-from dorothy.data.catalogue_loader import (
-    _label_array,
-    _label_gaia_ids,
-    _match_ids,
-    _read_parameter_names,
-)
+from dorothy.data.catalogue_loader import CatalogueLoader
 from dorothy.inference.evaluator import Evaluator
 
 if TYPE_CHECKING:
@@ -88,48 +82,22 @@ class LabelComparison:
         return "\n".join(lines)
 
 
-def _read_shared(
-    catalogue_path: str | Path, source_a: str, source_b: str, max_flag_bits: int
-) -> tuple[list[str], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
-    """Read the labels of the stars that both sources share, matched by Gaia ID.
+def _shared_labels(
+    loader: CatalogueLoader, source_a: str, source_b: str, max_flag_bits: int
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
+    """Labels of both sources for the stars they share for any parameter.
 
-    Returns ``(names, a, b, both)``. ``a`` and ``b`` are the labels of the two
-    sources as (n_stars, 3, n_parameters) arrays [values, errors, mask] for
-    the stars shared for at least one parameter, and row i of both is the
-    same star. ``both`` has shape (n_stars, n_parameters) and marks the labels
-    that are valid in both sources.
+    Returns ``(a, b, both)``: the (n_stars, 3, n_parameters) labels [values,
+    errors, mask] of the two sources, row i of both for the same star, and
+    the (n_stars, n_parameters) mask of the labels valid in both.
     """
     if source_a == source_b:
         raise ValueError(f"source_a and source_b must differ, got '{source_a}' twice")
-    with h5py.File(catalogue_path, "r") as f:
-        names = _read_parameter_names(f)
-        groups = f.get("labels", {})
-        for argument, source in (("source_a", source_a), ("source_b", source_b)):
-            if source not in groups:
-                raise ValueError(
-                    f"{argument}: label source '{source}' is not in the "
-                    f"catalogue, which has {list(groups)}"
-                )
-        labels, gaia_ids = [], []
-        for source in (source_a, source_b):
-            grp = groups[source]
-            labels.append(
-                _label_array(
-                    grp["values"][:], grp["errors"][:], grp["flags"][:], max_flag_bits
-                )
-            )
-            gaia_ids.append(_label_gaia_ids(grp))
-    found, rows_a = _match_ids(gaia_ids[0], gaia_ids[1])
-    rows_b = np.flatnonzero(found)
-    both = (labels[0][rows_a, 2] > 0) & (labels[1][rows_b, 2] > 0)
+    a, b = (loader.load_labels(s, max_flag_bits) for s in (source_a, source_b))
+    both = (a[:, 2] > 0) & (b[:, 2] > 0)
     # Only the shared stars are kept and widened to float64
     shared = both.any(axis=1)
-    return (
-        names,
-        labels[0][rows_a[shared]].astype(np.float64),
-        labels[1][rows_b[shared]].astype(np.float64),
-        both[shared],
-    )
+    return a[shared].astype(np.float64), b[shared].astype(np.float64), both[shared]
 
 
 def compare_label_sources(
@@ -147,29 +115,32 @@ def compare_label_sources(
     normal distribution.
 
     A star is shared for a parameter when both sources have a valid label of
-    it, by the rule of the catalogue loaders: the error is positive, the flag
-    is 0, and the star has at most ``max_flag_bits`` set flag bits in that
-    source. Stars are matched by Gaia ID, so the sources may store their rows
-    in different orders. Each label group must list a star once, as
-    ``scripts/build_catalogue_v2.py`` writes it. The function reads the two
-    label groups and no spectra.
+    it. :meth:`~dorothy.data.catalogue_loader.CatalogueLoader.load_labels`
+    reads each source, applies the validity rule and matches the labels to
+    stars by Gaia ID. The function reads the two label groups and no
+    spectra.
 
     Args:
         catalogue_path: Path to the HDF5 super-catalogue.
         source_a: Name of label source A.
         source_b: Name of label source B.
         max_flag_bits: Largest number of set flag bits, summed over the
-            parameters of a star, for its labels to count; -1 sets no limit.
+            parameters of a star, for its labels to count; -1 sets no limit
+            (see ``CatalogueLoader.load_labels``).
 
     Returns:
         The statistics of each parameter, in physical units (K for Teff, dex
         for the others).
 
     Raises:
+        FileNotFoundError: If the catalogue does not exist.
         ValueError: If ``source_a`` and ``source_b`` are equal, a source is not
-            in the catalogue, or a label group has no ``gaia_id`` dataset.
+            in the catalogue, or the catalogue or a label group has no Gaia
+            IDs.
     """
-    names, a, b, both = _read_shared(catalogue_path, source_a, source_b, max_flag_bits)
+    loader = CatalogueLoader(catalogue_path)
+    names = loader.get_parameter_names()
+    a, b, both = _shared_labels(loader, source_a, source_b, max_flag_bits)
     # The evaluator's residual is a - b, and with sigma_d as the predicted
     # scatter its z-score is d / sigma_d
     result = Evaluator(names, teff_in_log=False).evaluate(
@@ -217,13 +188,15 @@ def plot_label_differences(
         ValueError: If the catalogue has no parameter ``teff`` or ``fe_h``, or
             for a reason given at ``compare_label_sources``.
     """
-    names, a, b, both = _read_shared(catalogue_path, source_a, source_b, max_flag_bits)
+    loader = CatalogueLoader(catalogue_path)
+    names = loader.get_parameter_names()
     missing = [name for name in ("teff", "fe_h") if name not in names]
     if missing:
         raise ValueError(
             f"The catalogue has no parameter {', '.join(map(repr, missing))}, "
             f"which the plot needs for its x axes; it has {names}"
         )
+    a, b, both = _shared_labels(loader, source_a, source_b, max_flag_bits)
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(
