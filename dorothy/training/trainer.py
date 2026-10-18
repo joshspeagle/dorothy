@@ -269,29 +269,26 @@ def _check_label_array(name: str, arr: np.ndarray) -> None:
         )
 
 
-def _mixed_precision(
+def _autocast_dtype(
     training: TrainingConfig, device: torch.device
-) -> tuple[torch.dtype | None, GradScaler | None]:
-    """The autocast dtype of the training forward pass and the gradient scaler.
-
-    Mixed precision runs on CUDA only; elsewhere both are None. bfloat16 has
-    the exponent range of float32, so only float16 needs a scaler.
+) -> torch.dtype | None:
+    """The dtype of the training forward pass, or None for float32.
 
     Raises:
         ValueError: If ``training.amp_dtype`` is bfloat16 and the GPU has no
             native bfloat16.
     """
     if not training.amp or device.type != "cuda":
-        return None, None
+        return None
     if training.amp_dtype == "float16":
-        return torch.float16, GradScaler()
+        return torch.float16
     if not torch.cuda.is_bf16_supported(including_emulation=False):
         raise ValueError(
             "training.amp_dtype is 'bfloat16', but this GPU has no native "
             "bfloat16, which needs compute capability 8.0 or higher; set "
             "training.amp_dtype to 'float16'"
         )
-    return torch.bfloat16, None
+    return torch.bfloat16
 
 
 class Trainer:
@@ -337,9 +334,9 @@ class Trainer:
         loss_fn: Loss function (HeteroscedasticLoss).
         device: Compute device (cuda/mps/cpu).
         autocast_dtype: Dtype of the training forward pass with mixed
-            precision (``training.amp`` on CUDA), or None for float32. The
-            loss and validation run in float32.
-        scaler: Gradient scaler for float16 mixed precision, or None.
+            precision (``training.amp`` on CUDA), or None for float32.
+        scaler: Gradient scaler, a pass-through unless the forward pass runs
+            in float16.
         history: TrainingHistory with loss curves and metrics.
         normalizer: LabelNormalizer for converting to/from normalized space.
         parameter_names: Names of stellar parameters being predicted.
@@ -391,9 +388,8 @@ class Trainer:
         # Create optimizer
         self.optimizer = self._create_optimizer()
 
-        self.autocast_dtype, self.scaler = _mixed_precision(
-            config.training, self.device
-        )
+        self.autocast_dtype = _autocast_dtype(config.training, self.device)
+        self.scaler = GradScaler("cuda", enabled=self.autocast_dtype == torch.float16)
         if self.autocast_dtype is not None:
             logger.info(f"Mixed precision training enabled ({self.autocast_dtype})")
 
@@ -1394,9 +1390,6 @@ class Trainer:
     ) -> torch.Tensor:
         """Backward pass, gradient clipping, and optimizer step.
 
-        With float16 mixed precision, the loss and the gradients go through
-        the gradient scaler.
-
         Args:
             loss: The computed loss tensor to backpropagate.
             gradient_clip: Max gradient norm for clipping (0 or negative = no clip).
@@ -1405,13 +1398,9 @@ class Trainer:
             The gradient norm (before clipping if clipping is applied), as a
             0-dim tensor on the device (not read back, to avoid a host sync).
         """
-        # Backward pass with gradient scaling for float16
-        if self.scaler is not None:
-            self.scaler.scale(loss).backward()
-            # Unscale gradients before clipping (required for accurate norm)
-            self.scaler.unscale_(self.optimizer)
-        else:
-            loss.backward()
+        self.scaler.scale(loss).backward()
+        # Unscale gradients before clipping (required for accurate norm)
+        self.scaler.unscale_(self.optimizer)
 
         # Gradient clipping: use inf when not clipping to still compute norm
         clip_value = gradient_clip if gradient_clip > 0 else float("inf")
@@ -1420,12 +1409,8 @@ class Trainer:
             max_norm=clip_value,
         ).detach()
 
-        # Optimizer step through the scaler for float16
-        if self.scaler is not None:
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-        else:
-            self.optimizer.step()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
         return grad_norm
 

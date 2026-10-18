@@ -16,7 +16,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from torch.amp import GradScaler
 
 from dorothy.config.schema import (
     DataConfig,
@@ -37,7 +36,7 @@ from dorothy.training.trainer import (
     EVALUATOR_METRIC_NAMES,
     Trainer,
     TrainingHistory,
-    _mixed_precision,
+    _autocast_dtype,
 )
 
 
@@ -683,31 +682,22 @@ class TestTrainerGradientClipping:
 class TestTrainerMixedPrecision:
     """Mixed precision with training.amp."""
 
-    @pytest.mark.filterwarnings("ignore:torch.cuda.amp.GradScaler is enabled")
     @pytest.mark.parametrize(
-        "device, training, dtype, scaled",
+        "device, training, dtype",
         [
-            ("cuda", {"amp": True}, torch.bfloat16, False),
-            ("cuda", {"amp": True, "amp_dtype": "float16"}, torch.float16, True),
-            ("cuda", {}, None, False),
-            ("cpu", {"amp": True}, None, False),
+            ("cuda", {"amp": True}, torch.bfloat16),
+            ("cuda", {"amp": True, "amp_dtype": "float16"}, torch.float16),
+            ("cuda", {}, None),
+            ("cpu", {"amp": True}, None),
         ],
         ids=["cuda_default", "cuda_float16", "cuda_amp_off", "cpu"],
     )
-    def test_amp_autocasts_on_cuda_with_a_scaler_for_float16_only(
-        self, monkeypatch, device, training, dtype, scaled
-    ):
-        # Off CUDA, bf16 support must not be checked: report none there
+    def test_amp_autocasts_on_cuda_only(self, monkeypatch, device, training, dtype):
         monkeypatch.setattr(
-            torch.cuda,
-            "is_bf16_supported",
-            lambda including_emulation=True: device == "cuda",
+            torch.cuda, "is_bf16_supported", lambda including_emulation=True: True
         )
-        autocast_dtype, scaler = _mixed_precision(
-            TrainingConfig(**training), torch.device(device)
-        )
-        assert autocast_dtype == dtype
-        assert isinstance(scaler, GradScaler) == scaled
+        config = TrainingConfig(**training)
+        assert _autocast_dtype(config, torch.device(device)) == dtype
 
     def test_bf16_on_a_gpu_without_native_bf16_is_rejected(self, monkeypatch):
         # A GPU with emulated bf16 only, such as a V100
@@ -717,10 +707,10 @@ class TestTrainerMixedPrecision:
             lambda including_emulation=True: including_emulation,
         )
         with pytest.raises(ValueError, match="training.amp_dtype"):
-            _mixed_precision(TrainingConfig(amp=True), torch.device("cuda"))
+            _autocast_dtype(TrainingConfig(amp=True), torch.device("cuda"))
 
     def test_training_loss_is_the_float32_loss_of_bf16_outputs(self, simple_config):
-        """exp, log and the division of the loss do not run in bf16."""
+        """The loss does not compute exp(2 ln s) in bf16."""
         simple_config.device = "cpu"
         trainer = Trainer(simple_config)
         trainer.autocast_dtype = torch.bfloat16  # CPU autocast stands in for CUDA
@@ -740,7 +730,7 @@ class TestTrainerMixedPrecision:
         )
         batch = next(source.batches(n, np.random.default_rng(0)))
         with torch.autocast("cpu", dtype=torch.bfloat16):
-            outputs = trainer.model(batch.X[SINGLE_SURVEY_KEY])
+            outputs = trainer._forward(batch)["default"]
         expected = trainer.loss_fn(outputs.float(), batch.y["default"]).item()
 
         # One batch, in the same order: the epoch loss is its loss before the step
