@@ -146,6 +146,7 @@
   one row per star.
 - `AnomalyDetector.tree` is removed; the detector searches the training
   embeddings directly.
+- The minimum PyTorch version is 2.4.
 
 ### Behaviour changes
 

@@ -577,8 +577,8 @@ class TrainingConfig(_ConfigModel):
     amp_dtype: Literal["bfloat16", "float16"] = Field(
         default="bfloat16",
         description="Reduced precision for amp. bfloat16 has the range of float32 "
-        "and needs a CUDA device that supports it; float16 has a smaller range "
-        "and uses a gradient scaler.",
+        "and needs a GPU with native bfloat16 (compute capability 8.0 or "
+        "higher); float16 has a smaller range and uses a gradient scaler.",
     )
 
     @field_validator("label_source_weights")

@@ -79,11 +79,11 @@ The default optimizer is AdamW {cite:p}`loshchilov2019adamw` (`adam` and
 CPU and MPS it has no effect. The forward pass of training and validation
 then runs under autocast in `training.amp_dtype`, and the loss runs in
 float32. The default, `bfloat16`, has the exponent range of float32 and needs
-no gradient scaler; if the GPU does not support it, the trainer raises
-`ValueError`. `float16` has a smaller range, so a gradient scaler keeps small
-gradients from underflowing to zero. Because validation also runs in reduced
-precision, its metrics differ from those of `dorothy evaluate`, which runs in
-float32.
+no gradient scaler; on a GPU without native bfloat16 (compute capability
+below 8.0), the trainer raises `ValueError`. `float16` has a smaller range, so
+a gradient scaler keeps small gradients from underflowing to zero. Because
+validation also runs in reduced precision, its metrics differ from those of
+`dorothy evaluate`, which runs in float32.
 
 After each epoch the model is evaluated on the validation stars. The epoch
 with the lowest validation loss is the best epoch; with several label sources

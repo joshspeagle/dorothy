@@ -1,6 +1,6 @@
 # Installation
 
-DOROTHY needs Python 3.10 or later, PyTorch 2.0 or later and NumPy 2.0 or
+DOROTHY needs Python 3.10 or later, PyTorch 2.4 or later and NumPy 2.0 or
 later.
 
 ```bash

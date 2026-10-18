@@ -278,17 +278,18 @@ def _mixed_precision(
     the exponent range of float32, so only float16 needs a scaler.
 
     Raises:
-        ValueError: If ``training.amp_dtype`` is bfloat16 and the CUDA device
-            does not support bfloat16.
+        ValueError: If ``training.amp_dtype`` is bfloat16 and the GPU has no
+            native bfloat16.
     """
     if not training.amp or device.type != "cuda":
         return None, None
     if training.amp_dtype == "float16":
         return torch.float16, GradScaler()
-    if not torch.cuda.is_bf16_supported():
+    if not torch.cuda.is_bf16_supported(including_emulation=False):
         raise ValueError(
-            "training.amp_dtype is 'bfloat16', which this CUDA device does not "
-            "support; set training.amp_dtype to 'float16'"
+            "training.amp_dtype is 'bfloat16', but this GPU has no native "
+            "bfloat16, which needs compute capability 8.0 or higher; set "
+            "training.amp_dtype to 'float16'"
         )
     return torch.bfloat16, None
 

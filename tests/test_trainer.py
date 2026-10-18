@@ -698,15 +698,24 @@ class TestTrainerMixedPrecision:
         self, monkeypatch, device, training, dtype, scaled
     ):
         # Off CUDA, bf16 support must not be checked: report none there
-        monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: device == "cuda")
+        monkeypatch.setattr(
+            torch.cuda,
+            "is_bf16_supported",
+            lambda including_emulation=True: device == "cuda",
+        )
         autocast_dtype, scaler = _mixed_precision(
             TrainingConfig(**training), torch.device(device)
         )
         assert autocast_dtype == dtype
         assert isinstance(scaler, GradScaler) == scaled
 
-    def test_bf16_on_a_cuda_device_without_bf16_is_rejected(self, monkeypatch):
-        monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: False)
+    def test_bf16_on_a_gpu_without_native_bf16_is_rejected(self, monkeypatch):
+        # A GPU with emulated bf16 only, such as a V100
+        monkeypatch.setattr(
+            torch.cuda,
+            "is_bf16_supported",
+            lambda including_emulation=True: including_emulation,
+        )
         with pytest.raises(ValueError, match="training.amp_dtype"):
             _mixed_precision(TrainingConfig(amp=True), torch.device("cuda"))
 
