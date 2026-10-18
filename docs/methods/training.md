@@ -9,8 +9,8 @@
    ({py:func}`~dorothy.data.training_data.load_training_data`).
 3. Split the stars into training, validation and test sets.
 4. Fit the label normalization on the training stars, train, and fit the
-   calibration factors of the predicted scatter
-   ({py:class}`~dorothy.training.trainer.Trainer`).
+   [calibration factors](evaluation.md#calibration-factors) of the predicted
+   scatter ({py:class}`~dorothy.training.trainer.Trainer`).
 5. Save the {term}`checkpoint`, the split and the training plots.
 
 `dorothy evaluate` and the Python API load and split data through the same

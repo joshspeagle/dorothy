@@ -212,6 +212,12 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip generating evaluation plots",
     )
+    evaluate_parser.add_argument(
+        "--no-calibration",
+        action="store_true",
+        help="Evaluate the raw predicted scatter, without the checkpoint's "
+        "calibration factors",
+    )
 
     return parser
 
@@ -541,12 +547,41 @@ def cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _calibration_table(head, fmt: str) -> str:
+    """One head's calibration factors and its raw and calibrated z-score spreads."""
+    rows = [
+        (
+            p,
+            head.calibration[p],
+            head.uncalibrated[p].z_robust_scatter,
+            head.normalized[p].z_robust_scatter,
+        )
+        for p in head.parameter_names
+    ]
+    caption = (
+        "The calibration factors scale the predicted scatter of the metrics above."
+    )
+    header = ["Parameter", "Factor", "z_scatter raw", "z_scatter calibrated"]
+    if fmt == "markdown":
+        lines = [caption, "", f"| {' | '.join(header)} |", "|---" * len(header) + "|"]
+        lines += [
+            f"| {p} | {c:.4f} | {raw:.4f} | {cal:.4f} |" for p, c, raw, cal in rows
+        ]
+    else:
+        lines = [caption, "{:<12} {:>10} {:>14} {:>21}".format(*header), "-" * 80]
+        lines += [
+            f"{p:<12} {c:>10.4f} {raw:>14.4f} {cal:>21.4f}" for p, c, raw, cal in rows
+        ]
+    return "\n".join(lines)
+
+
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """Execute the evaluate command."""
     import json
 
     from dorothy.data.training_data import SPLIT_FILE, DataSplit, load_training_data
     from dorothy.inference import evaluate_model, load_checkpoint
+    from dorothy.inference.calibration import CALIBRATION_FILE
 
     checkpoint_path = args.checkpoint
     if not checkpoint_path.exists():
@@ -570,6 +605,13 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     print(f"  Label sources: {config.data.label_sources}")
     print(f"  Model: {args.model} on {ckpt.device}")
     print(f"  Normalizer: {'loaded' if ckpt.normalizer is not None else 'none'}")
+    calibration = None if args.no_calibration else ckpt.calibration
+    if calibration is not None:
+        print(f"  Calibration: factors from {CALIBRATION_FILE}")
+    elif args.no_calibration:
+        print("  Calibration: off (--no-calibration)")
+    else:
+        print(f"  Calibration: none for {args.model}")
 
     print(f"\nLoading data from {config.data.catalogue_path}")
     try:
@@ -597,6 +639,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         split.test,
         batch_size=args.batch_size,
         device=ckpt.device,
+        calibration=calibration,
     )
     # Text / markdown summaries, one section per head
     fmt = "markdown" if args.format == "markdown" else "text"
@@ -604,8 +647,13 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     for source_name, head in results.items():
         source = f"[{source_name}]"
         if head.physical is not None:
+            note = (
+                "calibrated uncertainties"
+                if head.uncalibrated is not None
+                else "comparable to training validation"
+            )
             sections.append(
-                f"NORMALIZED SPACE METRICS (comparable to training validation) {source}\n"
+                f"NORMALIZED SPACE METRICS ({note}) {source}\n"
                 + "=" * 80
                 + "\n"
                 + head.normalized.summary(format=fmt)
@@ -622,6 +670,13 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                 + "=" * 80
                 + "\n"
                 + head.normalized.summary(format=fmt)
+            )
+        if head.uncalibrated is not None:
+            sections.append(
+                f"CALIBRATION {source}\n"
+                + "=" * 80
+                + "\n"
+                + _calibration_table(head, fmt)
             )
     full_summary = "\n\n".join(sections)
 

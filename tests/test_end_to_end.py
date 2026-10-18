@@ -119,6 +119,41 @@ class TestEvaluateMatchesTraining:
         assert primary.physical is not None
         assert 3000 < np.nanmedian(primary.y_pred[:, 0]) < 8000
 
+    @pytest.mark.parametrize(
+        "surveys,sources,extra",
+        [
+            (["boss"], ["apogee"], {}),
+            (MULTI_SURVEYS, ["apogee", "galah"], {}),
+            (
+                MULTI_SURVEYS,
+                ["apogee", "galah"],
+                {"extra_training": "  ema_decay: 0.9\n"},
+            ),
+        ],
+        ids=["single", "sparse_multilabel", "weight_average"],
+    )
+    def test_calibrated_validation_z_scores_have_unit_spread(
+        self, tmp_path, catalogue, surveys, sources, extra
+    ):
+        config_path = _config(tmp_path, catalogue, surveys, sources, epochs=3, **extra)
+        config, data, split, trainer = _train(config_path)
+        ckpt = load_checkpoint(trainer.save_checkpoint(tmp_path / "ckpt"), device="cpu")
+        results = evaluate_model(
+            ckpt.model,
+            ckpt.normalizer,
+            ckpt.config,
+            data,
+            split.val,
+            device="cpu",
+            calibration=ckpt.calibration,
+        )
+
+        assert list(results) == list(ckpt.calibration) == sources
+        for head in results.values():
+            spread = [head.normalized.metrics[p].z_robust_scatter for p in PARAMS]
+            # The tolerance of the reproduction above; measured within 2e-7
+            np.testing.assert_allclose(spread, 1.0, rtol=1e-4)
+
 
 class TestCLIEndToEnd:
     def test_train_evaluate_info_multilabel(self, tmp_path, catalogue, capsys):

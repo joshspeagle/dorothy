@@ -29,9 +29,13 @@ data.fit(trainer, split)
 checkpoint_dir = trainer.save_checkpoint()
 split.save(checkpoint_dir, data)
 
-# Metrics on the test split, one entry per label source
+# Metrics on the test split, one entry per label source, with the
+# calibrated uncertainties
 ckpt = load_checkpoint(checkpoint_dir)
-results = evaluate_model(ckpt.model, ckpt.normalizer, ckpt.config, data, split.test)
+results = evaluate_model(
+    ckpt.model, ckpt.normalizer, ckpt.config, data, split.test,
+    calibration=ckpt.calibration,
+)
 print(results["apogee"].physical.summary())
 
 # Predictions for new BOSS spectra X of shape (n, 3, n_wavelengths),
