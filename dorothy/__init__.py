@@ -12,7 +12,7 @@ Main components:
     - losses: Loss functions including heteroscedastic loss
     - training: Training loop and callbacks
     - inference: Prediction and evaluation
-    - analysis: Post-hoc analysis tools (k-NN, saliency)
+    - analysis: Post-hoc analysis tools (k-NN, saliency, label-source comparison)
     - cli: Command-line interface
 """
 

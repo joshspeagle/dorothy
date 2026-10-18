@@ -23,6 +23,9 @@
   training data, splits and batches, shared by `dorothy train`,
   `dorothy evaluate` and the Python API.
 - `dorothy.inference.load_checkpoint` and `evaluate_model`.
+- `dorothy.analysis.compare_label_sources` compares the APOGEE and GALAH labels
+  of the stars that both measure with the spread that their reported errors
+  predict, for each parameter. It needs no trained model.
 - `CatalogueLoader.load_spectrum` and `load_labels_for_index` load one star.
 - A documentation site (Sphinx), with background, methods, usage guides and an API reference.
 - The Dorothy logo in the README and on the documentation site.
