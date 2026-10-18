@@ -553,6 +553,10 @@ class MultiHeadMLP(nn.Module):
 
         Returns:
             Predictions of shape (batch, 2, n_parameters).
+
+        Raises:
+            ValueError: If label_errors is given to a model built with
+                label_aware_uncertainty=False, or has the wrong shape.
         """
         return self.output_head(self._trunk_features(x, survey, has_data), label_errors)
 
@@ -617,6 +621,8 @@ class MultiHeadMLP(nn.Module):
         Raises:
             KeyError: If label_errors names a label source the model has no
                 head for.
+            ValueError: If label_errors is given to a model built with
+                label_aware_uncertainty=False, or has the wrong shape.
         """
         label_errors = label_errors or {}
         unknown = set(label_errors) - set(self.output_heads)

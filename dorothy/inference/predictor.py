@@ -195,6 +195,8 @@ class Predictor:
 
         Raises:
             FileNotFoundError: If required files are not found.
+            ValueError: If a checkpoint without config.yaml holds a model with
+                label-aware uncertainty.
         """
         ckpt = load_checkpoint(checkpoint_path, model_file, normalizer_file, device)
         predictor = cls(
