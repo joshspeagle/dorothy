@@ -67,7 +67,11 @@ class LabelComparison:
     ratio: NDArray[np.float64]
 
     def summary(self) -> str:
-        """Format the statistics as a text table with one row per parameter."""
+        """Format the statistics as a text table.
+
+        Returns:
+            A title line, a header line and one line per parameter.
+        """
         width = max(len(name) for name in ["Parameter", *self.parameter_names]) + 2
         lines = [
             f"Label differences d = {self.source_a} - {self.source_b}",
@@ -186,6 +190,7 @@ def plot_label_differences(
         (K for Teff, dex for the others).
 
     Raises:
+        FileNotFoundError: If the catalogue does not exist.
         ValueError: If the catalogue has no parameter ``teff`` or ``fe_h``, or
             for a reason given at ``compare_label_sources``.
     """

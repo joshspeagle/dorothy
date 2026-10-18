@@ -1,4 +1,4 @@
-"""Analysis tools for DOROTHY models."""
+"""Analysis tools: saliency, anomaly detection and label-source comparison."""
 
 from dorothy.analysis.knn_anomaly import (
     AnomalyDetector,
