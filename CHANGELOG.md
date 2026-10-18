@@ -301,9 +301,8 @@
 - Training starts with a β-NLL warm-up over the first 10% of the optimizer
   steps, so training results change for the same configuration and seed.
   `training.nll_warmup_fraction: 0` restores the previous training exactly.
-- New models read the error channel as ln(1 + 1/σ), with 0 at masked
-  pixels, instead of σ, which is 0 at masked pixels and unbounded for noisy
-  ones. Results change for the same configuration and seed, and gradient
+- New models read the error channel as the precision encoding instead of
+  σ. Results change for the same configuration and seed, and gradient
   saliency differentiates with respect to the encoded channel.
   `SparseMergedData.sigma` holds the encoded values. A checkpoint
   configuration without `data.precision_encoding` loads it as false, so old

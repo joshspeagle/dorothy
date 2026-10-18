@@ -518,14 +518,11 @@ def predict_from_fits(
         label_source=label_source,
         calibrate=calibrate,
     )
-    normalize, encode = (
-        (
-            predictor.config.data.normalize_spectra,
-            predictor.config.data.precision_encoding,
-        )
-        if predictor.config is not None
-        else (True, False)
-    )
+    if predictor.config is None:
+        normalize, encode = True, False
+    else:
+        normalize = predictor.config.data.normalize_spectra
+        encode = predictor.config.data.precision_encoding
 
     data = FITSLoader(fits_path).load(
         apply_normalization=normalize,

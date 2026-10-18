@@ -186,7 +186,7 @@ class TestCLIEndToEnd:
         assert "MultiHeadMLP" in info and "galah" in info
         assert "Parameters (4)" in info
         assert "Uncertainty model: label-aware" in info
-        assert "Error channel: log(1 + 1/sigma)" in info
+        assert "Precision encoding: True" in info
         # One column of calibration factors per head
         table = info.split("Calibration factors of best_model.pth")[1]
         assert re.search(

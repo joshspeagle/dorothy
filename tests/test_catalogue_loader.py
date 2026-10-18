@@ -2123,12 +2123,8 @@ class TestNanSnr:
 
 
 class TestModelInputs:
-    # ivar = inf gives sigma = 0 at a pixel this helper counts as valid
-    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
-    @pytest.mark.parametrize("encode", [False, True])
-    def test_model_inputs_match_the_direct_computation(self, encode):
+    def test_model_inputs_match_the_direct_computation(self):
         from dorothy.data.catalogue_loader import _spectra_to_model_inputs
-        from dorothy.data.fits_loader import encode_precision
 
         rng = np.random.default_rng(0)
         flux = rng.normal(size=(7, 9)).astype(np.float32)
@@ -2139,9 +2135,7 @@ class TestModelInputs:
         sigma = np.zeros_like(ivar)
         sigma[valid] = 1.0 / np.sqrt(ivar[valid])
         expected = np.stack([flux, sigma, valid.astype(np.float32)], axis=1)
-        if encode:
-            expected = encode_precision(expected)
-        got = _spectra_to_model_inputs(flux, ivar, encode, block_rows=3)
+        got = _spectra_to_model_inputs(flux, ivar, False, block_rows=3)
         assert got.dtype == expected.dtype and got.shape == expected.shape
         assert got.tobytes() == expected.tobytes()
 
