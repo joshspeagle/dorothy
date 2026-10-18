@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from torch import nn
 
 from dorothy.config.schema import (
     DataConfig,
@@ -514,6 +515,25 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     config = ExperimentConfig(name="old", device="cpu", **sections)
     torch.manual_seed(0)
     model = build_model(config).eval()
+    # The layers that label-aware uncertainty replaced, as checkpoints saved
+    # before it store them
+    if multi_head:
+        old = nn.Sequential(
+            nn.Linear(128, 8), nn.LayerNorm(8), nn.GELU(), nn.Linear(8, 6)
+        )
+        model.output_head.head.load_state_dict(old.state_dict())
+    else:
+        old = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(60, 24),
+            nn.LayerNorm(24),
+            nn.GELU(),
+            nn.Linear(24, 16),
+            nn.LayerNorm(16),
+            nn.GELU(),
+            nn.Linear(16, 6),
+        )
+        model.layers.load_state_dict(old.state_dict())
     path = tmp_path / "ckpt"
     path.mkdir()
     torch.save(model.state_dict(), path / "best_model.pth")
@@ -526,11 +546,8 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
     with torch.no_grad():
         # The forward pass before label-aware uncertainty
-        if multi_head:
-            trunk = model.get_embeddings(X, "boss", level="trunk")
-            expected = model.output_head.head(trunk).view(9, 2, 3)
-        else:
-            expected = model.layers(X).view(9, 2, 3)
+        old_input = model.get_embeddings(X, "boss", level="trunk") if multi_head else X
+        expected = old(old_input).view(9, 2, 3)
     result = Predictor.load(path, device="cpu").predict(X)
 
     np.testing.assert_array_equal(result.raw_output, expected.numpy())
