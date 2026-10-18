@@ -182,31 +182,26 @@ class MLP(nn.Module):
             x: Input tensor of shape (batch_size, channels, wavelength_bins).
             layer_index: Index of the module of ``self.layers`` whose output
                 is returned. The default, -2, gives the input of the output
-                head: the layer before the last hidden layer for a label-aware
-                model, whose decoders take over the last hidden layer, and the
-                last hidden layer for an old checkpoint.
+                head. For a label-aware model, whose decoders take over the
+                last hidden layer, that is the layer before it, or the
+                flattened input with one hidden layer; for an old checkpoint,
+                it is the last hidden layer.
 
         Returns:
             Embedding tensor of shape (batch_size, embedding_dim); the output
             layer's (batch_size, 2, n_params) is flattened.
+
+        Raises:
+            ValueError: If layer_index is outside [-len(self.layers),
+                len(self.layers) - 1].
         """
-        # Get the layer to stop at (skip the output layer)
-        # Need to account for: Flatten + (Linear + Norm + Activation + [Dropout]) * N + output
-        # We want to get output after the last activation/dropout, before the output layer
-
-        # Find the actual layer index
-        layers_list = list(self.layers.children())
-        if layer_index < 0:
-            layer_index = len(layers_list) + layer_index
-
-        # Run through layers up to the specified index
-        result = x
-        for i, layer in enumerate(layers_list):
-            result = layer(result)
-            if i == layer_index:
-                break
-
-        return result.flatten(1)
+        n_modules = len(self.layers)
+        if not -n_modules <= layer_index < n_modules:
+            raise ValueError(
+                f"layer_index must be in [{-n_modules}, {n_modules - 1}], "
+                f"got {layer_index}"
+            )
+        return self.layers[: layer_index % n_modules + 1](x).flatten(1)
 
     @classmethod
     def from_config(cls, config: ModelConfig) -> MLP:
