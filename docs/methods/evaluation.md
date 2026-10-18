@@ -4,9 +4,8 @@
 trained model on a set of stars, usually the test set, for every output head.
 It uses the batches, label normalization and predicted scatter of training,
 so on the validation stars its metrics equal the ones recorded during
-training, unless training used mixed precision
-([Training](training.md#optimization)). `dorothy evaluate` calls it on the
-test set ([Commands](../guide/commands.md#evaluate)).
+training. `dorothy evaluate` calls it on the test set
+([Commands](../guide/commands.md#evaluate)).
 
 Metrics are reported in two units:
 

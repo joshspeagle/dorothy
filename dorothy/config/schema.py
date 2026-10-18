@@ -571,8 +571,9 @@ class TrainingConfig(_ConfigModel):
     )
     amp: bool = Field(
         default=False,
-        description="Mixed precision on CUDA: the forward pass runs in amp_dtype "
-        "and the loss in float32. On CPU and MPS, training stays in float32.",
+        description="Mixed precision on CUDA: the training forward pass runs in "
+        "amp_dtype; the loss and validation run in float32. CPU and MPS train "
+        "in float32.",
     )
     amp_dtype: Literal["bfloat16", "float16"] = Field(
         default="bfloat16",

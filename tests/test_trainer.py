@@ -748,6 +748,23 @@ class TestTrainerMixedPrecision:
         # Without the cast, exp runs in bf16 and this loss changes by 7e-4
         assert loss == pytest.approx(expected, rel=1e-6)
 
+    def test_validation_runs_in_float32_under_mixed_precision(
+        self, simple_config, training_data
+    ):
+        """The recorded validation loss is that of float32 predictions."""
+        simple_config.device = "cpu"
+        simple_config.training.epochs = 1
+        trainer = Trainer(simple_config)
+        trainer.autocast_dtype = torch.bfloat16  # CPU autocast stands in for CUDA
+        X, y = training_data
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        output = torch.from_numpy(trainer.predict(X[80:]))
+        target = torch.from_numpy(trainer.normalizer.transform_labels(y[80:]))
+        expected = trainer.loss_fn(output, target).item()
+        # Validation under bf16 autocast changes this loss by 3e-5
+        assert history.val_losses[0] == pytest.approx(expected, rel=1e-6)
+
 
 class TestTrainerMasking:
     """Tests for Trainer with label masking (embedded in y tensor channel 2)."""

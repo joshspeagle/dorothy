@@ -272,7 +272,7 @@ def _check_label_array(name: str, arr: np.ndarray) -> None:
 def _mixed_precision(
     training: TrainingConfig, device: torch.device
 ) -> tuple[torch.dtype | None, GradScaler | None]:
-    """The autocast dtype of the forward pass and the gradient scaler.
+    """The autocast dtype of the training forward pass and the gradient scaler.
 
     Mixed precision runs on CUDA only; elsewhere both are None. bfloat16 has
     the exponent range of float32, so only float16 needs a scaler.
@@ -336,8 +336,9 @@ class Trainer:
         scheduler: Learning rate scheduler (OneCycleLR by default).
         loss_fn: Loss function (HeteroscedasticLoss).
         device: Compute device (cuda/mps/cpu).
-        autocast_dtype: Dtype of the forward pass with mixed precision
-            (``training.amp`` on CUDA), or None for float32.
+        autocast_dtype: Dtype of the training forward pass with mixed
+            precision (``training.amp`` on CUDA), or None for float32. The
+            loss and validation run in float32.
         scaler: Gradient scaler for float16 mixed precision, or None.
         history: TrainingHistory with loss curves and metrics.
         normalizer: LabelNormalizer for converting to/from normalized space.
@@ -977,18 +978,8 @@ class Trainer:
         return X_batch, has_data_batch
 
     def _forward(self, batch: Batch) -> dict[str, torch.Tensor]:
-        """Model outputs (batch, 2, n_params) for every label source key.
-
-        With mixed precision the model runs under autocast, and its outputs
-        are cast to float32, so the loss never runs in reduced precision.
-        """
-        with autocast(
-            self.device.type,
-            dtype=self.autocast_dtype,
-            enabled=self.autocast_dtype is not None,
-        ):
-            outputs = forward_label_sources(self.model, batch, self.label_keys)
-        return {k: v.float() for k, v in outputs.items()}
+        """Model outputs (batch, 2, n_params) for every label source key."""
+        return forward_label_sources(self.model, batch, self.label_keys)
 
     def _combine_losses(
         self,
@@ -1208,7 +1199,15 @@ class Trainer:
                 batch.y = self._label_masking(batch.y)
 
             self.optimizer.zero_grad()
-            loss = self._combine_losses(self._forward(batch), batch.y)
+            with autocast(
+                self.device.type,
+                dtype=self.autocast_dtype,
+                enabled=self.autocast_dtype is not None,
+            ):
+                outputs = self._forward(batch)
+            # exp, log and the division of the loss run in float32
+            outputs = {k: v.float() for k, v in outputs.items()}
+            loss = self._combine_losses(outputs, batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
             total_grad_norm += grad_norm.to(acc_device).double()
