@@ -1986,3 +1986,24 @@ class TestGaiaIds:
                 del f["labels"][source]["gaia_id"]
         with pytest.raises(ValueError, match="no Gaia IDs"):
             CatalogueLoader(path).load_merged(["boss", "desi"])
+
+
+class TestNanSnr:
+    def test_dense_and_sparse_loaders_skip_the_same_nan_snr_rows(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            boss = f["surveys/boss/snr"][:]
+            desi = f["surveys/desi/snr"][:]
+            boss_only = np.flatnonzero((boss > 0) & (desi == 0))[0]
+            both = np.flatnonzero((boss > 0) & (desi > 0))[0]
+            boss[[boss_only, both]] = np.nan
+            f["surveys/boss/snr"][...] = boss
+        loader = CatalogueLoader(path)
+        sparse = loader.load_merged_sparse(["boss", "desi"])
+        dense = loader.load_merged(["boss", "desi"])
+        rows = np.flatnonzero(sparse.has_data("boss") | sparse.has_data("desi"))
+        np.testing.assert_array_equal(dense.gaia_ids, sparse.gaia_ids[rows])
+        for survey in ("boss", "desi"):
+            np.testing.assert_array_equal(
+                dense.surveys[survey]["has_data"], sparse.has_data(survey)[rows]
+            )

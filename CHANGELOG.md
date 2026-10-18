@@ -60,6 +60,8 @@
 - `load_merged` numbered the rows of a catalogue without Gaia IDs from 0, so
   it dropped row 0 and merged unrelated stars that share a row number in
   different surveys. It now raises `ValueError`.
+- `load_merged` loaded spectra with a NaN S/N, and raised `KeyError` for such
+  a star when no other requested survey had it.
 
 ### Performance
 
@@ -125,3 +127,4 @@
   every survey has data for it (`snr > 0`, the rule of the sparse loader).
 - `SparseMergedData.has_labels_dict` marks a star only if it has a label
   that survives the flag filter, as its label mask does.
+- Dense loading skips spectra with a NaN S/N, as sparse loading does.

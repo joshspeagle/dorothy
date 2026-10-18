@@ -1298,18 +1298,17 @@ class CatalogueLoader:
             gaia_ids = meta["gaia_ids"]
             snr = meta["snr"]
 
-            # Valid = has valid gaia_id AND has actual data (SNR > 0)
-            valid_mask = (gaia_ids > 0) & (snr > 0)
-            valid_ids = gaia_ids[valid_mask].astype(np.int64)
+            # Rows with a valid gaia_id and data: snr > 0, which excludes a NaN
+            # SNR, as in the sparse loader
+            rows = np.flatnonzero((gaia_ids > 0) & (snr > 0))
+            valid_ids = gaia_ids[rows].astype(np.int64)
 
             # Count occurrences
             unique_ids, counts = np.unique(valid_ids, return_counts=True)
             duplicate_gaia_ids = unique_ids[counts > 1]
             unique_gaia_ids = unique_ids[counts == 1]
 
-            # Split the rows to load into duplicates and unique stars. Rows
-            # are skipped for gid <= 0 or SNR <= 0 (a NaN SNR is not skipped)
-            rows = np.flatnonzero(~((gaia_ids <= 0) | (snr <= 0)))
+            # Split the rows to load into duplicates and unique stars
             is_dup = np.isin(gaia_ids[rows], duplicate_gaia_ids)
 
             meta["duplicate_indices"] = rows[is_dup].astype(np.intp)
