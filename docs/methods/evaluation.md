@@ -85,9 +85,9 @@ $$
 where μ and s are the predictions of the best epoch's weights with the
 {term}`missing vector`, in normalized units. c is the validation
 `z_robust_scatter`, so the calibrated uncertainty σ_cal gives the validation
-z-scores a robust spread of 1. A parameter with fewer than two validation
-labels, such as an element that a label source does not measure, keeps the
-factor 1.
+z-scores a robust spread of 1. A factor that is not finite and positive is
+set to 1. This happens for a parameter with fewer than two validation
+labels, such as an element that a label source does not measure.
 
 The checkpoint stores the factors in `calibration.json`, as label source →
 parameter → factor. They describe `best_model.pth`:

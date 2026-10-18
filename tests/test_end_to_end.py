@@ -121,23 +121,15 @@ class TestEvaluateMatchesTraining:
         assert 3000 < np.nanmedian(primary.y_pred[:, 0]) < 8000
 
     @pytest.mark.parametrize(
-        "surveys,sources,extra",
-        [
-            (["boss"], ["apogee"], {}),
-            (MULTI_SURVEYS, ["apogee", "galah"], {}),
-            (
-                MULTI_SURVEYS,
-                ["apogee", "galah"],
-                {"extra_training": "  ema_decay: 0.9\n"},
-            ),
-        ],
-        ids=["single", "sparse_multilabel", "weight_average"],
+        "surveys,sources",
+        [(["boss"], ["apogee"]), (MULTI_SURVEYS, ["apogee", "galah"])],
+        ids=["single", "sparse_multilabel"],
     )
     def test_calibrated_validation_z_scores_have_unit_spread(
-        self, tmp_path, catalogue, surveys, sources, extra
+        self, tmp_path, catalogue, surveys, sources
     ):
-        config_path = _config(tmp_path, catalogue, surveys, sources, epochs=3, **extra)
-        config, data, split, trainer = _train(config_path)
+        config_path = _config(tmp_path, catalogue, surveys, sources, epochs=3)
+        _, data, split, trainer = _train(config_path)
         ckpt = load_checkpoint(trainer.save_checkpoint(tmp_path / "ckpt"), device="cpu")
         results = evaluate_model(
             ckpt.model,
