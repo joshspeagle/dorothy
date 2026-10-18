@@ -149,5 +149,5 @@ signatures/keys. Bugs fixed structurally:
 3. EMA of weights; β-NLL option; weight decay excluding norm/bias params.
 4. Input error channel: bounded precision instead of raw σ (masked σ=0 currently
    looks like infinite precision); optional continuum normalization.
-5. Speed: bf16 AMP default on GPU, `torch.compile`, fewer validation passes.
+5. Speed: `torch.compile`, fewer validation passes.
 6. Diagnostic: APOGEE–GALAH overlap error calibration (Var(Δ) vs σ_A²+σ_G²).

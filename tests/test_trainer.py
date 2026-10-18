@@ -31,7 +31,13 @@ from dorothy.config.schema import (
     TrainingConfig,
 )
 from dorothy.data.augmentation import DynamicInputMasking
-from dorothy.training.trainer import EVALUATOR_METRIC_NAMES, Trainer, TrainingHistory
+from dorothy.training.batches import SINGLE_SURVEY_KEY, TensorBatchSource
+from dorothy.training.trainer import (
+    EVALUATOR_METRIC_NAMES,
+    Trainer,
+    TrainingHistory,
+    _autocast_dtype,
+)
 
 
 @pytest.fixture
@@ -671,6 +677,97 @@ class TestTrainerGradientClipping:
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
         assert len(history.train_losses) == 5
+
+
+class TestTrainerMixedPrecision:
+    """Mixed precision with training.amp."""
+
+    @pytest.mark.parametrize(
+        "device, training, dtype",
+        [
+            ("cuda", {"amp": True}, torch.bfloat16),
+            ("cuda", {"amp": True, "amp_dtype": "float16"}, torch.float16),
+            ("cuda", {}, None),
+            ("cpu", {"amp": True}, None),
+        ],
+        ids=["cuda_default", "cuda_float16", "cuda_amp_off", "cpu"],
+    )
+    def test_amp_autocasts_on_cuda_only(self, monkeypatch, device, training, dtype):
+        monkeypatch.setattr(
+            torch.cuda, "is_bf16_supported", lambda including_emulation=True: True
+        )
+        config = TrainingConfig(**training)
+        assert _autocast_dtype(config, torch.device(device)) == dtype
+
+    def test_bf16_on_a_gpu_without_native_bf16_is_rejected(self, monkeypatch):
+        # A GPU with emulated bf16 only, such as a V100
+        monkeypatch.setattr(
+            torch.cuda,
+            "is_bf16_supported",
+            lambda including_emulation=True: including_emulation,
+        )
+        with pytest.raises(ValueError, match="training.amp_dtype"):
+            _autocast_dtype(TrainingConfig(amp=True), torch.device("cuda"))
+
+    def test_training_loss_is_the_float32_loss_of_bf16_outputs(self, simple_config):
+        """The loss does not compute exp(2 ln s) in bf16."""
+        simple_config.device = "cpu"
+        trainer = Trainer(simple_config)
+        trainer.autocast_dtype = torch.bfloat16  # CPU autocast stands in for CUDA
+        gen = torch.Generator().manual_seed(0)
+        n, n_params = 64, trainer.n_parameters
+        X = torch.randn(n, 3, 1000, generator=gen)
+        y = torch.stack(
+            [
+                torch.randn(n, n_params, generator=gen),
+                torch.full((n, n_params), 0.01),
+                torch.ones(n, n_params),
+            ],
+            dim=1,
+        )
+        source = TensorBatchSource(
+            {SINGLE_SURVEY_KEY: X}, {"default": y}, None, trainer.device
+        )
+        batch = next(source.batches(n, np.random.default_rng(0)))
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            outputs = trainer._forward(batch)["default"]
+        expected = trainer.loss_fn(outputs.float(), batch.y["default"]).item()
+
+        # One batch, in the same order: the epoch loss is its loss before the step
+        loss, _ = trainer._train_epoch(source, n, np.random.default_rng(0), 10.0)
+        # Without the cast, exp runs in bf16 and this loss changes by 7e-4
+        assert loss == pytest.approx(expected, rel=1e-6)
+
+    def test_validation_runs_in_float32_under_mixed_precision(
+        self, simple_config, training_data
+    ):
+        """The recorded validation loss is that of float32 predictions."""
+        simple_config.device = "cpu"
+        simple_config.training.epochs = 1
+        trainer = Trainer(simple_config)
+        trainer.autocast_dtype = torch.bfloat16  # CPU autocast stands in for CUDA
+        X, y = training_data
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        output = torch.from_numpy(trainer.predict(X[80:]))
+        target = torch.from_numpy(trainer.normalizer.transform_labels(y[80:]))
+        expected = trainer.loss_fn(output, target).item()
+        # Validation under bf16 autocast changes this loss by 3e-5
+        assert history.val_losses[0] == pytest.approx(expected, rel=1e-6)
+
+    def test_training_without_mixed_precision_opens_no_autocast_region(
+        self, simple_config, training_data, monkeypatch
+    ):
+        """torch < 2.5 rejects autocast on MPS even when it is disabled."""
+
+        def unsupported(*args, **kwargs):
+            raise RuntimeError("User specified an unsupported autocast device_type")
+
+        monkeypatch.setattr("dorothy.training.trainer.autocast", unsupported)
+        simple_config.device = "cpu"
+        simple_config.training.epochs = 1
+        X, y = training_data
+        Trainer(simple_config).fit(X[:80], y[:80], X[80:], y[80:])
 
 
 class TestTrainerMasking:
