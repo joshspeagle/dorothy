@@ -143,6 +143,16 @@ class TestOutputHead:
         output = head(x)
         assert output.shape == (16, 2, 5)
 
+    def test_error_decoder_has_the_label_decoder_hidden_sizes(self):
+        """The error decoder reads [x, u], with u of n_parameters entries."""
+        output = OutputHead(input_dim=10, n_parameters=3, hidden_layers=[8, 6]).head[0]
+
+        def linear_shapes(decoder):
+            return [m.weight.shape for m in decoder if isinstance(m, torch.nn.Linear)]
+
+        assert linear_shapes(output.mean) == [(8, 10), (6, 8), (3, 6)]
+        assert linear_shapes(output.scatter) == [(8, 13), (6, 8), (3, 6)]
+
 
 class TestMultiHeadMLP:
     """Tests for the full multi-head MLP architecture."""

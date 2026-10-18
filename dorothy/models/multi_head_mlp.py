@@ -14,9 +14,11 @@ Architecture:
         Input: (batch, latent_dim) or (batch, n_surveys * latent_dim) for combined
         Hidden layers -> (batch, trunk_output_dim)
 
-    Output Head:
-        Input: (batch, trunk_output_dim) -> Hidden layers -> LabelAwareOutput
-        -> (batch, 2, n_params)
+    Output Head (a LabelAwareOutput per label source):
+        Label decoder: (batch, trunk_output_dim) -> Hidden layers -> mu
+        Error decoder: (batch, trunk_output_dim + n_params), the trunk output
+        and the log label errors -> Hidden layers of the same sizes -> ln s
+        Output: (batch, 2, n_params) = [mu, ln s]
 
 For multi-survey training:
     - Each sample may have data from one or more surveys
@@ -31,7 +33,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
-from dorothy.models.output import output_layer
+from dorothy.models.output import output_modules
 from dorothy.models.utils import get_activation, get_normalization
 
 if TYPE_CHECKING:
@@ -205,9 +207,11 @@ class SharedTrunk(nn.Module):
 class OutputHead(nn.Module):
     """Output head that produces stellar parameter predictions.
 
-    Takes features from the shared trunk and produces predictions
-    in the standard (batch, 2, n_params) format. Its last layer is a
-    LabelAwareOutput.
+    Takes features from the shared trunk and produces predictions in the
+    standard (batch, 2, n_params) format. The head is a LabelAwareOutput:
+    its label decoder maps the features through hidden_layers to mu, and its
+    error decoder maps the features and the label errors through layers of
+    the same sizes to ln s.
 
     Attributes:
         n_parameters: Number of stellar parameters to predict.
@@ -228,12 +232,13 @@ class OutputHead(nn.Module):
         Args:
             input_dim: Input dimension from shared trunk.
             n_parameters: Number of stellar parameters to predict.
-            hidden_layers: Hidden layer sizes. Default: [64].
+            hidden_layers: Hidden layer sizes of each decoder. Default: [64].
             normalization: Normalization type.
             activation: Activation function.
             dropout: Dropout probability.
-            label_aware_uncertainty: End in a LabelAwareOutput (default);
-                False ends in the AdditiveOutput of old checkpoints.
+            label_aware_uncertainty: Make the head a LabelAwareOutput
+                (default); False builds the hidden layers and the
+                AdditiveOutput of old checkpoints.
         """
         super().__init__()
 
@@ -244,26 +249,17 @@ class OutputHead(nn.Module):
         if hidden_layers is None:
             hidden_layers = [64]
 
-        activation_fn = get_activation(activation)
-        norm_class = get_normalization(normalization)
-
-        layers: list[nn.Module] = []
-        prev_size = input_dim
-
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(prev_size, hidden_size))
-            layers.append(norm_class(hidden_size))
-            layers.append(activation_fn())
-            if dropout > 0:
-                layers.append(nn.Dropout(p=dropout))
-            prev_size = hidden_size
-
-        # Final output layer (no norm or activation)
-        layers.append(
-            output_layer(prev_size, n_parameters, activation, label_aware_uncertainty)
+        self.head = nn.Sequential(
+            *output_modules(
+                input_dim,
+                n_parameters,
+                hidden_layers,
+                normalization,
+                activation,
+                dropout,
+                label_aware_uncertainty,
+            )
         )
-
-        self.head = nn.Sequential(*layers)
 
     def forward(
         self, x: torch.Tensor, label_errors: torch.Tensor | None = None
@@ -307,8 +303,8 @@ class MultiHeadMLP(nn.Module):
         encoders: ModuleDict of survey encoders.
         trunk: Shared trunk network.
         output_head: Output prediction head.
-        label_aware_uncertainty: Whether the heads end in a LabelAwareOutput
-            (True) or an AdditiveOutput.
+        label_aware_uncertainty: Whether the heads are LabelAwareOutputs
+            (True) or end in an AdditiveOutput.
         encode_present_rows_only: With multi-survey input, run each encoder
             only on the rows that have that survey's data (default True).
             The rows without data are discarded either way, so this changes
@@ -358,7 +354,8 @@ class MultiHeadMLP(nn.Module):
             latent_dim: Output dimension of each survey encoder.
             encoder_hidden: Hidden layers for encoders. Default: [1024, 512].
             trunk_hidden: Hidden layers for shared trunk. Default: [512, 256].
-            output_hidden: Hidden layers for output head. Default: [64].
+            output_hidden: Hidden layers of each output head's decoders.
+                Default: [64].
             combination_mode: How to combine multi-survey embeddings. Default: "concat".
                 - "concat": Concatenate embeddings (trunk input = n_surveys * latent_dim).
                     Missing surveys are zero-padded.
@@ -371,9 +368,9 @@ class MultiHeadMLP(nn.Module):
                 output head per source (e.g., ["apogee", "galah"]).
             head_dropout: Optional per-label-source dropout for the output heads,
                 e.g. {"galah": 0.2}. Sources not listed use ``dropout``.
-            label_aware_uncertainty: End every head in a LabelAwareOutput
-                (default); False ends them in the AdditiveOutput of old
-                checkpoints.
+            label_aware_uncertainty: Make every head a LabelAwareOutput
+                (default); False builds the heads of old checkpoints, which
+                end in an AdditiveOutput.
 
         Raises:
             ValueError: If survey_configs is empty.

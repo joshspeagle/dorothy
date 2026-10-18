@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
-from dorothy.models.output import output_layer
-from dorothy.models.utils import get_activation, get_normalization
+from dorothy.models.output import output_modules
+from dorothy.models.utils import hidden_blocks
 
 if TYPE_CHECKING:
     from dorothy.config.schema import ModelConfig
@@ -45,9 +45,11 @@ class MLP(nn.Module):
     - Dropout probability
 
     The network flattens 3D input tensors (batch, 3, wavelengths) to 2D
-    before processing through the hidden layers. The last layer (see
-    LabelAwareOutput) returns (batch, 2, n_params): the means and the
-    log-scatter.
+    before processing through the hidden layers. The last module, a
+    LabelAwareOutput, reads the last hidden layer h and returns
+    (batch, 2, n_params): the means, linear in h, and the log-scatter, from
+    an error decoder with one hidden layer of h's size on h and the label
+    errors.
 
     Input format (3-channel):
         - Channel 0: flux values
@@ -122,33 +124,21 @@ class MLP(nn.Module):
         self.hidden_layers = hidden_layers
         self.label_aware_uncertainty = label_aware_uncertainty
 
-        # Select activation function
-        activation_fn = get_activation(activation)
-
-        # Select normalization class
-        norm_class = get_normalization(normalization)
-
-        # Build the network layers
-        layers: list[nn.Module] = [nn.Flatten()]
-
-        # Input layer
-        prev_size = input_features
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(prev_size, hidden_size))
-            layers.append(norm_class(hidden_size))
-            layers.append(activation_fn())
-            if dropout > 0:
-                layers.append(nn.Dropout(p=dropout))
-            prev_size = hidden_size
-
-        # Output layer (no normalization or activation)
-        layers.append(
-            output_layer(
-                prev_size, self.n_parameters, activation, label_aware_uncertainty
-            )
+        self.layers = nn.Sequential(
+            nn.Flatten(),
+            *hidden_blocks(
+                input_features, hidden_layers, normalization, activation, dropout
+            ),
+            *output_modules(
+                hidden_layers[-1],
+                self.n_parameters,
+                [],
+                normalization,
+                activation,
+                dropout,
+                label_aware_uncertainty,
+            ),
         )
-
-        self.layers = nn.Sequential(*layers)
 
     def forward(
         self, x: torch.Tensor, label_errors: torch.Tensor | None = None

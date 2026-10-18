@@ -232,10 +232,11 @@ class DataConfig(_ConfigModel):
 
 
 _LABEL_AWARE_DESCRIPTION = (
-    "Predict ln s from the head's features and the reported label errors, or "
-    "a learned missing vector, so that s includes the label noise (see "
-    "LabelAwareOutput). False builds the output layer of checkpoints saved "
-    "before this option and exists only to load them; training rejects it."
+    "Predict ln s with an error decoder, parallel to the label decoder, from "
+    "the head's input and the reported label errors, or a learned missing "
+    "vector, so that s includes the label noise (see LabelAwareOutput). False "
+    "builds the output layers of checkpoints saved before this option and "
+    "exists only to load them; training rejects it."
 )
 
 
@@ -369,7 +370,8 @@ class MultiHeadModelConfig(_ConfigModel):
     output_hidden: list[int] = Field(
         default=[64],
         min_length=1,
-        description="Hidden layer sizes for output head(s)",
+        description="Hidden layer sizes of each output head's label and error "
+        "decoders",
     )
     combination_mode: CombinationMode = Field(
         default=CombinationMode.CONCAT,

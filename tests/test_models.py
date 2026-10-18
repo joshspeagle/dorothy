@@ -350,9 +350,12 @@ class TestMLPParameters:
         #   mean Linear(50, 5): 50*5 + 5 = 255
         #   missing vector: 5
         #   scatter Linear(50 + 5, 50): 55*50 + 50 = 2800
+        #   scatter LayerNorm(50): 100
         #   scatter Linear(50, 5): 50*5 + 5 = 255
-        # Total: 5050 + 100 + 255 + 5 + 2800 + 255 = 8465
-        expected = (100 * 50 + 50) + (50 * 2) + 255 + 5 + (55 * 50 + 50) + 255
+        # Total: 5050 + 100 + 255 + 5 + 2800 + 100 + 255 = 8565
+        expected = (
+            (100 * 50 + 50) + (50 * 2) + 255 + 5 + (55 * 50 + 50) + (50 * 2) + 255
+        )
 
         assert model.count_parameters() == expected
 
