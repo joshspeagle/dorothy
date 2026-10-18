@@ -502,6 +502,10 @@ class SparseMergedData:
         surveys: List of survey names.
         n_total: Total number of unique stars across all surveys.
         n_params: Number of stellar parameters (typically 11).
+        labels_dict: Per label source, labels (n_total, 3, n_params), when
+            several sources are loaded.
+        has_labels_dict: Per label source, whether each star has at least one
+            valid label after the flag filter (mask 1 in ``labels_dict``).
     """
 
     flux: dict[str, np.ndarray]
@@ -573,7 +577,8 @@ class SparseMergedData:
             source: Label source name.
 
         Returns:
-            Boolean mask of shape (n_total,) indicating which stars have labels.
+            Boolean mask of shape (n_total,): stars with at least one valid
+            label (mask 1) from the source.
 
         Raises:
             ValueError: If has_labels_dict exists but source is not in it.
@@ -1727,7 +1732,6 @@ class CatalogueLoader:
 
         if label_sources is not None and len(label_sources) > 1:
             labels_dict_out = {}
-            has_labels_dict_out = {}
             label_sources_out = label_sources
 
             with h5py.File(self.path, "r") as f:
@@ -1741,8 +1745,6 @@ class CatalogueLoader:
                     if source == label_source:
                         # Use the already-loaded primary labels
                         labels_dict_out[source] = labels_3ch.copy()
-                        has_labels_out = np.any(primary_errors > 0, axis=1)
-                        has_labels_dict_out[source] = has_labels_out
                         continue
 
                     # Resolve source name with fallback logic
@@ -1767,8 +1769,6 @@ class CatalogueLoader:
                     if "gaia_id" not in label_grp:
                         # Can't properly align from file; duplicate primary labels
                         labels_dict_out[source] = labels_3ch.copy()
-                        has_labels_out = np.any(primary_errors > 0, axis=1)
-                        has_labels_dict_out[source] = has_labels_out
                         continue
 
                     # Load label data from file
@@ -1781,7 +1781,6 @@ class CatalogueLoader:
                     values = np.zeros((n_total, n_params), dtype=np.float32)
                     errors = np.zeros((n_total, n_params), dtype=np.float32)
                     flags = np.zeros((n_total, n_params), dtype=np.uint8)
-                    has_labels_arr = np.zeros(n_total, dtype=bool)
 
                     # Map label source data to merged structure (vectorized):
                     # merged rows of the source IDs that exist in the merged set
@@ -1794,9 +1793,6 @@ class CatalogueLoader:
                     values[merged_idx] = source_values[valid_source_idx]
                     errors[merged_idx] = source_errors[valid_source_idx]
                     flags[merged_idx] = source_flags[valid_source_idx]
-                    has_labels_arr[merged_idx] = np.any(
-                        source_errors[valid_source_idx] > 0, axis=1
-                    )
 
                     # Apply flag filtering (vectorized)
                     if max_flag_bits >= 0:
@@ -1816,7 +1812,11 @@ class CatalogueLoader:
                     labels_dict_out[source] = np.stack(
                         [values, errors, source_label_mask], axis=1
                     )
-                    has_labels_dict_out[source] = has_labels_arr
+
+            has_labels_dict_out = {
+                source: (labels[:, 2, :] > 0).any(axis=1)
+                for source, labels in labels_dict_out.items()
+            }
 
         return SparseMergedData(
             flux=sparse_flux,

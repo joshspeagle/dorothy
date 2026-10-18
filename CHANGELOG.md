@@ -52,6 +52,8 @@
   loaders.
 - `CatalogueLoader.load_multi(mode="intersection")` returned every star of a
   v2 catalogue, because each survey has a row for every star.
+- `load_merged_sparse` counted a star as labelled by a source
+  (`has_labels_dict`) even when `max_flag_bits` removed all its labels.
 
 ### Performance
 
@@ -115,3 +117,5 @@
 - Learning rates are logged per optimizer step in every training mode.
 - `CatalogueLoader.load_multi(mode="intersection")` keeps a star only if
   every survey has data for it (`snr > 0`, the rule of the sparse loader).
+- `SparseMergedData.has_labels_dict` marks a star only if it has a label
+  that survives the flag filter, as its label mask does.
