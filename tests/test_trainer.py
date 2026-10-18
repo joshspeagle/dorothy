@@ -23,6 +23,7 @@ from dorothy.config.schema import (
     InputMaskingConfig,
     LossType,
     ModelConfig,
+    MultiHeadModelConfig,
     NormalizationType,
     OptimizerConfig,
     OptimizerType,
@@ -1929,6 +1930,74 @@ class TestWeightAverage:
         assert on.weight_norms == off.weight_norms
         assert on.weight_updates == off.weight_updates
         assert on.val_losses != off.val_losses
+
+    def test_multi_head_training_keeps_its_weights_and_saves_one_average(
+        self, tmp_path
+    ):
+        """The first head is registered under two names, which share a tensor.
+
+        After each validation the model gets its trained weights back, and
+        final_model.pth holds one value under both names of the head.
+        """
+        config = ExperimentConfig(
+            name="weight_average_multi_head",
+            output_dir=tmp_path,
+            data=DataConfig(
+                catalogue_path=tmp_path / "catalogue.h5",
+                surveys=["desi"],
+                label_sources=["apogee", "galah"],
+            ),
+            multi_head_model=MultiHeadModelConfig(
+                survey_wavelengths={"desi": 100},
+                n_parameters=3,
+                latent_dim=16,
+                encoder_hidden=[32],
+                trunk_hidden=[16],
+                output_hidden=[8],
+                label_sources=["apogee", "galah"],
+            ),
+            training=TrainingConfig(epochs=3, batch_size=16),
+            seed=0,
+        )
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((64, 3, 100)).astype(np.float32)
+        X[:, 2] = 1.0
+        y = np.stack(
+            [
+                rng.standard_normal((64, 3)),
+                np.full((64, 3), 0.1),
+                np.ones((64, 3)),
+            ],
+            axis=1,
+        ).astype(np.float32)
+        y[:, 0, 0] = rng.uniform(4000, 7000, 64)  # Teff, normalized in log space
+        has_data = {"desi": np.ones(64, dtype=bool)}
+        splits = [slice(0, 48), slice(48, 64)]
+        args = [
+            *[{"desi": X[rows]} for rows in splits],
+            *[{"apogee": y[rows], "galah": y[rows]} for rows in splits],
+            *[{s: h[rows] for s, h in has_data.items()} for rows in splits],
+        ]
+        args = [args[0], args[2], args[1], args[3], args[4], args[5]]
+
+        runs = []
+        for decay in [None, 0.9]:
+            config.training.ema_decay = decay
+            trainer = Trainer(config)
+            states = _trained_states(trainer)
+            trainer.fit_multi_labelset(*args)
+            runs.append(states)
+        for state_off, state_on in zip(*runs, strict=True):
+            for name, value in state_off.items():
+                assert torch.equal(state_on[name], value), name
+
+        final = torch.load(
+            trainer.save_checkpoint(tmp_path / "ckpt") / "final_model.pth",
+            weights_only=True,
+        )
+        trainer.model.load_state_dict(final)
+        for name, value in trainer.model.state_dict().items():
+            assert torch.equal(value, final[name]), name
 
     def test_zero_decay_gives_the_results_of_training_without_an_average(
         self, batchnorm_config, training_data, tmp_path

@@ -106,6 +106,23 @@ EVALUATOR_METRIC_NAMES = [
 
 
 @dataclass
+class _WeightAverage:
+    """The moving average of a model's weights and buffers (training.ema_decay).
+
+    Attributes:
+        tensors: State-dict name -> average. Names that share a tensor, such
+            as an output head registered under two names, share one average.
+        every: Optimizer steps k between updates.
+        fraction: 1 - d**k, how far an update moves the average towards the
+            weights, so that it forgets at the same rate per step for every k.
+    """
+
+    tensors: dict[str, torch.Tensor]
+    every: int
+    fraction: float
+
+
+@dataclass
 class TrainingHistory:
     """
     Container for training metrics and history.
@@ -409,10 +426,8 @@ class Trainer:
         # Best model weights, and the weights after the last epoch
         self._best_weights: dict | None = None
         self._final_weights: dict | None = None
-        # Moving average of the weights and buffers during training
-        # (training.ema_decay), updated every _ema_every optimizer steps
-        self._ema: dict[str, torch.Tensor] | None = None
-        self._ema_every = config.training.ema_cpu_every or 1
+        # Moving average of the weights during training (training.ema_decay)
+        self._ema: _WeightAverage | None = None
 
         # Set up parameter names for normalization
         n_params = self.n_parameters
@@ -583,42 +598,45 @@ class Trainer:
                 f"Scheduler {scheduler_config.type} not yet implemented"
             )
 
-    def _create_weight_average(self) -> dict[str, torch.Tensor] | None:
+    def _create_weight_average(self) -> _WeightAverage | None:
         """Copy the weights and buffers to start their moving average (None if off)."""
-        decay = self.config.training.ema_decay
-        if decay is None:
+        training = self.config.training
+        if training.ema_decay is None:
             return None
-        device = (
-            self.device
-            if self.config.training.ema_cpu_every is None
-            else torch.device("cpu")
-        )
+        every = training.ema_cpu_every or 1
+        device = self.device if training.ema_cpu_every is None else torch.device("cpu")
         logger.info(
-            f"Averaging the weights: decay {decay} per optimizer step, average "
-            f"on {device}, updated every {self._ema_every} step(s)"
+            f"Averaging the weights: decay {training.ema_decay} per optimizer "
+            f"step, average on {device}, updated every {every} step(s)"
         )
-        return {
-            name: tensor.to(device, copy=True)
-            for name, tensor in self.model.state_dict().items()
-        }
+        copies: dict[int, torch.Tensor] = {}
+        tensors = {}
+        for name, tensor in self.model.state_dict(keep_vars=True).items():
+            if id(tensor) not in copies:
+                copies[id(tensor)] = tensor.detach().to(device, copy=True)
+            tensors[name] = copies[id(tensor)]
+        return _WeightAverage(tensors, every, 1 - training.ema_decay**every)
+
+    def _weight_average_pairs(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """Each weight and buffer of the model with its average, once each."""
+        state = self.model.state_dict()
+        pairs = {id(avg): (state[name], avg) for name, avg in self._ema.tensors.items()}
+        return list(pairs.values())
 
     def _update_weight_average(self) -> None:
-        """Move the average a fraction 1 - d**k towards the current weights.
+        """Move the average a fraction 1 - d**k towards the weights.
 
-        k is the number of steps between updates, so the average forgets at
-        the same rate per step for every k. Integer buffers are copied.
+        Integer buffers are copied.
         """
-        state = self.model.state_dict()
         averages, currents = [], []
-        for name, average in self._ema.items():
-            current = state[name].to(average.device)
+        for current, average in self._weight_average_pairs():
+            current = current.to(average.device)
             if average.is_floating_point():
                 averages.append(average)
                 currents.append(current)
             else:
                 average.copy_(current)
-        decay = self.config.training.ema_decay
-        torch._foreach_lerp_(averages, currents, 1 - decay**self._ema_every)
+        torch._foreach_lerp_(averages, currents, self._ema.fraction)
 
     # ------------------------------------------------------------------
     # Public training API: thin adapters onto the shared pipeline
@@ -1259,7 +1277,7 @@ class Trainer:
             loss = self._combine_losses(outputs, batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
-            if self._ema is not None and step % self._ema_every == 0:
+            if self._ema is not None and step % self._ema.every == 0:
                 self._update_weight_average()
             total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
@@ -1401,7 +1419,9 @@ class Trainer:
                 "and the training losses for divergence."
             )
         self._final_weights = (
-            copy.deepcopy(self.model.state_dict()) if self._ema is None else self._ema
+            copy.deepcopy(self.model.state_dict())
+            if self._ema is None
+            else self._ema.tensors
         )
         self.model.load_state_dict(self._best_weights)
         logger.info(
@@ -1497,8 +1517,7 @@ class Trainer:
 
         One tensor at a time, so the swap needs memory for one tensor only.
         """
-        for name, tensor in self.model.state_dict().items():
-            average = self._ema[name]
+        for tensor, average in self._weight_average_pairs():
             trained = tensor.to(average.device, copy=True)
             tensor.copy_(average)
             average.copy_(trained)
