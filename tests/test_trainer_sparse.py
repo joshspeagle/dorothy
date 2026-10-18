@@ -47,15 +47,15 @@ def make_sparse_data(multi_label: bool = False, seed: int = 0) -> SparseMergedDa
     }
     has["boss"][~(has["boss"] | has["desi"])] = True  # every star has a survey
 
-    flux, ivar, g2l, l2g = {}, {}, {}, {}
+    flux, sigma, g2l, l2g = {}, {}, {}, {}
     for survey, n_wave in WAVES.items():
         idx = np.where(has[survey])[0]
         basis = rng.normal(size=(3, n_wave)).astype(np.float32)
         f = latent[idx] @ basis + 1.0
         f += rng.normal(size=f.shape).astype(np.float32) * 0.05
-        iv = np.full_like(f, 100.0)
-        iv[:, :3] = 0.0  # always-masked pixels
-        flux[survey], ivar[survey] = f, iv
+        s = np.full_like(f, 0.1)
+        s[:, :3] = 0.0  # always-masked pixels
+        flux[survey], sigma[survey] = f, s
         g = np.full(N_TOTAL, -1, dtype=np.int32)
         g[idx] = np.arange(len(idx), dtype=np.int32)
         g2l[survey], l2g[survey] = g, idx.astype(np.int32)
@@ -76,7 +76,7 @@ def make_sparse_data(multi_label: bool = False, seed: int = 0) -> SparseMergedDa
 
     return SparseMergedData(
         flux=flux,
-        ivar=ivar,
+        sigma=sigma,
         wavelengths={s: np.linspace(4000, 9000, n) for s, n in WAVES.items()},
         snr={s: np.full(len(flux[s]), 20.0) for s in WAVES},
         global_to_local=g2l,
@@ -433,11 +433,10 @@ class TestSharedLoopBehaviour:
 
     @pytest.mark.parametrize("batch_size", [1, 32, 200])
     def test_sparse_batches_match_dense_reference(self, batch_size):
-        """Batches hold [flux, 1/sqrt(ivar), ivar > 0], zero rows if absent."""
+        """Batches hold [flux, sigma, sigma > 0], zero rows if absent."""
         from dorothy.training.batches import SparseBatchSource
 
         data = make_sparse_data(multi_label=True)
-        data.ivar["boss"][0, :4] = [-1.0, np.nan, np.inf, 1e-45]  # odd ivar values
         idx = np.random.default_rng(1).permutation(N_TOTAL)[:120]
         labels = {k: v.astype(np.float32) for k, v in data.labels_dict.items()}
         source = SparseBatchSource(data, idx, labels, torch.device("cpu"))
@@ -452,10 +451,8 @@ class TestSharedLoopBehaviour:
                 local = data.global_to_local[survey][rows]
                 present = local >= 0
                 expected = np.zeros((len(rows), 3, WAVES[survey]), np.float32)
-                ivar = data.ivar[survey][local[present]]
-                valid = ivar > 0
-                sigma = np.zeros_like(ivar)
-                sigma[valid] = 1.0 / np.sqrt(ivar[valid])
+                sigma = data.sigma[survey][local[present]]
+                valid = sigma > 0
                 expected[present, 0] = data.flux[survey][local[present]]
                 expected[present, 1] = sigma
                 expected[present, 2] = valid
