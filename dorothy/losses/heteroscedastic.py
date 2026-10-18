@@ -163,7 +163,7 @@ class HeteroscedasticLoss(nn.Module):
 
         mu = output[:, 0, :]
         y, mask = _safe_targets(mu, target)
-        variance = predicted_scatter(output[:, 1, :], self.scatter_floor) ** 2
+        variance = self.get_predicted_scatter(output) ** 2
 
         loss = (mu - y) ** 2 / variance + torch.log(variance)
         return torch.where(mask > 0, loss * mask, torch.zeros_like(loss))
