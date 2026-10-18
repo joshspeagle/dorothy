@@ -312,14 +312,6 @@ def _autocast_dtype(
     return torch.bfloat16
 
 
-def _nll_warmup_beta(step: int, warmup_steps: int) -> float:
-    """β of the loss at optimizer step t of the run, counted from 0.
-
-    β = max(0, 1 - t / W) over W warm-up steps, and 0 without them.
-    """
-    return max(0.0, 1.0 - step / warmup_steps) if warmup_steps > 0 else 0.0
-
-
 class Trainer:
     """Trainer for DOROTHY stellar parameter models.
 
@@ -1089,9 +1081,6 @@ class Trainer:
         mean loss over the sources with any valid label. Both apply the
         optional ``training.label_source_weights``; with a single source they
         reduce to the loss function's masked mean.
-
-        ``beta`` is the β of the β-NLL loss: training passes the warm-up's β,
-        and validation the default 0, the plain loss.
         """
         training = self.config.training
         sums, counts, weights = [], [], []
@@ -1314,9 +1303,8 @@ class Trainer:
                 outputs = self._forward(batch, label_errors)
             # exp(2 ln s) in the loss would otherwise run in 16 bits
             outputs = {k: v.float() for k, v in outputs.items()}
-            loss = self._combine_losses(
-                outputs, batch.y, _nll_warmup_beta(step, warmup_steps)
-            )
+            beta = 1.0 - step / warmup_steps if step < warmup_steps else 0.0
+            loss = self._combine_losses(outputs, batch.y, beta)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
             if self._ema is not None and step % self._ema.every == 0:

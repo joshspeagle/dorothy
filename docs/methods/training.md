@@ -159,9 +159,7 @@ $$
 
 where t counts the optimizer steps from 0, $n_\text{steps}$ is the number of
 steps per epoch and f is `training.nll_warmup_fraction` (0.1 by default; 0
-turns the warm-up off). After the warm-up, $\mathcal{L}$ weights the squared
-error of each label by its inverse variance $1/s^2$, which suits labels of
-different quality. `loss: mse` has no warm-up.
+turns the warm-up off). `loss: mse` has no warm-up.
 
 The validation loss is always $\mathcal{L}$, so the best epoch, early stopping
 and the `reduce_on_plateau` schedule compare all epochs on one objective. The
