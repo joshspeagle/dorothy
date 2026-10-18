@@ -97,6 +97,12 @@
 - If every validation loss was NaN, `best_epoch` was 0, but `best_model.pth`
   and the trained model held the weights from before training. Training now
   raises `RuntimeError` when no epoch has a finite validation loss.
+- When `MultiHeadMLP` encoded every row of a batch (an encoder with batch
+  normalization or dropout in training mode, or
+  `encode_present_rows_only = False`), a NaN in a row without that survey's
+  data made the weight gradients NaN, and with batch normalization every
+  output. These rows now enter the encoder as zeros, as in the trainer's
+  batches.
 
 ### Performance
 
