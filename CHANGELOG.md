@@ -19,12 +19,11 @@
 - Label-aware uncertainty: each head predicts the mean with a label decoder
   and the log-scatter with a parallel error decoder, which also reads the
   reported label errors, or a learned missing vector where an error is
-  missing. No layer that feeds the mean reads the label errors. In the
-  multi-head model, both decoders have hidden layers of the `output_hidden`
-  sizes; in the MLP, the mean is linear in the last hidden layer and the
-  error decoder has one hidden layer. `training.label_error_dropout`
-  (default 0.5) sets the fraction of training stars that get the missing
-  vector.
+  missing. No layer that feeds the mean reads the label errors. Both
+  decoders have the same hidden layers: the `output_hidden` layers in the
+  multi-head model, and the last hidden layer in the MLP, which the decoders
+  take over. `training.label_error_dropout` (default 0.5) sets the fraction
+  of training stars that get the missing vector.
   `HeadEvaluation.z_label_errors` holds the label errors that the z-scores
   add to the predicted scatter, which only old checkpoints have.
 - `dorothy evaluate` scores every output head and writes evaluation plots

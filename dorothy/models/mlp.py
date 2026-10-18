@@ -46,10 +46,10 @@ class MLP(nn.Module):
 
     The network flattens 3D input tensors (batch, 3, wavelengths) to 2D
     before processing through the hidden layers. The last module, a
-    LabelAwareOutput, reads the last hidden layer h and returns
-    (batch, 2, n_params): the means, linear in h, and the log-scatter, from
-    an error decoder with one hidden layer of h's size on h and the label
-    errors.
+    LabelAwareOutput, takes over the last hidden layer: its label decoder is
+    that layer and a linear map to the means, and its error decoder is a
+    layer of the same size on the same input and the label errors, then a
+    linear map to the log-scatter. It returns (batch, 2, n_params).
 
     Input format (3-channel):
         - Channel 0: flux values
@@ -124,15 +124,17 @@ class MLP(nn.Module):
         self.hidden_layers = hidden_layers
         self.label_aware_uncertainty = label_aware_uncertainty
 
+        # The output head takes over the last hidden layer, so the means pass
+        # through exactly the configured layers
         self.layers = nn.Sequential(
             nn.Flatten(),
             *hidden_blocks(
-                input_features, hidden_layers, normalization, activation, dropout
+                input_features, hidden_layers[:-1], normalization, activation, dropout
             ),
             *output_modules(
-                hidden_layers[-1],
+                [input_features, *hidden_layers][-2],
                 self.n_parameters,
-                [],
+                hidden_layers[-1:],
                 normalization,
                 activation,
                 dropout,

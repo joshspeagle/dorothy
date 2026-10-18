@@ -239,6 +239,10 @@ class OutputHead(nn.Module):
             label_aware_uncertainty: Make the head a LabelAwareOutput
                 (default); False builds the hidden layers and the
                 AdditiveOutput of old checkpoints.
+
+        Raises:
+            ValueError: If label_aware_uncertainty is True and hidden_layers
+                is empty.
         """
         super().__init__()
 

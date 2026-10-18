@@ -71,16 +71,17 @@ label errors.
 
 Each decoder is a stack of hidden layers (linear, normalization, activation
 and optional dropout) followed by a linear layer with one output per
-parameter:
+parameter. Both decoders have the same hidden layer sizes, and u enters the
+first layer of the error decoder:
 
 Multi-head model
-: x is the trunk output. The label decoder has the `output_hidden` layers,
-  and the error decoder has layers of the same sizes on [x, u].
+: x is the trunk output, and the hidden layers are the `output_hidden`
+  layers.
 
 MLP
-: x is the last hidden layer h. The label decoder is one linear layer,
-  μ = W h + b, and the error decoder has one hidden layer of h's size on
-  [h, u].
+: The decoders take over the last hidden layer: x is the input of that
+  layer, and each decoder has one hidden layer of its size. μ therefore
+  passes through exactly the layers of `model.hidden_layers`.
 
 The error decoder always has a hidden layer, so that ln s can be a nonlinear
 function of u. If the true label noise is $\sqrt{a}\,\sigma_y$ and adds in

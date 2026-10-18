@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 276" width="100%" role="img" aria-labelledby="uncertainty-title" font-family="sans-serif" font-size="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
-  <title id="uncertainty-title">An output head with two parallel decoders. The head input x is the trunk output, or the last hidden layer of the MLP. The label decoder maps x through hidden layers and a linear layer to the predicted value mu, so mu never sees the label errors. The error decoder maps x and u through hidden layers of the same sizes and a linear layer to the log-scatter ln s, where u is the log of the reported label error, or the learned missing vector m where no error is given. In the MLP, the label decoder has no hidden layer and the error decoder has one. Training gives m to masked labels and to a random fraction of stars; validation, evaluation and prediction always use m.</title>
+  <title id="uncertainty-title">An output head with two parallel decoders. The head input x is the trunk output, or the input of the last hidden layer of the MLP, which the decoders take over. The label decoder maps x through hidden layers and a linear layer to the predicted value mu, so mu never sees the label errors. The error decoder has the same hidden layers and a linear layer to the log-scatter ln s; its first layer reads x and u, where u is the log of the reported label error, or the learned missing vector m where no error is given. Training gives m to masked labels and to a random fraction of stars; validation, evaluation and prediction always use m.</title>
   <defs>
     <marker id="uncertainty-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="currentColor" stroke="none"/>
@@ -8,8 +8,8 @@
       <path d="M0 0 L10 5 L0 10 z" stroke="none" style="fill: var(--color-brand-primary, #2757c4)"/>
     </marker>
   </defs>
-  <text x="95.0" y="66.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">trunk output, or the</text>
-  <text x="95.0" y="80.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">MLP's last hidden layer</text>
+  <text x="95.0" y="66.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">trunk output, or the input</text>
+  <text x="95.0" y="80.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">of the MLP's last hidden layer</text>
   <rect x="35.0" y="90.0" width="120.0" height="50.0" rx="6" fill="currentColor" fill-opacity="0.06"/>
   <text x="95.0" y="111.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">head input</text>
   <text x="95.0" y="129.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">x</text>
@@ -19,21 +19,22 @@
   <rect x="230.0" y="18.0" width="190.0" height="62.0" rx="6"/>
   <text x="325.0" y="39.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">label decoder</text>
   <text x="325.0" y="56.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">hidden layers → linear</text>
-  <text x="325.0" y="71.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">MLP: no hidden layer</text>
+  <text x="325.0" y="71.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">first layer reads x</text>
   <line x1="422.0" y1="49.0" x2="456.0" y2="49.0" marker-end="url(#uncertainty-arrow)"/>
   <text x="462.0" y="54.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ</text>
   <text x="482.0" y="54.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">predicted value, never sees σ<tspan baseline-shift="sub" font-size="75%">y</tspan></text>
   <path d="M190 115 L190 161 L228 161" marker-end="url(#uncertainty-arrow)"/>
   <rect x="230.0" y="130.0" width="190.0" height="62.0" rx="6"/>
   <text x="325.0" y="151.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">error decoder</text>
-  <text x="325.0" y="168.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">same hidden sizes → linear</text>
-  <text x="325.0" y="183.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">MLP: one hidden layer</text>
+  <text x="325.0" y="168.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">same hidden layers → linear</text>
+  <text x="325.0" y="183.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">first layer reads x and u</text>
   <line x1="422.0" y1="161.0" x2="456.0" y2="161.0" marker-end="url(#uncertainty-arrow)"/>
   <text x="462.0" y="166.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">ln s</text>
   <text x="496.0" y="166.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">log-scatter, s² = exp(2 ln s) + s₀²</text>
   <rect x="295.0" y="222.0" width="60.0" height="34.0" rx="6"/>
   <text x="325.0" y="244.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">u</text>
-  <line x1="325.0" y1="220.0" x2="325.0" y2="195.0" marker-end="url(#uncertainty-arrow)"/>
+  <path d="M325 220 L325 208 L208 208 L208 166" marker-end="url(#uncertainty-arrow)"/>
+  <circle cx="208" cy="161" r="2.5" fill="currentColor" stroke="none"/>
   <path d="M219 231 L293 235" marker-end="url(#uncertainty-arrow)"/>
   <text x="213.0" y="235.0" font-size="11.5" text-anchor="end" stroke="none" fill="currentColor">ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan>, the reported label error</text>
   <path d="M219 253 L293 247" marker-end="url(#uncertainty-arrow-brand)" style="stroke: var(--color-brand-primary, #2757c4)"/>

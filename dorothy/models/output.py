@@ -18,10 +18,9 @@ def _decoder(
     dropout: float,
 ) -> nn.Sequential:
     """The hidden blocks of hidden_layers, then a linear map to n_parameters."""
-    width = hidden_layers[-1] if hidden_layers else input_dim
     return nn.Sequential(
         *hidden_blocks(input_dim, hidden_layers, normalization, activation, dropout),
-        nn.Linear(width, n_parameters),
+        nn.Linear(hidden_layers[-1], n_parameters),
     )
 
 
@@ -35,11 +34,10 @@ class LabelAwareOutput(nn.Module):
         u_p = clamp(ln sigma_p, LN_S_MIN, LN_S_MAX) if sigma_p > 0, else m_p
         ln_s = D_s([x, u])
 
-    where m is the learned missing vector. The label decoder D_mu is the
-    hidden blocks of hidden_layers (Linear, normalization, activation,
-    dropout), then a linear map. The error decoder D_s has the same hidden
-    sizes, or one hidden layer of x's size when hidden_layers is empty, so
-    that ln s is a nonlinear function of u. No layer that feeds mu reads u.
+    where m is the learned missing vector. Each decoder is the hidden blocks
+    of hidden_layers (Linear, normalization, activation, dropout), then a
+    linear map; u enters the first layer of D_s. At least one hidden layer
+    makes ln s a nonlinear function of u. No layer that feeds mu reads u.
 
     Attributes:
         mean: The label decoder D_mu.
@@ -62,15 +60,20 @@ class LabelAwareOutput(nn.Module):
         Args:
             input_dim: Size of the head input x.
             n_parameters: Number of predicted parameters.
-            hidden_layers: Hidden layer sizes of the label decoder, also used
-                by the error decoder when not empty.
+            hidden_layers: Hidden layer sizes of both decoders, at least one.
             normalization: Normalization type ("batchnorm" or "layernorm").
             activation: Activation function ("gelu", "relu" or "silu").
             dropout: Dropout probability of the hidden blocks.
 
         Raises:
-            ValueError: If the normalization or activation is not recognized.
+            ValueError: If hidden_layers is empty, or the normalization or
+                activation is not recognized.
         """
+        if not hidden_layers:
+            raise ValueError(
+                "hidden_layers must have at least one size, so that ln s is a "
+                "nonlinear function of the label errors"
+            )
         super().__init__()
         self.mean = _decoder(
             input_dim, n_parameters, hidden_layers, normalization, activation, dropout
@@ -82,7 +85,7 @@ class LabelAwareOutput(nn.Module):
         self.scatter = _decoder(
             input_dim + n_parameters,
             n_parameters,
-            hidden_layers or [input_dim],
+            hidden_layers,
             normalization,
             activation,
             dropout,
@@ -192,7 +195,8 @@ def output_modules(
         features.
 
     Raises:
-        ValueError: If the normalization or activation is not recognized.
+        ValueError: If label_aware and hidden_layers is empty, or the
+            normalization or activation is not recognized.
     """
     if label_aware:
         return [

@@ -16,9 +16,10 @@ input and the reported label errors
 
 {py:class}`~dorothy.models.mlp.MLP` reads one survey. It flattens the
 `(3, n_wavelengths)` input and passes it through the hidden layers
-(`model.hidden_layers`, by default 5000, 2000, 1000, 500, 200 and 100 units)
-to the two decoders, which both read the last hidden layer. Configure it with
-the `model` section.
+(`model.hidden_layers`, by default 5000, 2000, 1000, 500, 200 and 100 units).
+The two decoders take over the last hidden layer: each has one hidden layer
+of that size on the output of the layer before. Configure it with the `model`
+section.
 
 ## Multi-head MLP
 
@@ -65,4 +66,6 @@ predict from any one of them:
 {py:meth}`~dorothy.models.multi_head_mlp.MultiHeadMLP.get_embeddings` returns
 a survey encoder's vector (`level="encoder"`) or the trunk output
 (`level="trunk"`). Trunk embeddings place stars from different surveys in one
-space; [anomaly detection](analysis.md#anomaly-detection) uses them.
+space; [anomaly detection](analysis.md#anomaly-detection) uses them. For the
+MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns the input of
+the decoders by default.

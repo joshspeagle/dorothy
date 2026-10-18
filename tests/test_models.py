@@ -306,18 +306,16 @@ class TestMLPEmbeddings:
         x = torch.randn(16, 100)
         embeddings = model.get_embeddings(x)
 
-        # Default layer_index=-2 should give us the output of the last hidden layer
-        # Before the final Linear(10, 22), after activation
-        # The embedding should have shape (16, 10)
-        assert embeddings.shape[0] == 16
-        # The exact size depends on which layer is extracted
+        # The default, -2, gives the input of the decoders, which take over
+        # the last hidden layer (10): the layer of 25
+        assert embeddings.shape == (16, 25)
 
     def test_get_embeddings_different_layers(self):
         """Test extracting embeddings from different layers."""
         model = MLP(
             input_features=100,
             output_features=22,
-            hidden_layers=[50, 25],
+            hidden_layers=[50, 25, 10],
         )
 
         x = torch.randn(8, 100)
@@ -340,22 +338,22 @@ class TestMLPParameters:
         model = MLP(
             input_features=100,
             output_features=10,
-            hidden_layers=[50],
+            hidden_layers=[50, 20],
         )
 
         # Expected parameters:
         # Linear(100, 50): 100*50 + 50 = 5050
         # LayerNorm(50): 50 + 50 = 100 (gamma + beta)
-        # LabelAwareOutput for 5 parameters:
-        #   mean Linear(50, 5): 50*5 + 5 = 255
+        # LabelAwareOutput for 5 parameters, taking over the layer of 20:
+        #   mean Linear(50, 20): 50*20 + 20 = 1020
+        #   mean LayerNorm(20): 40
+        #   mean Linear(20, 5): 20*5 + 5 = 105
         #   missing vector: 5
-        #   scatter Linear(50 + 5, 50): 55*50 + 50 = 2800
-        #   scatter LayerNorm(50): 100
-        #   scatter Linear(50, 5): 50*5 + 5 = 255
-        # Total: 5050 + 100 + 255 + 5 + 2800 + 100 + 255 = 8565
-        expected = (
-            (100 * 50 + 50) + (50 * 2) + 255 + 5 + (55 * 50 + 50) + (50 * 2) + 255
-        )
+        #   scatter Linear(50 + 5, 20): 55*20 + 20 = 1120
+        #   scatter LayerNorm(20): 40
+        #   scatter Linear(20, 5): 105
+        # Total: 5050 + 100 + 1020 + 40 + 105 + 5 + 1120 + 40 + 105 = 7585
+        expected = 5050 + 100 + (1020 + 40 + 105) + 5 + (1120 + 40 + 105)
 
         assert model.count_parameters() == expected
 
