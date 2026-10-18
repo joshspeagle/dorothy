@@ -180,11 +180,15 @@ class MLP(nn.Module):
 
         Args:
             x: Input tensor of shape (batch_size, channels, wavelength_bins).
-            layer_index: Index of the layer to extract embeddings from.
-                Default is -2 (second-to-last layer, before output).
+            layer_index: Index of the module of ``self.layers`` whose output
+                is returned. The default, -2, gives the input of the output
+                head: the layer before the last hidden layer for a label-aware
+                model, whose decoders take over the last hidden layer, and the
+                last hidden layer for an old checkpoint.
 
         Returns:
-            Embedding tensor of shape (batch_size, embedding_dim).
+            Embedding tensor of shape (batch_size, embedding_dim); the output
+            layer's (batch_size, 2, n_params) is flattened.
         """
         # Get the layer to stop at (skip the output layer)
         # Need to account for: Flatten + (Linear + Norm + Activation + [Dropout]) * N + output
@@ -202,7 +206,7 @@ class MLP(nn.Module):
             if i == layer_index:
                 break
 
-        return result
+        return result.flatten(1)
 
     @classmethod
     def from_config(cls, config: ModelConfig) -> MLP:

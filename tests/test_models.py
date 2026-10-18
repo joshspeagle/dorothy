@@ -329,6 +329,21 @@ class TestMLPEmbeddings:
             emb_early, emb_late
         )
 
+    @pytest.mark.parametrize("label_aware", [True, False])
+    def test_output_layer_embeddings_are_the_flat_output(self, label_aware):
+        """layer_index=-1 gives (batch, 2 * n_params), as before label-aware heads."""
+        model = MLP(
+            input_features=30,
+            output_features=6,
+            hidden_layers=[8, 4],
+            label_aware_uncertainty=label_aware,
+        ).eval()
+        x = torch.randn(5, 3, 10)
+
+        with torch.no_grad():
+            embeddings = model.get_embeddings(x, layer_index=-1)
+            assert torch.equal(embeddings, model(x).flatten(1))
+
 
 class TestMLPParameters:
     """Tests for parameter counting."""
