@@ -480,15 +480,28 @@ class FITSLoader:
         flux_array = np.zeros((n_samples, n_wavelengths), dtype=np.float32)
         ivar_array = np.zeros((n_samples, n_wavelengths), dtype=np.float32)
 
-        for i in range(n_samples):
-            flux = np.array(spectra_table["FLUX"][i], dtype=np.float32)
-            ivar = np.array(ivar_table["IVAR"][i], dtype=np.float32)
-
+        flux_col = np.asarray(spectra_table["FLUX"])
+        ivar_col = np.asarray(ivar_table["IVAR"])
+        if flux_col.shape == ivar_col.shape == flux_array.shape and all(
+            col.dtype.kind in "biuf" for col in (flux_col, ivar_col)
+        ):
+            # Whole columns at once; normalization is per spectrum, so one
+            # batched call gives the same result as normalizing row by row
+            flux_array[...] = flux_col
+            ivar_array[...] = ivar_col
             if apply_normalization:
-                flux, ivar = normalize_spectrum(flux, ivar)
+                normalize_spectra(flux_array, ivar_array, inplace=True)
+        else:
+            # Irregular columns (e.g. variable-length arrays): row by row
+            for i in range(n_samples):
+                flux = np.array(spectra_table["FLUX"][i], dtype=np.float32)
+                ivar = np.array(ivar_table["IVAR"][i], dtype=np.float32)
 
-            flux_array[i] = flux
-            ivar_array[i] = ivar
+                if apply_normalization:
+                    flux, ivar = normalize_spectrum(flux, ivar)
+
+                flux_array[i] = flux
+                ivar_array[i] = ivar
 
         # Extract labels and errors
         has_labels = True

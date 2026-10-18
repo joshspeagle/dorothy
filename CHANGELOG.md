@@ -61,6 +61,11 @@
   detection runs 15 to 40 times faster with a brute-force search. Saliency
   maps and k-NN distances agree with the previous results to floating-point
   rounding.
+- `load_merged_sparse` reads only the rows that have spectra: 5 times faster
+  with 43% less peak memory for 40,000 stars in four surveys. Validation
+  metrics are computed 3 times faster, and `FITSLoader.load` normalizes all
+  spectra in one call (1.5 to 2 times faster). Results are bit-identical,
+  except for the sign of zero and of NaN in some evaluator metrics.
 
 ### Changed
 

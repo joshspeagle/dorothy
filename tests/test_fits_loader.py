@@ -452,6 +452,47 @@ class TestFITSLoader:
         assert len(data.ids) == data.n_samples
         assert all(id.startswith("2M") for id in data.ids)
 
+    @pytest.mark.parametrize("flux_dtype", [np.float32, np.float64])
+    def test_rows_match_per_spectrum_normalization(self, tmp_path, flux_dtype):
+        """Spectra are normalized in one batch; each row must equal
+        normalize_spectrum() applied to that row alone, bit for bit."""
+        from astropy.io import fits
+        from astropy.table import Table
+
+        from dorothy.data.fits_loader import normalize_spectrum
+
+        rng = np.random.default_rng(0)
+        n, n_wave = 40, 33
+        flux = rng.normal(1000, 50, (n, n_wave)) * 10.0 ** rng.integers(-2, 3, (n, 1))
+        ivar = rng.uniform(0, 0.02, (n, n_wave))
+        ivar[rng.random((n, n_wave)) < 0.1] = 0
+        flux[rng.random((n, n_wave)) < 0.05] = np.nan
+        ivar[3] = 0  # no valid pixels
+        flux[4] = 7.0  # zero IQR
+        apogee = {c: np.ones(n) for c in ("TEFF", "TEFF_ERR", "LOGG", "LOGG_ERR")}
+        path = tmp_path / "spectra.fits"
+        fits.HDUList(
+            [
+                fits.PrimaryHDU(),
+                fits.BinTableHDU(Table(apogee), name="APOGEE"),
+                fits.BinTableHDU(
+                    Table({"FLUX": flux.astype(flux_dtype)}), name="SPECTRA"
+                ),
+                fits.BinTableHDU(
+                    Table({"IVAR": ivar.astype(np.float32)}), name="SPEC_IVAR"
+                ),
+            ]
+        ).writeto(path)
+
+        data = FITSLoader(path, parameters=["teff", "logg"]).load()
+        for i in range(n):
+            row_flux, row_ivar = normalize_spectrum(
+                flux[i].astype(flux_dtype).astype(np.float32),
+                ivar[i].astype(np.float32),
+            )
+            np.testing.assert_array_equal(data.flux[i], row_flux)
+            np.testing.assert_array_equal(data.ivar[i], row_ivar)
+
 
 class TestSplitData:
     """Tests for the data splitting function."""

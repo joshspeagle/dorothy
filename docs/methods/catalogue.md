@@ -152,7 +152,8 @@ X_star, wavelength, gaia_id = loader.load_spectrum("lamost_mrs", 123)
 ```
 
 With several surveys, most stars lack most surveys. The sparse loader
-({py:class}`~dorothy.data.catalogue_loader.SparseMergedData`) keeps each
-survey's spectra only for the stars that have them, with an index from
-catalogue rows to stored rows. The dense alternative (`data.use_dense_loading: true`) stores full arrays,
-zeros included, and needs several times more memory.
+({py:class}`~dorothy.data.catalogue_loader.SparseMergedData`) reads and keeps
+each survey's spectra only for the stars that have them, with an index from
+catalogue rows to stored rows. The dense alternative
+(`data.use_dense_loading: true`) stores full arrays, zeros included, and needs
+several times more memory.

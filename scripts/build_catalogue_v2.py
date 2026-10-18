@@ -152,7 +152,7 @@ def collect_all_gaia_ids(
         - Sorted array of unique Gaia IDs
         - Dict mapping (survey, label_source) -> array of Gaia IDs for that file
     """
-    all_gaia_ids = set()
+    valid_id_arrays = []
     file_gaia_ids = {}
 
     for (survey, label_source), filename in input_files.items():
@@ -172,7 +172,7 @@ def collect_all_gaia_ids(
             valid_mask = gaia_ids > 0
             valid_ids = gaia_ids[valid_mask]
 
-            all_gaia_ids.update(valid_ids)
+            valid_id_arrays.append(valid_ids)
             file_gaia_ids[(survey, label_source)] = gaia_ids
 
             if verbose:
@@ -181,7 +181,7 @@ def collect_all_gaia_ids(
                 )
 
     print("    Sorting and deduplicating...")
-    sorted_ids = np.array(sorted(all_gaia_ids), dtype=np.int64)
+    sorted_ids = np.unique(np.concatenate([np.empty(0, np.int64), *valid_id_arrays]))
     return sorted_ids, file_gaia_ids
 
 
