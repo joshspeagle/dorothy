@@ -67,8 +67,9 @@
   loaders.
 - `CatalogueLoader.load_multi(mode="intersection")` returned every star of a
   v2 catalogue, because each survey has a row for every star.
-- `load_merged_sparse` counted a star as labelled by a source
-  (`has_labels_dict`) even when `max_flag_bits` removed all its labels.
+- `load_merged_sparse` and `load_merged_for_training` counted a star as
+  labelled by a source (`has_labels_dict`) even when `max_flag_bits` removed
+  all its labels.
 - The duplicate-star error told users to run a deduplication script that
   moved to `scripts/legacy/` and handles only v1 catalogues. It now tells
   them to rebuild the catalogue with `scripts/build_catalogue_v2.py`.
@@ -96,6 +97,12 @@
 - If every validation loss was NaN, `best_epoch` was 0, but `best_model.pth`
   and the trained model held the weights from before training. Training now
   raises `RuntimeError` when no epoch has a finite validation loss.
+- When `MultiHeadMLP` encoded every row of a batch (an encoder with batch
+  normalization or dropout in training mode, or
+  `encode_present_rows_only = False`), a NaN in a row without that survey's
+  data made the weight gradients NaN, and with batch normalization every
+  output. These rows now enter the encoder as zeros, as in the trainer's
+  batches.
 
 ### Performance
 
@@ -178,3 +185,15 @@
 - Dense loading skips spectra with a NaN S/N, as sparse loading does.
 - `training.optimizer.weight_decay` applies only to weight matrices; biases
   and normalization weights are no longer decayed.
+- With `data.normalize_spectra: false`, every loading path and prediction set
+  the flux and ivar of invalid pixels to 0, as normalization does. A pixel is
+  invalid when its flux is not finite, or its ivar is not finite and
+  positive. Before, training passed the stored flux of masked pixels to the
+  model, and a NaN flux with a positive ivar reached the model.
+  `dorothy.data.zero_invalid_pixels` applies the rule.
+- The Fisher-weighted change of ablation saliency is
+  ((Δμ)² + 2 (Δσ)²) / σ₀², the quadratic form of gradient saliency for
+  finite changes, with σ from `losses.predicted_scatter`. Its scatter term
+  was 2 (Δ ln s)², which ignores the scatter floor and the clamp of ln s.
+  `AblationSaliencyResult.fisher_weighted` changes most where σ is close to
+  the floor or ln s is clamped.

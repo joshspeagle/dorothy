@@ -54,8 +54,15 @@ plot_parameter_saliency(result, "teff", output_path="teff_saliency.png")
 block of pixels at a time, at every block position, and records how the
 predictions and their uncertainties change {cite:p}`zeiler2014occlusion`. For
 each block it reports the change in μ, the change in s, and the Fisher-weighted
-change (Δμ_p)² / s_p² + 2 (Δ ln s_p)². A pixel's importance is the average
-over the blocks that cover it.
+change
+
+$$
+F_p = \frac{(\Delta\mu_p)^2 + 2\,(\Delta s_p)^2}{s_p^2},
+$$
+
+the quadratic form of gradient saliency with finite changes in place of
+derivatives; s_p is the scatter for the unablated spectrum. A pixel's
+importance is the average over the blocks that cover it.
 
 ```{raw} html
 :file: ../figures/ablation.svg
