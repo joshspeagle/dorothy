@@ -30,6 +30,7 @@ from dorothy.data.catalogue_loader import (
     _match_ids,
     _read_parameter_names,
 )
+from dorothy.inference.evaluator import Evaluator
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -87,21 +88,16 @@ class LabelComparison:
         return "\n".join(lines)
 
 
-def _robust_scatter(x: NDArray[np.float64]) -> float:
-    """(P84 - P16) / 2, the definition of ``robust_scatter`` in the evaluator."""
-    p16, p84 = np.percentile(x, [16, 84])
-    return float((p84 - p16) / 2)
-
-
 def _read_shared(
     catalogue_path: str | Path, source_a: str, source_b: str, max_flag_bits: int
 ) -> tuple[list[str], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
-    """Read the labels of the stars that both sources list, matched by Gaia ID.
+    """Read the labels of the stars that both sources share, matched by Gaia ID.
 
     Returns ``(names, a, b, both)``. ``a`` and ``b`` are the labels of the two
-    sources as (n_stars, 3, n_parameters) arrays [values, errors, mask], and
-    row i of both is the same star. ``both`` has shape (n_stars, n_parameters)
-    and marks the labels that are valid in both sources.
+    sources as (n_stars, 3, n_parameters) arrays [values, errors, mask] for
+    the stars shared for at least one parameter, and row i of both is the
+    same star. ``both`` has shape (n_stars, n_parameters) and marks the labels
+    that are valid in both sources.
     """
     if source_a == source_b:
         raise ValueError(f"source_a and source_b must differ, got '{source_a}' twice")
@@ -124,9 +120,16 @@ def _read_shared(
             )
             gaia_ids.append(_label_gaia_ids(grp))
     found, rows_a = _match_ids(gaia_ids[0], gaia_ids[1])
-    a = labels[0][rows_a].astype(np.float64)
-    b = labels[1][found].astype(np.float64)
-    return names, a, b, (a[:, 2] > 0) & (b[:, 2] > 0)
+    rows_b = np.flatnonzero(found)
+    both = (labels[0][rows_a, 2] > 0) & (labels[1][rows_b, 2] > 0)
+    # Only the shared stars are kept and widened to float64
+    shared = both.any(axis=1)
+    return (
+        names,
+        labels[0][rows_a[shared]].astype(np.float64),
+        labels[1][rows_b[shared]].astype(np.float64),
+        both[shared],
+    )
 
 
 def compare_label_sources(
@@ -145,20 +148,18 @@ def compare_label_sources(
 
     A star is shared for a parameter when both sources have a valid label of
     it, by the rule of the catalogue loaders: the error is positive, the flag
-    is 0 and, with ``max_flag_bits`` of 0 or more, the star has at most
-    ``max_flag_bits`` set flag bits in that source. Stars are matched by Gaia
-    ID, so the sources may store their rows in different orders. Each label
-    group must list a star once, as ``scripts/build_catalogue_v2.py`` writes
-    it. The function reads the two label groups and no spectra.
+    is 0, and the star has at most ``max_flag_bits`` set flag bits in that
+    source. Stars are matched by Gaia ID, so the sources may store their rows
+    in different orders. Each label group must list a star once, as
+    ``scripts/build_catalogue_v2.py`` writes it. The function reads the two
+    label groups and no spectra.
 
     Args:
         catalogue_path: Path to the HDF5 super-catalogue.
         source_a: Name of label source A.
         source_b: Name of label source B.
         max_flag_bits: Largest number of set flag bits, summed over the
-            parameters of a star, that a source may have for the star's labels
-            to count. A label with a nonzero flag never counts. 0 excludes
-            every star with a flagged parameter, and -1 sets no limit.
+            parameters of a star, for its labels to count; -1 sets no limit.
 
     Returns:
         The statistics of each parameter, in physical units (K for Teff, dex
@@ -169,27 +170,21 @@ def compare_label_sources(
             in the catalogue, or a label group has no ``gaia_id`` dataset.
     """
     names, a, b, both = _read_shared(catalogue_path, source_a, source_b, max_flag_bits)
-    n_shared = both.sum(axis=0)
-    median_offset, robust_spread, predicted_spread, ratio = np.full(
-        (4, len(names)), np.nan
+    # The evaluator's residual is a - b, and with sigma_d as the predicted
+    # scatter its z-score is d / sigma_d
+    result = Evaluator(names, teff_in_log=False).evaluate(
+        a[:, 0], b[:, 0], pred_scatter=np.hypot(a[:, 1], b[:, 1]), mask=both
     )
-    for p in np.flatnonzero(n_shared):
-        shared = both[:, p]
-        d = a[shared, 0, p] - b[shared, 0, p]
-        sigma_d = np.hypot(a[shared, 1, p], b[shared, 1, p])
-        median_offset[p] = np.median(d)
-        robust_spread[p] = _robust_scatter(d)
-        predicted_spread[p] = np.median(sigma_d)
-        ratio[p] = _robust_scatter(d / sigma_d)
+    metrics = [result[name] for name in names]
     return LabelComparison(
         parameter_names=names,
         source_a=source_a,
         source_b=source_b,
-        n_shared=n_shared,
-        median_offset=median_offset,
-        robust_spread=robust_spread,
-        predicted_spread=predicted_spread,
-        ratio=ratio,
+        n_shared=np.array([m.n_samples for m in metrics]),
+        median_offset=np.array([m.median_offset for m in metrics]),
+        robust_spread=np.array([m.robust_scatter for m in metrics]),
+        predicted_spread=np.array([m.pred_unc_p50 for m in metrics]),
+        ratio=np.array([m.z_robust_scatter for m in metrics]),
     )
 
 
@@ -212,9 +207,7 @@ def plot_label_differences(
         catalogue_path: Path to the HDF5 super-catalogue.
         source_a: Name of label source A.
         source_b: Name of label source B.
-        max_flag_bits: Largest number of set flag bits that a source may have
-            for a star's labels to count. It has the meaning that it has in
-            ``compare_label_sources``.
+        max_flag_bits: As in ``compare_label_sources``.
 
     Returns:
         The Matplotlib figure, with d in the physical units of the catalogue
@@ -238,7 +231,6 @@ def plot_label_differences(
         2,
         figsize=(9, 1.8 * len(names)),
         sharex="col",
-        squeeze=False,
         layout="constrained",
     )
     for column, x_name in enumerate(("teff", "fe_h")):

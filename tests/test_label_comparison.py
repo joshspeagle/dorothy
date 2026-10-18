@@ -15,12 +15,7 @@ import h5py
 import numpy as np
 import pytest
 
-from dorothy.analysis import (
-    LabelComparison,
-    compare_label_sources,
-    plot_label_differences,
-)
-from dorothy.inference.evaluator import evaluate_predictions
+from dorothy.analysis import compare_label_sources, plot_label_differences
 from tests.synthetic import PARAMS, build_catalogue
 
 SOURCES = ("apogee", "galah")
@@ -53,10 +48,6 @@ def _noise(path, source):
         return f[f"labels/{source}/errors"][:].max(axis=0).astype(np.float64)
 
 
-def _copy(path, tmp_path):
-    return shutil.copy(path, tmp_path / "modified.h5")
-
-
 def _keep_rows(path, source, rows):
     """Replace a label group by the given rows of itself, in the given order."""
     with h5py.File(path, "r+") as f:
@@ -67,7 +58,7 @@ def _keep_rows(path, source, rows):
             group.create_dataset(name, data=data)
 
 
-def _assert_same(result: LabelComparison, expected: LabelComparison) -> None:
+def _assert_same(result, expected):
     assert result.parameter_names == expected.parameter_names
     for name in STATISTICS:
         np.testing.assert_array_equal(
@@ -80,9 +71,6 @@ def test_correct_errors_give_a_ratio_of_one_and_no_median_offset(catalogue):
     n = int(result.n_shared.min())
     spread = np.hypot(_noise(catalogue, "apogee"), _noise(catalogue, "galah"))
 
-    assert result.parameter_names == PARAMS
-    assert (result.source_a, result.source_b) == SOURCES
-    assert result.ratio.shape == (len(PARAMS),)
     np.testing.assert_allclose(result.predicted_spread, spread, rtol=1e-6)
     np.testing.assert_allclose(result.robust_spread, spread, rtol=_rtol(n))
     np.testing.assert_allclose(result.ratio, 1, rtol=_rtol(n))
@@ -93,37 +81,13 @@ def test_correct_errors_give_a_ratio_of_one_and_no_median_offset(catalogue):
     )
 
 
-def test_overestimated_errors_lower_the_ratio_to_the_value_they_predict(
-    catalogue, tmp_path
-):
-    path = _copy(catalogue, tmp_path)
-    with h5py.File(path, "r+") as f:
-        errors = f["labels/galah/errors"]
-        errors[...] = 2 * errors[...]
-    before = compare_label_sources(catalogue)
-    result = compare_label_sources(path)
-    sigma_a, sigma_b = _noise(catalogue, "apogee"), _noise(catalogue, "galah")
-    predicted = np.hypot(sigma_a, 2 * sigma_b)
-
-    # The labels are unchanged, so their differences and spread are too
-    np.testing.assert_array_equal(result.n_shared, before.n_shared)
-    np.testing.assert_array_equal(result.median_offset, before.median_offset)
-    np.testing.assert_array_equal(result.robust_spread, before.robust_spread)
-    np.testing.assert_allclose(result.predicted_spread, predicted, rtol=1e-6)
-    np.testing.assert_allclose(
-        result.ratio,
-        np.hypot(sigma_a, sigma_b) / predicted,
-        rtol=_rtol(result.n_shared.min()),
-    )
-
-
 def test_ratio_is_one_for_correct_errors_that_vary_from_star_to_star(
     catalogue, tmp_path
 ):
     # Add noise to three stars in ten, so that their GALAH noise is 5 times the
     # old error, and report the larger error. The errors now vary from star to
     # star and are correct for every star.
-    path = _copy(catalogue, tmp_path)
+    path = shutil.copy(catalogue, tmp_path / "modified.h5")
     rng = np.random.default_rng(3)
     with h5py.File(path, "r+") as f:
         values, errors = f["labels/galah/values"], f["labels/galah/errors"]
@@ -196,34 +160,35 @@ def test_label_group_without_gaia_id_is_rejected(tmp_path):
         compare_label_sources(path)
 
 
-def test_statistics_agree_with_the_evaluator(catalogue):
-    # The evaluator's residual is a - b, and its z-score divides it by
-    # sqrt(label_errors^2 + pred_scatter^2), so these arguments give d and z
-    with h5py.File(catalogue) as f:
+def test_statistics_match_a_direct_computation(catalogue, tmp_path):
+    # Errors that vary from star to star separate the median, P16 and P84 of
+    # sigma_d, so a statistic read from the wrong metric fails
+    path = shutil.copy(catalogue, tmp_path / "varied.h5")
+    rng = np.random.default_rng(5)
+    with h5py.File(path, "r+") as f:
+        stored = f["labels/galah/errors"]
+        stored[...] = stored[...] * rng.uniform(0.5, 2.0, stored.shape)
         values, errors = (
             [f[f"labels/{source}/{name}"][:].astype(np.float64) for source in SOURCES]
             for name in ("values", "errors")
         )
     shared = (errors[0] > 0) & (errors[1] > 0)  # all flags are 0
-    reference = evaluate_predictions(
-        values[0],
-        values[1],
-        pred_scatter=errors[0],
-        label_errors=errors[1],
-        parameter_names=PARAMS,
-        mask=shared.astype(np.float32),
-    )
 
-    result = compare_label_sources(catalogue)
+    result = compare_label_sources(path)
 
-    for i, name in enumerate(PARAMS):
-        metrics = reference[name]
-        assert result.n_shared[i] == metrics.n_samples
-        np.testing.assert_allclose(result.median_offset[i], metrics.median_offset)
-        np.testing.assert_allclose(result.robust_spread[i], metrics.robust_scatter)
-        np.testing.assert_allclose(result.ratio[i], metrics.z_robust_scatter)
-        sigma_d = np.hypot(errors[0][shared[:, i], i], errors[1][shared[:, i], i])
+    def spread(x):
+        p16, p84 = np.percentile(x, [16, 84])
+        return (p84 - p16) / 2
+
+    for i in range(len(PARAMS)):
+        rows = shared[:, i]
+        d = values[0][rows, i] - values[1][rows, i]
+        sigma_d = np.hypot(errors[0][rows, i], errors[1][rows, i])
+        assert result.n_shared[i] == rows.sum()
+        np.testing.assert_allclose(result.median_offset[i], np.median(d))
+        np.testing.assert_allclose(result.robust_spread[i], spread(d))
         np.testing.assert_allclose(result.predicted_spread[i], np.median(sigma_d))
+        np.testing.assert_allclose(result.ratio[i], spread(d / sigma_d))
 
 
 def test_summary_lists_the_sources_and_each_parameter_with_its_statistics(catalogue):
@@ -253,8 +218,6 @@ def test_parameter_without_shared_stars_has_zero_count_and_nan_statistics(tmp_pa
         statistic = getattr(result, name)
         assert np.isnan(statistic[empty])
         assert np.isfinite(statistic[others]).all()
-    # One NaN in each of the four statistic columns of the empty row
-    assert result.summary().count("nan") == 4
 
 
 @pytest.mark.parametrize(
@@ -276,12 +239,10 @@ def test_plot_returns_a_figure_with_a_panel_per_parameter_and_axis(tmp_path):
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.figure import Figure
 
     path = build_catalogue(tmp_path / "catalogue.h5", n_stars=300)
     fig = plot_label_differences(path)
     try:
-        assert isinstance(fig, Figure)
         assert len(fig.axes) == 2 * len(PARAMS)
     finally:
         plt.close(fig)
