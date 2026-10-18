@@ -49,6 +49,9 @@
   log-spaced block sizes by 1/b, so the map was close to single-pixel
   ablation: for BOSS, block sizes of at most 5 pixels had 84% of the weight.
   A size that several grid points round to counted only once.
+- The saliency analyzers converted the predicted log-scatter ln s to a
+  scatter without the clamp of `losses.predicted_scatter`, so their
+  uncertainties disagreed with `Predictor` when ln s was outside [-10, 5].
 
 ### Performance
 
@@ -114,3 +117,6 @@
   of its block-size grid equal weight (for BOSS, block sizes of at most 5
   pixels now have 24% of the weight), and `AblationSaliencyResult.block_size`
   lists one size per grid point, with repeats.
+- The saliency analyzers compute the predicted scatter with
+  `losses.predicted_scatter`. Their uncertainties, scatter changes and
+  Fisher weights change where ln s is outside [-10, 5].

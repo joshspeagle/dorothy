@@ -29,6 +29,7 @@ import torch
 import torch.nn as nn
 
 from dorothy.config.schema import STELLAR_PARAMETERS
+from dorothy.losses import predicted_scatter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -318,8 +319,7 @@ class SaliencyAnalyzer:
             log_scatter,
         ) = self._compute_jacobian(X_masked, survey)
 
-        # Compute sigma from log_scatter
-        sigma = torch.sqrt(torch.exp(2 * log_scatter) + self.scatter_floor**2)
+        sigma = predicted_scatter(log_scatter, self.scatter_floor)
 
         # Compute Fisher importance
         fisher_per_param, fisher_total = self._compute_fisher_importance(
@@ -785,7 +785,7 @@ class AblationSaliencyAnalyzer:
         mu_0, ln_s_0, shortcut = self._baseline_forward(X_masked, survey)
         mu_0 = mu_0.squeeze(0)  # (n_params,)
         ln_s_0 = ln_s_0.squeeze(0)  # (n_params,)
-        sigma_0 = torch.sqrt(torch.exp(2 * ln_s_0) + self.scatter_floor**2)
+        sigma_0 = predicted_scatter(ln_s_0, self.scatter_floor)
 
         if use_training_distribution:
             # Fractions evenly spaced in log f sample the log-uniform block
@@ -923,10 +923,7 @@ class AblationSaliencyAnalyzer:
                 # Forward pass
                 mu_ablated, ln_s_ablated = self._forward_model(X_ablated, survey)
 
-            # Compute sigma from log_scatter
-            sigma_ablated = torch.sqrt(
-                torch.exp(2 * ln_s_ablated) + self.scatter_floor**2
-            )
+            sigma_ablated = predicted_scatter(ln_s_ablated, self.scatter_floor)
 
             # Compute deltas (sign matches gradient saliency convention)
             # mu_ablated - mu_0: positive means ablating increased prediction (region suppressed it)

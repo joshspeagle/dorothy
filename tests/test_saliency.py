@@ -27,6 +27,7 @@ from dorothy.analysis.saliency import (
     plot_parameter_saliency,
     plot_saliency_heatmap,
 )
+from dorothy.losses import predicted_scatter
 
 
 class SimpleLinearModel(nn.Module):
@@ -1040,7 +1041,7 @@ class TestAblationInputLayerShortcut:
         X, X_masked = self._masked_input(150)
         mu_0, ln_s_0, shortcut = analyzer._baseline_forward(X_masked, "desi")
         mu_0, ln_s_0 = mu_0[0], ln_s_0[0]
-        sigma_0 = torch.sqrt(torch.exp(2 * ln_s_0) + analyzer.scatter_floor**2)
+        sigma_0 = predicted_scatter(ln_s_0, analyzer.scatter_floor)
         args = (X_masked, "desi", block_size, mu_0, ln_s_0, sigma_0, X[2].numpy() > 0)
 
         fast = analyzer._compute_ablation_importance(*args, shortcut=shortcut)
@@ -1092,6 +1093,31 @@ class TestAblationInputLayerShortcut:
         with torch.no_grad():
             after = multi_head_model.forward_single(X_masked.unsqueeze(0), "desi")
         assert torch.equal(before, after)
+
+
+def test_saliency_scatter_is_the_predicted_scatter():
+    """Both analyzers convert ln s with losses.predicted_scatter, which clamps
+    ln s to [LN_S_MIN, LN_S_MAX]."""
+    model = SimpleLinearModel(n_wavelengths=20, n_params=2)
+    with torch.no_grad():
+        model.linear.weight.zero_()
+        model.linear.weight[2, :20] = 0.01  # ln s of parameter 0 follows the flux
+        model.linear.bias.copy_(torch.tensor([0.0, 0.0, 8.0, -12.0]))
+    X = torch.randn(3, 20, generator=torch.Generator().manual_seed(0))
+    X[2] = 1.0
+    wavelength = np.linspace(3600, 9000, 20).astype(np.float32)
+    with torch.no_grad():
+        expected = predicted_scatter(model(X.unsqueeze(0))[0, 1], 0.01).numpy()
+
+    gradient = SaliencyAnalyzer(model, device="cpu").compute_saliency(X, wavelength)
+    ablation = AblationSaliencyAnalyzer(model, device="cpu").compute_saliency(
+        X, wavelength, block_size=3
+    )
+
+    np.testing.assert_array_equal(gradient.uncertainties, expected)
+    np.testing.assert_array_equal(ablation.uncertainties, expected)
+    # Ablation moves ln s of parameter 0 by < 0.1, so it stays above LN_S_MAX
+    assert np.all(ablation.delta_sigma[0] == 0)
 
 
 class TestAblationVisualization:
