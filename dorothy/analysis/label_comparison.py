@@ -199,6 +199,8 @@ def plot_label_differences(
     a, b, both = _shared_labels(loader, source_a, source_b, max_flag_bits)
     import matplotlib.pyplot as plt
 
+    from dorothy.visualization.evaluation_plots import _robust_range, _symmetric_range
+
     fig, axes = plt.subplots(
         len(names),
         2,
@@ -206,18 +208,19 @@ def plot_label_differences(
         sharex="col",
         layout="constrained",
     )
+    # The axis limits are percentiles, so that a few outliers do not hide the
+    # trends
     for column, x_name in enumerate(("teff", "fe_h")):
         x = names.index(x_name)
         for row in range(len(names)):
             shared = both[:, row] & both[:, x]
+            d = a[shared, 0, row] - b[shared, 0, row]
             ax = axes[row, column]
-            ax.scatter(
-                (a[shared, 0, x] + b[shared, 0, x]) / 2,
-                a[shared, 0, row] - b[shared, 0, row],
-                s=2,
-                alpha=0.3,
-            )
+            ax.scatter((a[shared, 0, x] + b[shared, 0, x]) / 2, d, s=2, alpha=0.3)
             ax.axhline(0, color="black", linewidth=0.8)
+            ax.set_ylim(_symmetric_range(d))
+        valid = both[:, x]
+        axes[-1, column].set_xlim(_robust_range((a[valid, 0, x] + b[valid, 0, x]) / 2))
         axes[-1, column].set_xlabel(f"mean {parameter_display_name(x_name)}")
     for row, name in enumerate(names):
         axes[row, 0].set_ylabel(

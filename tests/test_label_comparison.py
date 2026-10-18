@@ -173,16 +173,27 @@ def test_equal_label_sources_are_rejected(tmp_path):
         compare_label_sources(path, source_b="apogee")
 
 
-def test_plot_returns_a_figure_with_a_panel_per_parameter_and_axis(tmp_path):
+def test_plot_has_a_panel_per_parameter_and_axis_and_limits_without_outliers(
+    catalogue, tmp_path
+):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    path = build_catalogue(tmp_path / "catalogue.h5", n_stars=300)
+    path = shutil.copy(catalogue, tmp_path / "outlier.h5")
+    with h5py.File(path, "r+") as f:
+        # One shared star whose GALAH labels are 1e5 above its APOGEE labels
+        star = np.flatnonzero(
+            (f["labels/apogee/errors"][:] > 0).all(axis=1)
+            & (f["labels/galah/errors"][:] > 0).all(axis=1)
+        )[0]
+        f["labels/galah/values"][star] += 1e5
     fig = plot_label_differences(path)
     try:
         assert len(fig.axes) == 2 * len(PARAMS)
+        for ax in fig.axes:
+            assert np.abs([*ax.get_xlim(), *ax.get_ylim()]).max() < 1e4
     finally:
         plt.close(fig)
 
