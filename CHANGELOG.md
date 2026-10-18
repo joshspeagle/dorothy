@@ -37,6 +37,8 @@
 
 ### Fixed
 
+- Training on Apple MPS failed at the first step with PyTorch before 2.5,
+  which rejects autocast on MPS even when it is disabled.
 - The catalogue loaders raised h5py's `KeyError`, not `ValueError`, for a
   catalogue without a `labels` group.
 - `ReduceLROnPlateau` crashed in every multi-survey training mode.
