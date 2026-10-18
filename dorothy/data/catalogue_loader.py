@@ -26,8 +26,8 @@ import h5py
 import numpy as np
 
 from dorothy.config.schema import STELLAR_PARAMETERS
+from dorothy.data.fits_loader import _BLOCK_ROWS, zero_invalid_pixels
 from dorothy.data.fits_loader import normalize_spectra as _normalize_spectra
-from dorothy.data.fits_loader import zero_invalid_pixels
 
 # Default (v1/v2 [X/Fe]) parameter names; catalogues may define their own
 PARAMETER_NAMES = list(STELLAR_PARAMETERS)
@@ -207,41 +207,39 @@ def _preprocess_spectra(
     return zero_invalid_pixels(flux, ivar, inplace=True)
 
 
+def _ivar_to_sigma(ivar: np.ndarray, out: np.ndarray) -> np.ndarray:
+    """Write ``sigma = 1 / sqrt(ivar)`` where ``ivar > 0``, else 0, into ``out``.
+
+    ``out`` may be ``ivar`` itself. Returns the mask ``ivar > 0``.
+    """
+    valid = ivar > 0
+    # Warnings can only come from ivar <= 0 or NaN, zeroed below
+    with np.errstate(divide="ignore", invalid="ignore"):
+        np.sqrt(ivar, out=out)
+        np.divide(1.0, out, out=out)
+    np.copyto(out, 0, where=~valid)
+    return valid
+
+
 def _spectra_to_model_inputs(
-    flux: np.ndarray, ivar: np.ndarray, block_rows: int = 256
+    flux: np.ndarray, ivar: np.ndarray, block_rows: int = _BLOCK_ROWS
 ) -> np.ndarray:
     """Stack ``[flux, sigma, mask]`` into (N, 3, n_wave) model inputs.
 
     ``sigma = 1 / sqrt(ivar)`` and ``mask = 1`` where ``ivar > 0``, both 0
-    elsewhere. Same result as ``np.stack([flux, sigma, mask], axis=1)`` (with
-    sigma computed in ivar's dtype), but written straight into the output a
-    block of rows at a time, without boolean-indexed copies or full-size
-    sigma/mask temporaries.
+    elsewhere. Same result as ``np.stack([flux, sigma, mask], axis=1)``, but
+    written straight into the output a block of rows at a time, without
+    boolean-indexed copies or full-size sigma/mask temporaries.
     """
     out = np.empty(
         (flux.shape[0], 3) + flux.shape[1:],
         dtype=np.result_type(flux.dtype, ivar.dtype, np.float32),
     )
-    # Compute sigma in place when it already has the output dtype
-    in_place = ivar.dtype == out.dtype and np.issubdtype(ivar.dtype, np.floating)
     for start in range(0, flux.shape[0], block_rows):
         rows = slice(start, start + block_rows)
-        iv = ivar[rows]
-        valid = iv > 0
         block = out[rows]
         block[:, 0] = flux[rows]
-        if in_place:
-            sigma = block[:, 1]
-            # Warnings can only come from ivar <= 0 or NaN, zeroed below
-            with np.errstate(divide="ignore", invalid="ignore"):
-                np.sqrt(iv, out=sigma)
-                np.divide(1.0, sigma, out=sigma)
-            np.copyto(sigma, 0, where=~valid)
-        else:
-            sigma = np.zeros_like(iv)
-            sigma[valid] = 1.0 / np.sqrt(iv[valid])
-            block[:, 1] = sigma
-        block[:, 2] = valid
+        block[:, 2] = _ivar_to_sigma(ivar[rows], block[:, 1])
     return out
 
 
@@ -550,8 +548,8 @@ class SparseMergedData:
             (n_with_data[survey], n_wavelengths) containing only stars with data.
             Normalized if requested, and 0 at invalid pixels
             (:func:`~dorothy.data.fits_loader.zero_invalid_pixels`).
-        ivar: Per-survey inverse variance arrays with same structure as flux,
-            0 at invalid pixels.
+        sigma: Per-survey 1/sqrt(ivar) arrays with the same structure as flux,
+            0 at invalid pixels (so the pixel mask is sigma > 0).
         wavelengths: Per-survey wavelength grids (n_wavelengths,).
         snr: Per-survey SNR values for stars with data.
         global_to_local: Maps survey name to index array (n_total,) where
@@ -572,7 +570,7 @@ class SparseMergedData:
     """
 
     flux: dict[str, np.ndarray]
-    ivar: dict[str, np.ndarray]
+    sigma: dict[str, np.ndarray]
     wavelengths: dict[str, np.ndarray]
     snr: dict[str, np.ndarray]
     global_to_local: dict[str, np.ndarray]
@@ -612,9 +610,9 @@ class SparseMergedData:
         usage = {}
         for survey in self.surveys:
             flux_mb = self.flux[survey].nbytes / 1e6
-            ivar_mb = self.ivar[survey].nbytes / 1e6
+            sigma_mb = self.sigma[survey].nbytes / 1e6
             usage[f"{survey}_flux"] = flux_mb
-            usage[f"{survey}_ivar"] = ivar_mb
+            usage[f"{survey}_sigma"] = sigma_mb
         usage["labels"] = self.labels.nbytes / 1e6
         usage["gaia_ids"] = self.gaia_ids.nbytes / 1e6
         usage["total"] = sum(usage.values())
@@ -1143,6 +1141,8 @@ class CatalogueLoader:
            c. Try 'galah' directly (v2 schema)
            d. Try 'apogee_{survey}' pattern (v1 fallback)
         """
+        if "labels" not in f:
+            raise ValueError(f"Catalogue {self.path} has no 'labels' group")
         labels = f["labels"]
         if label_source is None:
             survey = surveys[0]
@@ -1663,7 +1663,7 @@ class CatalogueLoader:
             # PASS 2: Load spectra only for valid indices (sparse)
             # =========================================================
             sparse_flux: dict[str, np.ndarray] = {}
-            sparse_ivar: dict[str, np.ndarray] = {}
+            sparse_sigma: dict[str, np.ndarray] = {}
             sparse_snr: dict[str, np.ndarray] = {}
             wavelengths: dict[str, np.ndarray] = {}
             global_to_local: dict[str, np.ndarray] = {}
@@ -1712,10 +1712,14 @@ class CatalogueLoader:
                 local_to_global[survey] = valid_indices.astype(np.int32)
 
                 flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
+                sigma = ivar  # converted in place, a block of rows at a time
+                for start in range(0, n_with_data, _BLOCK_ROWS):
+                    block = sigma[start : start + _BLOCK_ROWS]
+                    _ivar_to_sigma(block, block)
 
                 # Store sparse arrays
                 sparse_flux[survey] = flux
-                sparse_ivar[survey] = ivar
+                sparse_sigma[survey] = sigma
                 sparse_snr[survey] = snr
 
                 print(
@@ -1760,7 +1764,7 @@ class CatalogueLoader:
 
         return SparseMergedData(
             flux=sparse_flux,
-            ivar=sparse_ivar,
+            sigma=sparse_sigma,
             wavelengths=wavelengths,
             snr=sparse_snr,
             global_to_local=global_to_local,
@@ -1904,6 +1908,46 @@ class CatalogueLoader:
                 return None
             grp = f["labels"][resolved]
             return grp["values"][index], grp["errors"][index], grp["flags"][index]
+
+    def load_labels(self, label_source: str, max_flag_bits: int = 0) -> np.ndarray:
+        """Load one label source's labels for every catalogue star.
+
+        The labels are matched to stars by Gaia ID, in the row order of
+        ``metadata/gaia_id``, so the label group may store its rows in any
+        order. A label is valid (mask 1) when its error is positive and its
+        flag is 0; with ``max_flag_bits`` >= 0, every label of a star with
+        more set flag bits than ``max_flag_bits`` is masked.
+
+        Args:
+            label_source: Label group name, such as "apogee" or "galah".
+            max_flag_bits: Largest number of set flag bits, summed over the
+                parameters of a star, for its labels to count; -1 sets no
+                limit.
+
+        Returns:
+            Labels of shape (n_stars, 3, n_parameters) = [values, errors,
+            mask], in the catalogue's units. Stars without a row in the label
+            group have mask 0.
+
+        Raises:
+            ValueError: If max_flag_bits is not an integer >= -1, the catalogue
+                has no labels, the label source is not in the catalogue, or
+                the catalogue or its label group has no Gaia IDs.
+        """
+        if not isinstance(max_flag_bits, (int, np.integer)) or max_flag_bits < -1:
+            raise ValueError(
+                f"max_flag_bits must be an integer >= -1, got {max_flag_bits!r}"
+            )
+        with h5py.File(self.path, "r") as f:
+            source = self._resolve_label_source([], label_source, f)
+            if "gaia_id" not in f.get("metadata", {}):
+                raise ValueError(
+                    f"Catalogue {self.path} has no metadata/gaia_id, which "
+                    "load_labels needs to match labels to stars"
+                )
+            return _align_labels(
+                f["labels"][source], f["metadata"]["gaia_id"][:], max_flag_bits
+            )
 
     def get_parameter_names(self) -> list[str]:
         """Get the label parameter names, in catalogue column order."""

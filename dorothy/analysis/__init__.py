@@ -1,9 +1,14 @@
-"""Analysis tools for DOROTHY models."""
+"""Analysis tools: saliency, anomaly detection and label-source comparison."""
 
 from dorothy.analysis.knn_anomaly import (
     AnomalyDetector,
     AnomalyResult,
     l2_normalize,
+)
+from dorothy.analysis.label_comparison import (
+    LabelComparison,
+    compare_label_sources,
+    plot_label_differences,
 )
 from dorothy.analysis.saliency import (
     # Ablation-based saliency
@@ -23,6 +28,10 @@ __all__ = [
     "AnomalyDetector",
     "AnomalyResult",
     "l2_normalize",
+    # Comparison of label sources
+    "LabelComparison",
+    "compare_label_sources",
+    "plot_label_differences",
     # Gradient-based saliency analysis
     "SaliencyAnalyzer",
     "SaliencyResult",

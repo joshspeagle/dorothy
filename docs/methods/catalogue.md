@@ -149,6 +149,9 @@ data = loader.load_merged_sparse(["boss", "desi", "lamost_mrs"],
 
 # One star's spectrum as a model input
 X_star, wavelength, gaia_id = loader.load_spectrum("lamost_mrs", 123)
+
+# One label source for every star, [values, errors, mask], no spectra
+y_galah = loader.load_labels("galah", max_flag_bits=0)
 ```
 
 With several surveys, most stars lack most surveys. The sparse loader
