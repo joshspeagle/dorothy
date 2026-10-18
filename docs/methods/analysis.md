@@ -137,13 +137,11 @@ If both sources report correct, independent uncertainties and agree on
 average, d has mean 0 and standard deviation σ_d, and z follows a standard
 normal distribution.
 
-A star is shared for a parameter when both sources have a valid label of it.
-A label is valid by the rule of the catalogue loaders: its error is positive,
-its {term}`flag` is 0 and, unless `max_flag_bits` is -1, its star has at most
-`max_flag_bits` set flag bits in that source
-([Quality flags](catalogue.md#quality-flags)). The function matches stars by
-Gaia ID, so the sources may store their rows in different orders. For each
-parameter it returns, over the shared stars:
+A star is shared for a parameter when both sources have a valid label of it
+([Labels](preprocessing.md#labels)); `max_flag_bits` works as
+`data.max_flag_bits` does. The function matches stars by Gaia ID, so the
+sources may store their rows in different orders. For each parameter it
+returns, over the shared stars:
 
 | Field | Definition |
 |-------|------------|

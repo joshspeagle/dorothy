@@ -40,7 +40,7 @@ grid.
 Labels have shape `(3, n_parameters)`: the values, their uncertainties, and a
 mask that is 1 for valid labels. A label is valid when its
 {term}`flag` is 0 and its uncertainty is positive. With
-`data.max_flag_bits` ≥ 0, a star whose number of flagged parameters exceeds
+`data.max_flag_bits` ≥ 0, a star whose flags have more set bits in total than
 that value loses all its labels; `-1` keeps every valid label of every star.
 
 {py:class}`~dorothy.data.normalizer.LabelNormalizer` scales each parameter $p$
