@@ -147,6 +147,10 @@
 
 ### Behaviour changes
 
+- Sparse training batches compute σ = 1/√ivar with `torch.rsqrt`, which
+  matches the numpy loading paths exactly on the CPU. `torch.sqrt` can use
+  MKL, which is not exactly rounded: σ differed by one rounding step in some
+  pixels, and by up to 2.4e-4 on one CI runner.
 - Multi-head encoders run only on the stars that have their survey (except
   encoders with batch normalization or dropout in training mode). Results
   change by floating-point rounding only: losses after a few epochs differ
