@@ -52,8 +52,9 @@ class LabelComparison:
         robust_spread: (P84 - P16) / 2 of d, shape (n_parameters,).
         predicted_spread: Median of sigma_d, shape (n_parameters,).
         ratio: (P84 - P16) / 2 of ``d / sigma_d``, shape (n_parameters,). It is
-            about 1 when both sources report correct errors. When all stars
-            have the same errors, it equals ``robust_spread / predicted_spread``.
+            about 1 when both sources report correct errors and the errors
+            are normal. When all stars have the same errors, it equals
+            ``robust_spread / predicted_spread``.
     """
 
     parameter_names: list[str]
@@ -111,8 +112,8 @@ def compare_label_sources(
     For each parameter, the function compares the difference ``d = y_A - y_B``
     of the two labels of a star with ``sigma_d = sqrt(sigma_A^2 + sigma_B^2)``,
     the spread that the reported errors predict. If both sources report
-    correct errors and agree on average, ``z = d / sigma_d`` has a standard
-    normal distribution.
+    correct errors, agree on average and have normal errors,
+    ``z = d / sigma_d`` has a standard normal distribution.
 
     A star is shared for a parameter when both sources have a valid label of
     it. :meth:`~dorothy.data.catalogue_loader.CatalogueLoader.load_labels`

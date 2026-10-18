@@ -141,8 +141,8 @@ z = \frac{d}{\sigma_d}.
 $$
 
 If both sources report correct, independent uncertainties and agree on
-average, d has mean 0 and standard deviation σ_d, and z follows a standard
-normal distribution.
+average, d has mean 0 and standard deviation σ_d. If their errors are also
+normal, z follows a standard normal distribution.
 
 A star is shared for a parameter when both sources have a valid label of it
 ([Labels](preprocessing.md#labels)); `max_flag_bits` works as
@@ -186,6 +186,12 @@ and of Teff or [Fe/H], in both sources.
   positively correlated.
 - `ratio` > 1: the differences are larger than predicted. At least one source
   underestimates its uncertainties, or the sources differ systematically.
+
+(P84 − P16) / 2 equals the standard deviation only for normal errors. When
+the errors have heavier tails than a normal distribution, correct
+uncertainties also give `ratio` < 1; lighter tails give `ratio` > 1. For
+errors of unit standard deviation, (P84 − P16) / 2 is −ln(0.32) / √2 = 0.81 for a
+Laplace distribution and 0.68 √3 = 1.18 for a uniform distribution.
 
 The ratio does not say which source is at fault. `median_offset` shows a
 constant offset between the sources. A difference that changes with Teff or
