@@ -574,6 +574,14 @@ class TrainingConfig(_ConfigModel):
         description="Enable mixed precision training (AMP). Disabled by default "
         "due to numerical instability with large encoder inputs.",
     )
+    ema_decay: float | None = Field(
+        default=None,
+        ge=0.0,
+        lt=1.0,
+        description="Decay per optimizer step of the exponential moving average "
+        "of the weights, which validation, the best epoch and the saved weights "
+        "then use (null: no average)",
+    )
 
     @field_validator("label_source_weights")
     @classmethod

@@ -65,19 +65,32 @@ class TestEvaluateMatchesTraining:
     @pytest.mark.parametrize(
         "surveys,sources,extra",
         [
-            (["boss"], ["apogee"], ""),
-            (MULTI_SURVEYS, ["apogee"], ""),
-            (MULTI_SURVEYS, ["apogee", "galah"], ""),
-            (MULTI_SURVEYS, ["apogee", "galah"], "  use_dense_loading: true\n"),
+            (["boss"], ["apogee"], {}),
+            (MULTI_SURVEYS, ["apogee"], {}),
+            (MULTI_SURVEYS, ["apogee", "galah"], {}),
+            (
+                MULTI_SURVEYS,
+                ["apogee", "galah"],
+                {"extra_data": "  use_dense_loading: true\n"},
+            ),
+            (
+                MULTI_SURVEYS,
+                ["apogee", "galah"],
+                {"extra_training": "  ema_decay: 0.9\n"},
+            ),
         ],
-        ids=["single", "sparse", "sparse_multilabel", "dense_multilabel"],
+        ids=[
+            "single",
+            "sparse",
+            "sparse_multilabel",
+            "dense_multilabel",
+            "weight_average",
+        ],
     )
     def test_validation_metrics_reproduced(
         self, tmp_path, catalogue, surveys, sources, extra
     ):
-        config_path = _config(
-            tmp_path, catalogue, surveys, sources, epochs=3, extra_data=extra
-        )
+        config_path = _config(tmp_path, catalogue, surveys, sources, epochs=3, **extra)
         config, data, split, trainer = _train(config_path)
         history = trainer.history
         path = trainer.save_checkpoint(tmp_path / "ckpt")

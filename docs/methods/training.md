@@ -85,6 +85,36 @@ also records each head's own best epoch. Training stops early after
 epoch has a finite validation loss, there is no best epoch, and training
 raises `RuntimeError`.
 
+## Weight averaging
+
+`training.ema_decay: d` keeps an exponential moving average (EMA) of the
+weights during training. After each optimizer step, the trained weights $w$
+update the average $\bar{w}$:
+
+$$
+\bar{w} \leftarrow d\,\bar{w} + (1 - d)\,w .
+$$
+
+The first update copies the weights. The average includes the buffers, such
+as the running statistics of batch normalization. Validation, the choice of
+the best epoch, `best_model.pth`, `final_model.pth` and the weights saved
+every `training.save_every` epochs use the averaged weights, and after
+training the model holds the averaged weights of the best epoch. The training
+steps, and the weight norms and updates in the history, use the trained
+weights. For validation, the average is loaded into the model; the trained
+weights wait in CPU memory and return afterwards.
+
+The average is one more copy of the weights on the training device, 4 bytes
+per parameter. Training with AdamW already holds four such copies (the
+weights, their gradients and two moment estimates), so the average adds 25%.
+
+Averaging the weights along the training trajectory can improve
+generalization {cite:p}`izmailov2018swa`, and it makes the result depend less
+on the exact stopping epoch. The average lags the trained weights: the weights
+from n steps before have the share $(1 - d)\,d^n$, a mean age of $d/(1 - d)$
+steps (999 for d = 0.999). It is off by default (`ema_decay: null`) because
+it also lags a head that starts to overfit.
+
 ## Augmentation
 
 Two optional augmentations hide parts of each batch, with probabilities drawn

@@ -6,6 +6,7 @@ including:
 - Model and optimizer setup from configuration
 - Batch-wise training with gradient clipping
 - Learning rate scheduling (CyclicLR, ReduceOnPlateau, etc.)
+- An optional exponential moving average of the weights
 - Validation evaluation and best model tracking
 - Checkpointing and training history
 - Early stopping support
@@ -23,6 +24,8 @@ import copy
 import logging
 import pickle
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,6 +40,7 @@ from torch.optim.lr_scheduler import (
     OneCycleLR,
     ReduceLROnPlateau,
 )
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 
 from dorothy.config.schema import (
     LossType,
@@ -378,6 +382,8 @@ class Trainer:
         # Best model weights, and the weights after the last epoch
         self._best_weights: dict | None = None
         self._final_weights: dict | None = None
+        # Moving average of the weights during training (training.ema_decay)
+        self._ema: AveragedModel | None = None
 
         # Set up parameter names for normalization
         n_params = self.n_parameters
@@ -547,6 +553,19 @@ class Trainer:
             raise NotImplementedError(
                 f"Scheduler {scheduler_config.type} not yet implemented"
             )
+
+    def _create_weight_average(self) -> AveragedModel | None:
+        """Create the moving average of the weights and buffers (None if off)."""
+        decay = self.config.training.ema_decay
+        if decay is None:
+            return None
+        logger.info(f"Averaging the weights: decay {decay} per optimizer step")
+        return AveragedModel(
+            self.model,
+            device=self.device,
+            multi_avg_fn=get_ema_multi_avg_fn(decay),
+            use_buffers=True,
+        )
 
     # ------------------------------------------------------------------
     # Public training API: thin adapters onto the shared pipeline
@@ -1179,6 +1198,8 @@ class Trainer:
                 loss = self._combine_losses(self._forward(batch), batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
+            if self._ema is not None:
+                self._ema.update_parameters(self.model)
             total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
                 self.scheduler.step()
@@ -1229,6 +1250,7 @@ class Trainer:
             scatter_floor=training_config.scatter_floor,
         )
         self._best_weights = copy.deepcopy(self.model.state_dict())
+        self._ema = self._create_weight_average()
         patience_counter = 0
         rng = np.random.default_rng(self.config.seed)
 
@@ -1265,17 +1287,24 @@ class Trainer:
                     weight_updates[layer_name]
                 )
 
-            val = self._evaluate(val_source)
-            val_loss = val["loss"]
-            self._record_validation(epoch, val)
+            with self._averaged_weights():
+                val = self._evaluate(val_source)
+                val_loss = val["loss"]
+                self._record_validation(epoch, val)
 
-            if val_loss < self.history.best_val_loss:
-                self.history.best_val_loss = val_loss
-                self.history.best_epoch = epoch
-                self._store_best_weights()
-                patience_counter = 0
-            else:
-                patience_counter += 1
+                if val_loss < self.history.best_val_loss:
+                    self.history.best_val_loss = val_loss
+                    self.history.best_epoch = epoch
+                    self._store_best_weights()
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+
+                if (
+                    training_config.save_every > 0
+                    and (epoch + 1) % training_config.save_every == 0
+                ):
+                    self._save_epoch_checkpoint(epoch + 1)
 
             if isinstance(self.scheduler, ReduceLROnPlateau):
                 self.scheduler.step(val_loss)
@@ -1294,12 +1323,6 @@ class Trainer:
                     f"Val: {val_loss:.6f}, LR: {current_lr:.2e}"
                 )
 
-            if (
-                training_config.save_every > 0
-                and (epoch + 1) % training_config.save_every == 0
-            ):
-                self._save_epoch_checkpoint(epoch + 1)
-
             patience = training_config.early_stopping_patience
             if patience > 0 and patience_counter >= patience:
                 logger.info(f"Early stopping at epoch {epoch + 1}")
@@ -1312,7 +1335,8 @@ class Trainer:
                 "epoch. Check the validation data for NaN or infinite values "
                 "and the training losses for divergence."
             )
-        self._final_weights = copy.deepcopy(self.model.state_dict())
+        with self._averaged_weights():
+            self._final_weights = copy.deepcopy(self.model.state_dict())
         self.model.load_state_dict(self._best_weights)
         logger.info(
             f"Training complete in {self.history.total_time:.1f}s. Best val loss: "
@@ -1397,6 +1421,27 @@ class Trainer:
             self.optimizer.step()
 
         return grad_norm
+
+    @contextmanager
+    def _averaged_weights(self) -> Iterator[None]:
+        """Hold the averaged weights in the model, then restore the trained ones.
+
+        Without a weight average the model keeps its weights. The trained
+        weights wait in CPU memory, so this needs no memory on the training
+        device.
+        """
+        if self._ema is None:
+            yield
+            return
+        trained = {
+            name: tensor.to("cpu", copy=True)
+            for name, tensor in self.model.state_dict().items()
+        }
+        self.model.load_state_dict(self._ema.module.state_dict())
+        try:
+            yield
+        finally:
+            self.model.load_state_dict(trained)
 
     def _store_best_weights(self) -> None:
         """Copy the current weights into the best-weights state dict.
@@ -1516,6 +1561,8 @@ class Trainer:
             - history_train_val.pkl: Training/validation losses
             - learning_rates.pkl: Learning rate history
             - config.yaml: Experiment configuration
+
+        With ``training.ema_decay``, both weight files hold averaged weights.
 
         Args:
             path: Directory to save to. If None, uses config output path.

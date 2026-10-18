@@ -1730,3 +1730,112 @@ class TestTrainerMultiLabelsetMixedOverlap:
         )
 
         assert all(np.isfinite(history.train_losses))
+
+
+def _batchnorm_config(tmp_path: Path, **training) -> ExperimentConfig:
+    """A small MLP with batch normalization, whose running statistics are buffers."""
+    return ExperimentConfig(
+        name="weight_average",
+        data=DataConfig(catalogue_path=tmp_path / "catalogue.h5"),
+        model=ModelConfig(
+            input_features=3000,
+            output_features=6,
+            hidden_layers=[32, 16],
+            normalization=NormalizationType.BATCHNORM,
+        ),
+        training=TrainingConfig(epochs=5, batch_size=16, **training),
+        seed=42,
+    )
+
+
+def _states_after_each_step(trainer: Trainer) -> list[dict[str, torch.Tensor]]:
+    """Collect the model state after every optimizer step of the next fit."""
+    states = []
+    trainer.optimizer.register_step_post_hook(
+        lambda *_: states.append(
+            {name: t.clone() for name, t in trainer.model.state_dict().items()}
+        )
+    )
+    return states
+
+
+def _moving_average(
+    states: list[dict[str, torch.Tensor]], decay: float
+) -> dict[str, torch.Tensor]:
+    """Reference EMA of the floating-point entries of a sequence of states.
+
+    The first state is copied; each later one moves the average a fraction
+    1 - decay towards it.
+    """
+    average = {k: v.clone() for k, v in states[0].items() if v.is_floating_point()}
+    for state in states[1:]:
+        for name, value in average.items():
+            value.lerp_(state[name], 1 - decay)
+    return average
+
+
+class TestWeightAverage:
+    """Exponential moving average of the weights (training.ema_decay)."""
+
+    def test_saved_weights_are_moving_averages_of_the_trained_weights(
+        self, training_data, tmp_path
+    ):
+        """best_model.pth averages up to the best epoch, final_model.pth to the end."""
+        trainer = Trainer(_batchnorm_config(tmp_path, ema_decay=0.9))
+        states = _states_after_each_step(trainer)
+        X, y = training_data
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+        path = trainer.save_checkpoint(tmp_path / "checkpoint")
+
+        steps_per_epoch = len(states) // len(history.train_losses)
+        best_end = (history.best_epoch + 1) * steps_per_epoch
+        best = torch.load(path / "best_model.pth", weights_only=True)
+        final = torch.load(path / "final_model.pth", weights_only=True)
+        # The default float32 tolerances allow lerp kernels that round
+        # differently; a misplaced update moves the average by over 7e-3 here.
+        for saved, trained in [(best, states[:best_end]), (final, states)]:
+            for name, value in _moving_average(trained, 0.9).items():
+                torch.testing.assert_close(saved[name], value)
+        for name, value in trainer.model.state_dict().items():
+            assert torch.equal(value, best[name]), name
+
+    def test_weight_average_changes_validation_but_not_training(
+        self, training_data, tmp_path
+    ):
+        """The trained weights and their metrics do not depend on the average."""
+        X, y = training_data
+        runs = []
+        for decay in [None, 0.9]:
+            trainer = Trainer(_batchnorm_config(tmp_path, ema_decay=decay))
+            states = _states_after_each_step(trainer)
+            runs.append((states, trainer.fit(X[:80], y[:80], X[80:], y[80:])))
+        (states_off, off), (states_on, on) = runs
+
+        for state_off, state_on in zip(states_off, states_on, strict=True):
+            for name, value in state_off.items():
+                assert torch.equal(state_on[name], value), name
+        assert on.weight_norms == off.weight_norms
+        assert on.weight_updates == off.weight_updates
+        assert on.val_losses != off.val_losses
+
+    def test_zero_decay_gives_the_results_of_training_without_an_average(
+        self, training_data, tmp_path
+    ):
+        """With decay 0 the average is the trained weights after each step."""
+        X, y = training_data
+        runs = []
+        for decay in [None, 0.0]:
+            trainer = Trainer(_batchnorm_config(tmp_path, ema_decay=decay))
+            history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+            path = trainer.save_checkpoint(tmp_path / f"decay_{decay}")
+            weights = {
+                file: torch.load(path / file, weights_only=True)
+                for file in ["best_model.pth", "final_model.pth"]
+            }
+            runs.append((history.val_losses, weights))
+        (val_off, weights_off), (val_zero, weights_zero) = runs
+
+        assert val_zero == val_off
+        for file, state in weights_off.items():
+            for name, value in state.items():
+                assert torch.equal(weights_zero[file][name], value), (file, name)

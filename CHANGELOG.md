@@ -16,6 +16,9 @@
   `training.label_source_weights` set how the losses of several label
   sources combine.
 - `loss: mse` trains with a masked mean squared error.
+- `training.ema_decay` keeps an exponential moving average of the weights
+  during training. Validation, the best epoch and the saved weights use the
+  average. It is off by default.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
   (`--survey`, `--label-source`).
