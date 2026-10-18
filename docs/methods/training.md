@@ -138,9 +138,9 @@ The default optimizer is AdamW {cite:p}`loshchilov2019adamw` (`adam` and
 `sgd` are also available) with a one-cycle learning-rate schedule
 {cite:p}`smith2019superconvergence` (also `cyclic`, `reduce_on_plateau`,
 `cosine_annealing` or `none`). The one-cycle schedule also cycles the
-momentum (AdamW's β₁, or SGD's momentum) between 0.85 and 0.95, opposite to
-the learning rate. Gradients are clipped to a norm of `training.gradient_clip`
-(10 by default).
+momentum (the β₁ of Adam and AdamW, or SGD's momentum) between 0.85 and 0.95,
+opposite to the learning rate. Gradients are clipped to a norm of
+`training.gradient_clip` (10 by default).
 
 With mixed precision (`training.amp`, CUDA only), the training forward pass
 runs under autocast in `training.amp_dtype`. The loss and validation run in

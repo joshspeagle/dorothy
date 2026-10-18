@@ -539,7 +539,6 @@ class TrainingConfig(_ConfigModel):
     Attributes:
         epochs: Number of training epochs.
         batch_size: Training batch size.
-        learning_rate: Initial learning rate for optimizer.
         loss: Loss function type.
         optimizer: Optimizer configuration.
         scheduler: Learning rate scheduler configuration.
