@@ -264,7 +264,6 @@ def cmd_train(args: argparse.Namespace) -> int:
 
     from dorothy.config.schema import ExperimentConfig
     from dorothy.data.training_data import complete_config_from_catalogue
-    from dorothy.inference.calibration import CALIBRATION_FILE
     from dorothy.training import Trainer
 
     # Load configuration
@@ -375,8 +374,6 @@ def cmd_train(args: argparse.Namespace) -> int:
     print("\nSaving checkpoint...")
     checkpoint_path = trainer.save_checkpoint()
     print(f"  Saved to: {checkpoint_path}")
-    if trainer.calibration is not None:
-        print(f"  Saved calibration factors to: {checkpoint_path / CALIBRATION_FILE}")
     split_path = split.save(checkpoint_path, data)
     print(f"  Saved data split to: {split_path}")
 
@@ -575,17 +572,14 @@ def _calibration_table(head, fmt: str) -> str:
         )
         for p in head.parameter_names
     ]
-    caption = (
-        "The calibration factors scale the predicted scatter of the metrics above."
-    )
     header = ["Parameter", "Factor", "z_scatter raw", "z_scatter calibrated"]
     if fmt == "markdown":
-        lines = [caption, "", f"| {' | '.join(header)} |", "|---" * len(header) + "|"]
+        lines = [f"| {' | '.join(header)} |", "|---" * len(header) + "|"]
         lines += [
             f"| {p} | {c:.4f} | {raw:.4f} | {cal:.4f} |" for p, c, raw, cal in rows
         ]
     else:
-        lines = [caption, "{:<12} {:>10} {:>14} {:>21}".format(*header), "-" * 80]
+        lines = ["{:<12} {:>10} {:>14} {:>21}".format(*header), "-" * 80]
         lines += [
             f"{p:<12} {c:>10.4f} {raw:>14.4f} {cal:>21.4f}" for p, c, raw, cal in rows
         ]

@@ -208,9 +208,7 @@ class Predictor:
             survey: For a MultiHeadMLP, the survey of single-array inputs.
             label_source: For a multi-label model, which output head to use.
             calibrate: Scale the predicted scatter by the checkpoint's
-                calibration factors for that head, if it has them. They
-                describe best_model.pth, so other weights files load without
-                them.
+                calibration factors for that head, if it has them.
 
         Returns:
             Configured Predictor instance.
@@ -246,7 +244,6 @@ class Predictor:
         cls,
         config: ExperimentConfig,
         checkpoint_path: str | Path | None = None,
-        calibrate: bool = True,
     ) -> Predictor:
         """
         Create a predictor from experiment configuration.
@@ -254,15 +251,13 @@ class Predictor:
         Args:
             config: Experiment configuration.
             checkpoint_path: Path to checkpoint (uses config default if None).
-            calibrate: Scale the predicted scatter by the checkpoint's
-                calibration factors, if it has them.
 
         Returns:
             Configured Predictor instance.
         """
         if checkpoint_path is None:
             checkpoint_path = config.get_checkpoint_path()
-        return cls.load(checkpoint_path, device=config.device, calibrate=calibrate)
+        return cls.load(checkpoint_path, device=config.device)
 
     @staticmethod
     def _infer_architecture(
