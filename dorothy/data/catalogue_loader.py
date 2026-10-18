@@ -86,6 +86,20 @@ def _split_dual_arm_spectra(
     return flux, ivar
 
 
+def _survey_wavelength(survey_grp: h5py.Group) -> np.ndarray:
+    """A survey's wavelength grid, one value per model input pixel.
+
+    Dual-arm spectra (LAMOST MRS) have no ``wavelength`` dataset: their grid
+    is ``wavelength_b`` then ``wavelength_r``, as ``_split_dual_arm_spectra``
+    orders the pixels.
+    """
+    if "spectra" in survey_grp:
+        return np.concatenate(
+            [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
+        )
+    return survey_grp["wavelength"][:]
+
+
 # Target size of one HDF5 read when selecting rows of a spectra dataset. Bounds
 # the temporary buffers (chunked datasets are read in whole chunk-row bands).
 _ROW_READ_BYTES = 64 * 1024**2
@@ -488,6 +502,10 @@ class SparseMergedData:
         surveys: List of survey names.
         n_total: Total number of unique stars across all surveys.
         n_params: Number of stellar parameters (typically 11).
+        labels_dict: Per label source, labels (n_total, 3, n_params), when
+            several sources are loaded.
+        has_labels_dict: Per label source, whether each star has at least one
+            valid label after the flag filter (mask 1 in ``labels_dict``).
     """
 
     flux: dict[str, np.ndarray]
@@ -559,7 +577,8 @@ class SparseMergedData:
             source: Label source name.
 
         Returns:
-            Boolean mask of shape (n_total,) indicating which stars have labels.
+            Boolean mask of shape (n_total,): stars with at least one valid
+            label (mask 1) from the source.
 
         Raises:
             ValueError: If has_labels_dict exists but source is not in it.
@@ -649,15 +668,15 @@ class CatalogueLoader:
             if "surveys" in f:
                 for name in f["surveys"]:
                     grp = f["surveys"][name]
-                    n_wave = grp["wavelength"].shape[0]
+                    wavelength = _survey_wavelength(grp)
                     snr = grp["snr"][:]
                     n_with_data = int((snr > 0).sum())
                     surveys[name] = {
-                        "wavelength_bins": n_wave,
+                        "wavelength_bins": len(wavelength),
                         "n_with_data": n_with_data,
                         "wavelength_range": (
-                            float(grp["wavelength"][0]),
-                            float(grp["wavelength"][-1]),
+                            float(wavelength[0]),
+                            float(wavelength[-1]),
                         ),
                     }
 
@@ -754,9 +773,6 @@ class CatalogueLoader:
                     f"Available surveys (all empty): {info.survey_names}"
                 )
 
-        # Store original request for fallback logic
-        original_label_source = label_source
-
         with h5py.File(self.path, "r") as f:
             # Validate inputs
             if survey not in f["surveys"]:
@@ -764,42 +780,10 @@ class CatalogueLoader:
                     f"Survey '{survey}' not in catalogue. "
                     f"Available: {list(f['surveys'].keys())}"
                 )
-
-            available_labels = list(f["labels"].keys())
-
-            # Resolve label source with fallback logic
-            # Supports v1 schema (apogee_boss, etc.) and v2 schema (apogee, galah)
-            if label_source is None:
-                # Auto-derive: try SURVEY_LABEL_MAP first (v1), then unified sources (v2)
-                mapped_source = SURVEY_LABEL_MAP.get(survey)
-                if mapped_source and mapped_source in f["labels"]:
-                    label_source = mapped_source
-                else:
-                    # Try v2 unified sources first, then v1 fallback pattern
-                    candidates = ["apogee", "galah", f"apogee_{survey}"]
-                    for candidate in candidates:
-                        if candidate in f["labels"]:
-                            label_source = candidate
-                            break
-                    if label_source is None:
-                        raise ValueError(
-                            f"No label source found for survey '{survey}'. "
-                            f"Available: {available_labels}"
-                        )
-            elif label_source not in f["labels"]:
-                # User-specified source not found - try {label_source}_{survey} pattern (v1)
-                survey_specific = f"{label_source}_{survey}"
-                if survey_specific in f["labels"]:
-                    label_source = survey_specific
-                else:
-                    raise ValueError(
-                        f"Label source '{original_label_source}' not in catalogue. "
-                        f"Available: {available_labels}"
-                    )
+            label_source = self._resolve_label_source([survey], label_source, f)
 
             # Load survey data
             survey_grp = f["surveys"][survey]
-            wavelength = survey_grp["wavelength"][:]
             snr = survey_grp["snr"][:]
 
             # Handle different flux storage formats
@@ -807,19 +791,12 @@ class CatalogueLoader:
                 flux = survey_grp["flux"][:]
                 ivar = survey_grp["ivar"][:]
             elif "spectra" in survey_grp:
-                # LAMOST MRS stores as (N, 4, wavelengths) - [flux_B, ivar_B, flux_R, ivar_R]
-                spectra = survey_grp["spectra"][:]
-                # Concatenate the two arms along wavelength dimension (preserves all info)
-                flux_b = spectra[:, 0, :]
-                flux_r = spectra[:, 2, :]
-                ivar_b = spectra[:, 1, :]
-                ivar_r = spectra[:, 3, :]
-                flux = np.concatenate([flux_b, flux_r], axis=1)
-                ivar = np.concatenate([ivar_b, ivar_r], axis=1)
-                # Tile wavelength to match concatenated flux shape
-                wavelength = np.tile(wavelength, 2)
+                flux, ivar = _split_dual_arm_spectra(
+                    survey_grp["spectra"][:], survey_grp
+                )
             else:
                 raise ValueError(f"Survey '{survey}' has no flux or spectra data")
+            wavelength = _survey_wavelength(survey_grp)
 
             n_stars = flux.shape[0]
 
@@ -932,18 +909,11 @@ class CatalogueLoader:
         if max_flag_bits >= 0:
             data = data.filter_by_flags(max_flag_bits)
 
-        # Create 3-channel spectral data: [flux, sigma, mask]
-        # Convert ivar to sigma: sigma = 1/sqrt(ivar) where ivar > 0
         flux = data.flux
         ivar = data.ivar
         if normalize_spectra:
             flux, ivar = _normalize_spectra(flux, ivar)
-        sigma = np.zeros_like(ivar)
-        valid_ivar = ivar > 0
-        sigma[valid_ivar] = 1.0 / np.sqrt(ivar[valid_ivar])
-        spectral_mask = valid_ivar.astype(np.float32)
-
-        X = np.stack([flux, sigma, spectral_mask], axis=1)
+        X = _spectra_to_model_inputs(flux, ivar)
 
         # Create 3-channel label data: [values, errors, mask]
         label_mask = ((data.label_flags == 0) & (data.label_errors > 0)).astype(
@@ -958,17 +928,22 @@ class CatalogueLoader:
         survey: str,
     ) -> dict[str, np.ndarray]:
         """
-        Load raw spectral data without processing.
+        Load a survey's datasets exactly as stored in the HDF5 file.
 
-        This method loads the spectra exactly as stored in the HDF5 file,
-        which may have different formats for different surveys (e.g.,
-        LAMOST MRS has 4 channels for 2 arms).
+        LAMOST MRS stores padded ``spectra`` of shape (N, 4, max_wave) =
+        [flux_b, ivar_b, flux_r, ivar_r] with ``wavelength_b`` and
+        ``wavelength_r``; the other surveys store ``flux``, ``ivar`` and
+        ``wavelength``.
 
         Args:
             survey: Survey to load from.
 
         Returns:
-            Dictionary with survey-specific spectral arrays and wavelength grid.
+            Dictionary of the survey group's datasets, plus ``channel_names``
+            when the group has that attribute.
+
+        Raises:
+            ValueError: If the survey is not in the catalogue.
         """
         with h5py.File(self.path, "r") as f:
             if survey not in f["surveys"]:
@@ -978,18 +953,9 @@ class CatalogueLoader:
                 )
 
             survey_grp = f["surveys"][survey]
-            result = {"wavelength": survey_grp["wavelength"][:]}
-
-            if "flux" in survey_grp:
-                result["flux"] = survey_grp["flux"][:]
-                result["ivar"] = survey_grp["ivar"][:]
-            if "spectra" in survey_grp:
-                result["spectra"] = survey_grp["spectra"][:]
-                # Include channel names if available
-                if "channel_names" in survey_grp.attrs:
-                    result["channel_names"] = list(survey_grp.attrs["channel_names"])
-            if "snr" in survey_grp:
-                result["snr"] = survey_grp["snr"][:]
+            result = {name: survey_grp[name][:] for name in survey_grp}
+            if "channel_names" in survey_grp.attrs:
+                result["channel_names"] = list(survey_grp.attrs["channel_names"])
 
         return result
 
@@ -1021,15 +987,15 @@ class CatalogueLoader:
         Load data from multiple surveys.
 
         This method loads data from multiple surveys and returns them as a
-        dictionary. In "intersection" mode, only stars that appear in ALL
-        specified surveys are returned (useful for cross-survey comparisons).
-        In "union" mode, all stars from all surveys are returned.
+        dictionary. In "intersection" mode, only stars with data (snr > 0) in
+        ALL specified surveys are returned (useful for cross-survey
+        comparisons). In "union" mode, all stars from all surveys are returned.
 
         Args:
             surveys: List of survey names to load.
             mode: How to combine surveys:
                 - "union": Return all stars from all surveys (default)
-                - "intersection": Return only stars common to all surveys
+                - "intersection": Return only stars with data in every survey
             deduplicate: If True (default), keep only one observation per star
                 (the first occurrence). If False, keep all observations.
 
@@ -1057,55 +1023,33 @@ class CatalogueLoader:
                     data = self._deduplicate(data)
                 result[survey] = data
         else:
-            # intersection mode - find common stars
-            # First, get IDs for each survey (unique IDs only)
             survey_data = {}
-            survey_unique_ids = {}
-
+            survey_rows = {}
+            common_ids = None
             for survey in surveys:
                 data = self.load(survey=survey)
+                # A star belongs to a survey only where the survey has data;
+                # v2 surveys have a row for every star in the catalogue
+                has_data = data.snr > 0
+                if np.issubdtype(data.gaia_ids.dtype, np.integer):
+                    has_data &= data.gaia_ids > 0
+                rows = np.flatnonzero(has_data)
+                ids = data.gaia_ids[rows]
+                common_ids = (
+                    ids if common_ids is None else np.intersect1d(common_ids, ids)
+                )
                 survey_data[survey] = data
-
-                # Get unique IDs for intersection
-                ids = data.gaia_ids
-                # Handle int64 Gaia IDs
-                if np.issubdtype(ids.dtype, np.integer):
-                    unique_ids = {int(i) for i in ids if i > 0}
-                else:
-                    # String IDs (fallback)
-                    if hasattr(ids[0], "decode"):
-                        ids = np.array([i.decode("utf-8") for i in ids])
-                    unique_ids = {str(i) for i in ids}
-                survey_unique_ids[survey] = unique_ids
-
-            # Find intersection of all unique IDs
-            common_ids = survey_unique_ids[surveys[0]]
-            for survey in surveys[1:]:
-                common_ids &= survey_unique_ids[survey]
+                survey_rows[survey] = rows
 
             if len(common_ids) == 0:
                 raise ValueError(f"No common stars found across surveys: {surveys}")
 
-            # Sort common IDs for consistent ordering
-            common_ids_sorted = sorted(common_ids)
-
             for survey in surveys:
                 data = survey_data[survey]
-                ids = data.gaia_ids
-
-                # Find first index of each common ID (deduplicate)
-                first_indices = {}
-                for idx, gid in enumerate(ids):
-                    gid_key = (
-                        int(gid) if np.issubdtype(ids.dtype, np.integer) else str(gid)
-                    )
-                    if gid_key in common_ids and gid_key not in first_indices:
-                        first_indices[gid_key] = idx
-
-                # Sort indices by common_ids_sorted order
-                sorted_indices = np.array(
-                    [first_indices[gid] for gid in common_ids_sorted]
-                )
+                rows = survey_rows[survey]
+                # First row with data of each common star, in Gaia ID order
+                ids, first = np.unique(data.gaia_ids[rows], return_index=True)
+                sorted_indices = rows[first[np.isin(ids, common_ids)]]
 
                 # Create filtered data
                 result[survey] = CatalogueData(
@@ -1126,7 +1070,7 @@ class CatalogueLoader:
         return result
 
     def _resolve_label_source(
-        self, survey: str, label_source: str | None, f: h5py.File
+        self, surveys: list[str], label_source: str | None, f: h5py.File
     ) -> str:
         """
         Resolve label source name with fallback logic.
@@ -1136,39 +1080,33 @@ class CatalogueLoader:
 
         Resolution order:
         1. If label_source specified and exists -> use it directly
-        2. If label_source specified, try {label_source}_{survey} pattern (v1)
-        3. If label_source is None:
+        2. If label_source specified, try {label_source}_{survey} (v1) for
+           each survey in order
+        3. If label_source is None, for the first survey:
            a. Try SURVEY_LABEL_MAP (v1 schema)
            b. Try 'apogee' directly (v2 schema)
            c. Try 'galah' directly (v2 schema)
            d. Try 'apogee_{survey}' pattern (v1 fallback)
         """
-        available_labels = list(f["labels"].keys())
-
+        labels = f["labels"]
         if label_source is None:
-            # Auto-derive: try multiple patterns
-            # First try v1 SURVEY_LABEL_MAP
-            mapped_source = SURVEY_LABEL_MAP.get(survey)
-            if mapped_source and mapped_source in f["labels"]:
-                return mapped_source
-            # Then try v2 unified sources and v1 fallbacks
-            for candidate in ["apogee", "galah", f"apogee_{survey}"]:
-                if candidate in f["labels"]:
-                    return candidate
-            raise ValueError(
-                f"No label source found for survey '{survey}'. "
-                f"Available: {available_labels}"
-            )
-        elif label_source not in f["labels"]:
-            # Try {label_source}_{survey} pattern (v1 schema)
-            survey_specific = f"{label_source}_{survey}"
-            if survey_specific in f["labels"]:
-                return survey_specific
-            raise ValueError(
-                f"Label source '{label_source}' not in catalogue. "
-                f"Available: {available_labels}"
-            )
-        return label_source
+            survey = surveys[0]
+            candidates = [
+                SURVEY_LABEL_MAP.get(survey),
+                "apogee",
+                "galah",
+                f"apogee_{survey}",
+            ]
+            error = f"No label source found for survey '{survey}'"
+        elif label_source in labels:
+            return label_source
+        else:
+            candidates = [f"{label_source}_{survey}" for survey in surveys]
+            error = f"Label source '{label_source}' not in catalogue"
+        for candidate in candidates:
+            if candidate is not None and candidate in labels:
+                return candidate
+        raise ValueError(f"{error}. Available: {list(labels)}")
 
     def _load_survey_metadata(
         self, survey: str, label_source: str, f: h5py.File
@@ -1177,33 +1115,18 @@ class CatalogueLoader:
         Load only metadata for a survey (no spectra).
 
         Returns dict with gaia_ids, snr, ra, dec, labels, label_errors, label_flags,
-        wavelength shape info, and storage format.
+        wavelength grid, and storage format.
         """
         survey_grp = f["surveys"][survey]
         label_grp = f["labels"][label_source]
 
-        # Determine storage format and get wavelength info
         if "flux" in survey_grp:
             storage_format = "flux"
-            n_wavelengths = survey_grp["flux"].shape[1]
         elif "spectra" in survey_grp:
             storage_format = "spectra"
-            # LAMOST MRS: padded (N, 4, max_wave) arms, trimmed and concatenated
-            n_wavelengths = (
-                survey_grp["wavelength_b"].shape[0]
-                + survey_grp["wavelength_r"].shape[0]
-            )
         else:
             raise ValueError(f"Survey '{survey}' has no flux or spectra data")
-
-        # Load wavelength array(s)
-        if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
-            # LAMOST MRS has separate blue/red wavelength arrays
-            wavelength = np.concatenate(
-                [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
-            )
-        else:
-            wavelength = survey_grp["wavelength"][:]
+        wavelength = _survey_wavelength(survey_grp)
 
         # Load metadata arrays (small compared to spectra)
         snr = survey_grp["snr"][:]
@@ -1215,7 +1138,11 @@ class CatalogueLoader:
         elif "metadata" in f and "gaia_id" in f["metadata"]:
             gaia_ids = f["metadata"]["gaia_id"][:]
         else:
-            gaia_ids = np.arange(n_stars, dtype=np.int64)
+            raise ValueError(
+                f"Catalogue {self.path} has no Gaia IDs (metadata/gaia_id or "
+                f"labels/{label_source}/gaia_id), which dense loading needs to "
+                "match stars across surveys"
+            )
 
         # Load RA/Dec
         if "ra" in survey_grp:
@@ -1247,7 +1174,6 @@ class CatalogueLoader:
             "label_errors": label_errors,
             "label_flags": label_flags,
             "wavelength": wavelength,
-            "n_wavelengths": n_wavelengths,
             "n_stars": n_stars,
             "storage_format": storage_format,
         }
@@ -1314,7 +1240,7 @@ class CatalogueLoader:
 
         for survey in surveys:
             print(f"Loading {survey}...")
-            resolved_label = self._resolve_label_source(survey, label_source, f)
+            resolved_label = self._resolve_label_source([survey], label_source, f)
             survey_resolved_labels[survey] = resolved_label
 
             meta = self._load_survey_metadata(survey, resolved_label, f)
@@ -1325,18 +1251,17 @@ class CatalogueLoader:
             gaia_ids = meta["gaia_ids"]
             snr = meta["snr"]
 
-            # Valid = has valid gaia_id AND has actual data (SNR > 0)
-            valid_mask = (gaia_ids > 0) & (snr > 0)
-            valid_ids = gaia_ids[valid_mask].astype(np.int64)
+            # Rows with a valid gaia_id and data: snr > 0, which excludes a NaN
+            # SNR, as in the sparse loader
+            rows = np.flatnonzero((gaia_ids > 0) & (snr > 0))
+            valid_ids = gaia_ids[rows].astype(np.int64)
 
             # Count occurrences
             unique_ids, counts = np.unique(valid_ids, return_counts=True)
             duplicate_gaia_ids = unique_ids[counts > 1]
             unique_gaia_ids = unique_ids[counts == 1]
 
-            # Split the rows to load into duplicates and unique stars. Rows
-            # are skipped for gid <= 0 or SNR <= 0 (a NaN SNR is not skipped)
-            rows = np.flatnonzero(~((gaia_ids <= 0) | (snr <= 0)))
+            # Split the rows to load into duplicates and unique stars
             is_dup = np.isin(gaia_ids[rows], duplicate_gaia_ids)
 
             meta["duplicate_indices"] = rows[is_dup].astype(np.intp)
@@ -1375,9 +1300,8 @@ class CatalogueLoader:
         """
         Check for duplicate observations and raise an error if found.
 
-        This method enforces that catalogues must be pre-deduplicated before
-        training. If duplicates are found, it provides instructions for creating
-        a clean catalogue.
+        Training needs one row per star. The error tells the user to rebuild
+        the catalogue with ``scripts/build_catalogue_v2.py``.
 
         Args:
             survey_meta: Survey metadata from pass 1, containing duplicate info.
@@ -1406,14 +1330,10 @@ class CatalogueLoader:
                 f"{'='*60}\n\n"
                 f"Found {total_duplicates:,} stars with duplicate observations:\n"
                 f"{details}\n\n"
-                f"Training requires a deduplicated catalogue. To create one, run:\n\n"
-                f"  python scripts/create_deduplicated_catalogue.py \\\n"
-                f"      {self.path} \\\n"
-                f"      data/super_catalogue_clean.h5 \\\n"
-                f"      --surveys {' '.join(surveys)}\n\n"
-                f"Then update your config to use the clean catalogue:\n"
-                f"  data:\n"
-                f"    catalogue_path: data/super_catalogue_clean.h5\n"
+                f"Training needs one row per star. Rebuild the catalogue with\n\n"
+                f"  python scripts/build_catalogue_v2.py --output <new file>.h5\n\n"
+                f"which keeps each star's highest-S/N spectrum, and set\n"
+                f"data.catalogue_path to the new file.\n"
                 f"{'='*60}\n"
             )
 
@@ -1432,9 +1352,8 @@ class CatalogueLoader:
         Stars that don't appear in a survey have ivar=0 (natural masking).
 
         Note:
-            This method requires a pre-deduplicated catalogue. If duplicates are
-            found, an error is raised with instructions to run the deduplication
-            script: scripts/create_deduplicated_catalogue.py
+            This method needs one row per star, as catalogues built by
+            ``scripts/build_catalogue_v2.py`` have; duplicate rows raise an error.
 
         Args:
             surveys: List of survey names to load and merge.
@@ -1444,7 +1363,8 @@ class CatalogueLoader:
             MergedCatalogueData with outer join structure.
 
         Raises:
-            ValueError: If duplicate observations are found in the catalogue.
+            ValueError: If duplicate observations are found in the catalogue,
+                or it has no Gaia IDs.
 
         Examples:
             >>> merged = loader.load_merged(["boss", "lamost_lrs", "desi"])
@@ -1481,7 +1401,7 @@ class CatalogueLoader:
 
             for survey in surveys:
                 meta = survey_meta[survey]
-                n_wave = meta["n_wavelengths"]
+                n_wave = len(meta["wavelength"])
                 storage_format = meta["storage_format"]
 
                 # Initialize arrays for this survey
@@ -1595,9 +1515,8 @@ class CatalogueLoader:
         - Sparse (this method): ~7 GB for spectra
 
         Note:
-            This method requires a pre-deduplicated catalogue. If duplicates are
-            found, an error is raised with instructions to run the deduplication
-            script: scripts/create_deduplicated_catalogue.py
+            This method needs one row per star, as catalogues built by
+            ``scripts/build_catalogue_v2.py`` have; duplicate rows raise an error.
 
         Args:
             surveys: List of survey names to load and merge.
@@ -1616,7 +1535,9 @@ class CatalogueLoader:
             Use with trainer's sparse batch construction for training.
 
         Raises:
-            ValueError: If duplicate observations are found in the catalogue.
+            ValueError: If duplicate observations are found in the catalogue,
+                or the primary label group's ``gaia_id`` differs from
+                ``metadata/gaia_id``.
 
         Examples:
             >>> sparse_data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
@@ -1637,11 +1558,21 @@ class CatalogueLoader:
             # PASS 1: Fast scan - read only SNR arrays and gaia_ids
             # =========================================================
             # Load master gaia_ids (from metadata or first label source)
+            resolved_label = self._resolve_label_source(surveys[:1], label_source, f)
+            label_grp = f["labels"][resolved_label]
             if "metadata" in f and "gaia_id" in f["metadata"]:
                 all_gaia_ids = f["metadata"]["gaia_id"][:]
+                # The primary labels are read in catalogue row order
+                if "gaia_id" in label_grp and not np.array_equal(
+                    label_grp["gaia_id"][:], all_gaia_ids
+                ):
+                    raise ValueError(
+                        f"{label_grp.name}/gaia_id does not match "
+                        "metadata/gaia_id: label rows must be the catalogue "
+                        "rows, as scripts/build_catalogue_v2.py writes them"
+                    )
             else:
-                resolved_label = self._resolve_label_source(surveys[0], label_source, f)
-                all_gaia_ids = f["labels"][resolved_label]["gaia_id"][:]
+                all_gaia_ids = label_grp["gaia_id"][:]
 
             n_total = len(all_gaia_ids)
 
@@ -1688,8 +1619,6 @@ class CatalogueLoader:
             primary_flags = np.zeros((n_total, n_params), dtype=np.uint8)
 
             # Load primary labels once (not per survey)
-            resolved_label = self._resolve_label_source(surveys[0], label_source, f)
-            label_grp = f["labels"][resolved_label]
             primary_labels[:] = label_grp["values"][:]
             primary_errors[:] = label_grp["errors"][:]
             primary_flags[:] = label_grp["flags"][:]
@@ -1707,14 +1636,7 @@ class CatalogueLoader:
                 valid_indices = survey_valid_indices[survey]
                 n_with_data = len(valid_indices)
 
-                # Get wavelength info
-                if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
-                    wavelength = np.concatenate(
-                        [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
-                    )
-                else:
-                    wavelength = survey_grp["wavelength"][:]
-                wavelengths[survey] = wavelength
+                wavelengths[survey] = _survey_wavelength(survey_grp)
 
                 # Read only the rows with data (no full-dataset temporaries)
                 if "flux" in survey_grp:
@@ -1770,48 +1692,26 @@ class CatalogueLoader:
 
         if label_sources is not None and len(label_sources) > 1:
             labels_dict_out = {}
-            has_labels_dict_out = {}
             label_sources_out = label_sources
 
             with h5py.File(self.path, "r") as f:
                 if "labels" not in f:
                     raise ValueError("Catalogue has no 'labels' group")
 
-                available_labels = list(f["labels"].keys())
-
                 for source in label_sources:
                     # Check if this is the primary source (already loaded)
                     if source == label_source:
                         # Use the already-loaded primary labels
                         labels_dict_out[source] = labels_3ch.copy()
-                        has_labels_out = np.any(primary_errors > 0, axis=1)
-                        has_labels_dict_out[source] = has_labels_out
                         continue
 
-                    # Resolve source name with fallback logic
-                    resolved_source = source
-                    if source not in f["labels"]:
-                        # Try {source}_{survey} patterns
-                        found = False
-                        for survey in surveys:
-                            survey_specific = f"{source}_{survey}"
-                            if survey_specific in f["labels"]:
-                                resolved_source = survey_specific
-                                found = True
-                                break
-                        if not found:
-                            raise ValueError(
-                                f"Label source '{source}' not in catalogue. "
-                                f"Available: {available_labels}"
-                            )
-
-                    label_grp = f["labels"][resolved_source]
+                    label_grp = f["labels"][
+                        self._resolve_label_source(surveys, source, f)
+                    ]
 
                     if "gaia_id" not in label_grp:
                         # Can't properly align from file; duplicate primary labels
                         labels_dict_out[source] = labels_3ch.copy()
-                        has_labels_out = np.any(primary_errors > 0, axis=1)
-                        has_labels_dict_out[source] = has_labels_out
                         continue
 
                     # Load label data from file
@@ -1824,7 +1724,6 @@ class CatalogueLoader:
                     values = np.zeros((n_total, n_params), dtype=np.float32)
                     errors = np.zeros((n_total, n_params), dtype=np.float32)
                     flags = np.zeros((n_total, n_params), dtype=np.uint8)
-                    has_labels_arr = np.zeros(n_total, dtype=bool)
 
                     # Map label source data to merged structure (vectorized):
                     # merged rows of the source IDs that exist in the merged set
@@ -1837,9 +1736,6 @@ class CatalogueLoader:
                     values[merged_idx] = source_values[valid_source_idx]
                     errors[merged_idx] = source_errors[valid_source_idx]
                     flags[merged_idx] = source_flags[valid_source_idx]
-                    has_labels_arr[merged_idx] = np.any(
-                        source_errors[valid_source_idx] > 0, axis=1
-                    )
 
                     # Apply flag filtering (vectorized)
                     if max_flag_bits >= 0:
@@ -1859,7 +1755,11 @@ class CatalogueLoader:
                     labels_dict_out[source] = np.stack(
                         [values, errors, source_label_mask], axis=1
                     )
-                    has_labels_dict_out[source] = has_labels_arr
+
+            has_labels_dict_out = {
+                source: (labels[:, 2, :] > 0).any(axis=1)
+                for source, labels in labels_dict_out.items()
+            }
 
         return SparseMergedData(
             flux=sparse_flux,
@@ -1934,11 +1834,11 @@ class CatalogueLoader:
         )
 
     def get_survey_wavelengths(self, survey: str) -> np.ndarray:
-        """Get the wavelength grid for a survey."""
+        """Get the wavelength grid for a survey (LAMOST MRS: blue then red arm)."""
         with h5py.File(self.path, "r") as f:
             if survey not in f["surveys"]:
                 raise ValueError(f"Survey '{survey}' not in catalogue")
-            return f["surveys"][survey]["wavelength"][:]
+            return _survey_wavelength(f["surveys"][survey])
 
     def load_spectrum(
         self,
@@ -1967,14 +1867,11 @@ class CatalogueLoader:
             if "flux" in grp:
                 flux = grp["flux"][index : index + 1]
                 ivar = grp["ivar"][index : index + 1]
-                wavelength = grp["wavelength"][:]
             else:
                 flux, ivar = _split_dual_arm_spectra(
                     grp["spectra"][index : index + 1], grp
                 )
-                wavelength = np.concatenate(
-                    [grp["wavelength_b"][:], grp["wavelength_r"][:]]
-                )
+            wavelength = _survey_wavelength(grp)
             has_ids = "metadata" in f and "gaia_id" in f["metadata"]
             gaia_id = int(f["metadata"]["gaia_id"][index]) if has_ids else -1
 
@@ -1982,10 +1879,7 @@ class CatalogueLoader:
         ivar = ivar.astype(np.float32)
         if normalize_spectra:
             flux, ivar = _normalize_spectra(flux, ivar)
-        valid = ivar > 0
-        sigma = np.zeros_like(ivar)
-        sigma[valid] = 1.0 / np.sqrt(ivar[valid])
-        X = np.stack([flux[0], sigma[0], valid[0].astype(np.float32)], axis=0)
+        X = _spectra_to_model_inputs(flux, ivar)[0]
         return X, wavelength.astype(np.float32), gaia_id
 
     def load_labels_for_index(
@@ -2011,7 +1905,7 @@ class CatalogueLoader:
             if "labels" not in f:
                 return None
             try:
-                resolved = self._resolve_label_source(survey or "", label_source, f)
+                resolved = self._resolve_label_source([survey or ""], label_source, f)
             except ValueError:
                 return None
             grp = f["labels"][resolved]
@@ -2047,9 +1941,8 @@ class CatalogueLoader:
         training with per-source loss masking.
 
         Note:
-            This method requires a pre-deduplicated catalogue. If duplicates are
-            found, an error is raised with instructions to run the deduplication
-            script: scripts/create_deduplicated_catalogue.py
+            This method needs one row per star, as catalogues built by
+            ``scripts/build_catalogue_v2.py`` have; duplicate rows raise an error.
 
         Args:
             surveys: List of survey names to load and merge.
@@ -2157,30 +2050,11 @@ class CatalogueLoader:
             if "labels" not in f:
                 raise ValueError("Catalogue has no 'labels' group")
 
-            available_labels = list(f["labels"].keys())
-
             for source in label_sources:
-                # Resolve source name with fallback logic (same as single-source mode)
-                resolved_source = source
-                if source not in f["labels"]:
-                    # Try {source}_{survey} patterns for each survey being loaded
-                    found = False
-                    for survey in surveys:
-                        survey_specific = f"{source}_{survey}"
-                        if survey_specific in f["labels"]:
-                            resolved_source = survey_specific
-                            found = True
-                            break
-                    if not found:
-                        raise ValueError(
-                            f"Label source '{source}' not in catalogue. "
-                            f"Available: {available_labels}"
-                        )
-
                 # Check if this source matches the primary label source used in merged
                 # If so, use the already-aligned primary_labels from merged structure
                 # This is more reliable than re-loading and re-aligning from the file
-                label_grp = f["labels"][resolved_source]
+                label_grp = f["labels"][self._resolve_label_source(surveys, source, f)]
                 use_merged_primary = False
 
                 if "gaia_id" not in label_grp:
@@ -2266,14 +2140,5 @@ class CatalogueLoader:
             for survey in surveys:
                 if survey not in f["surveys"]:
                     raise ValueError(f"Survey '{survey}' not in catalogue")
-                survey_grp = f["surveys"][survey]
-                # LAMOST MRS has separate blue/red wavelength arrays
-                if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
-                    n_wavelengths = (
-                        survey_grp["wavelength_b"].shape[0]
-                        + survey_grp["wavelength_r"].shape[0]
-                    )
-                else:
-                    n_wavelengths = survey_grp["wavelength"].shape[0]
-                result[survey] = n_wavelengths
+                result[survey] = len(_survey_wavelength(f["surveys"][survey]))
         return result

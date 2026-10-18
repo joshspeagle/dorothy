@@ -14,6 +14,7 @@ from dorothy.data.catalogue_loader import (
     MergedCatalogueData,
     SparseMergedData,
 )
+from tests.synthetic import build_catalogue
 
 
 class TestParameterNames:
@@ -1132,16 +1133,18 @@ class TestMergedCatalogueDataMethods:
 class TestLamostMRSDualArm:
     """Tests for LAMOST MRS dual-arm spectral loading."""
 
+    N_RED = 3248
+
     @pytest.fixture
     def lamost_mrs_catalogue(self, tmp_path):
         """Create a mock HDF5 catalogue with LAMOST MRS dual-arm spectra.
 
-        LAMOST MRS stores spectra as (N, 4, wavelengths) with channels:
-        [flux_B, ivar_B, flux_R, ivar_R] for blue and red arms.
+        LAMOST MRS stores spectra as (N, 4, max(n_b, n_r)) with channels:
+        [flux_B, ivar_B, flux_R, ivar_R], padded to the longer (blue) arm.
         """
         path = tmp_path / "lamost_mrs_catalogue.h5"
         n_stars = 30
-        n_wave = 3375  # Typical LAMOST MRS wavelength bins per arm
+        n_wave = 3375  # Blue arm; the red arm has N_RED bins
         n_params = 11
 
         with h5py.File(path, "w") as f:
@@ -1181,7 +1184,11 @@ class TestLamostMRSDualArm:
 
             lamost_mrs.create_dataset("spectra", data=spectra)
             lamost_mrs.create_dataset(
-                "wavelength", data=np.linspace(4000, 6800, n_wave).astype(np.float32)
+                "wavelength_b", data=np.linspace(4950, 5350, n_wave).astype(np.float32)
+            )
+            lamost_mrs.create_dataset(
+                "wavelength_r",
+                data=np.linspace(6300, 6800, self.N_RED).astype(np.float32),
             )
             lamost_mrs.create_dataset(
                 "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
@@ -1217,9 +1224,9 @@ class TestLamostMRSDualArm:
         data = loader.load(survey="lamost_mrs", label_source="apogee")
 
         assert data.n_stars == 30
-        # Arms are concatenated: 3375 * 2 = 6750 wavelength bins
-        assert data.flux.shape == (30, 6750)
-        assert data.ivar.shape == (30, 6750)
+        # Arms are trimmed to their grids and concatenated: 3375 + 3248 bins
+        assert data.flux.shape == (30, 3375 + self.N_RED)
+        assert data.ivar.shape == (30, 3375 + self.N_RED)
         assert data.survey_name == "lamost_mrs"
 
     def test_lamost_mrs_both_arms_valid(self, lamost_mrs_catalogue):
@@ -1268,8 +1275,8 @@ class TestLamostMRSDualArm:
         X, y = loader.load_for_training(survey="lamost_mrs", label_source="apogee")
 
         # X: 3-channel spectral data [flux, sigma, mask]
-        # Arms are concatenated: 3375 * 2 = 6750 wavelength bins
-        assert X.shape == (30, 3, 6750)
+        # Arms are trimmed to their grids and concatenated: 3375 + 3248 bins
+        assert X.shape == (30, 3, 3375 + self.N_RED)
         # y: 3-channel labels [values, errors, mask]
         assert y.shape == (30, 3, 11)
 
@@ -1556,6 +1563,14 @@ class TestDuplicateDetection:
                 surveys=["desi"],
                 label_source="apogee",
             )
+
+    def test_duplicate_error_tells_the_user_to_rebuild_the_catalogue(
+        self, duplicate_catalogue
+    ):
+        loader = CatalogueLoader(duplicate_catalogue)
+        with pytest.raises(ValueError, match="scripts/build_catalogue_v2.py") as err:
+            loader.load_merged_sparse(surveys=["desi"], label_source="apogee")
+        assert "create_deduplicated_catalogue" not in str(err.value)
 
 
 class TestSparseMergedDataMethods:
@@ -1900,3 +1915,154 @@ class TestSelectiveRowReads:
             mrs = np.concatenate([spectra[rows, 0, :8], spectra[rows, 2, :6]], axis=1)
             np.testing.assert_array_equal(data.flux["lamost_mrs"], mrs)
             np.testing.assert_array_equal(data.local_to_global["boss"], rows)
+
+
+class TestSurveyWavelengthGrid:
+    """Every loader path must give a survey the same grid and spectra."""
+
+    @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
+    def test_every_loader_path_gives_the_same_grid_and_spectra(self, tmp_path, survey):
+        loader = CatalogueLoader(build_catalogue(tmp_path / "cat.h5"))
+        sparse = loader.load_merged_sparse([survey])
+        grid = sparse.wavelengths[survey]
+        info = loader.get_info().surveys[survey]
+        assert info["wavelength_bins"] == len(grid)
+        assert info["wavelength_range"] == (grid[0], grid[-1])
+        np.testing.assert_array_equal(loader.get_survey_wavelengths(survey), grid)
+        assert loader.get_survey_wavelength_counts([survey]) == {survey: len(grid)}
+        data = loader.load(survey)
+        np.testing.assert_array_equal(data.wavelength, grid)
+        rows = sparse.local_to_global[survey]
+        np.testing.assert_array_equal(data.flux[rows], sparse.flux[survey])
+        np.testing.assert_array_equal(data.ivar[rows], sparse.ivar[survey])
+
+    @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
+    def test_raw_spectra_are_returned_as_stored(self, tmp_path, survey):
+        path = build_catalogue(tmp_path / "cat.h5")
+        raw = CatalogueLoader(path).load_raw_spectra(survey)
+        with h5py.File(path, "r") as f:
+            grp = f["surveys"][survey]
+            assert set(raw) == set(grp)
+            for name in grp:
+                np.testing.assert_array_equal(raw[name], grp[name][:])
+
+
+class TestLoadMulti:
+    def test_intersection_keeps_only_stars_with_data_in_every_survey(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5", n_stars=10)
+        with h5py.File(path, "r+") as f:
+            for survey, rows in [("boss", slice(0, 5)), ("desi", slice(3, 10))]:
+                snr = np.zeros(10)
+                snr[rows] = 20.0
+                f["surveys"][survey]["snr"][...] = snr
+        data = CatalogueLoader(path).load_multi(["boss", "desi"], mode="intersection")
+        for survey in ("boss", "desi"):
+            np.testing.assert_array_equal(data[survey].gaia_ids, [4, 5])
+
+
+class TestSparseHasLabels:
+    def test_has_labels_counts_only_labels_that_survive_the_flag_filter(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            for source in ("apogee", "galah"):
+                flags = f["labels"][source]["flags"][:]
+                flags[:20, 0] = 1  # max_flag_bits=0 removes all their labels
+                f["labels"][source]["flags"][...] = flags
+        data = CatalogueLoader(path).load_merged_sparse(
+            ["boss", "desi"], label_sources=["apogee", "galah"], max_flag_bits=0
+        )
+        for source in ("apogee", "galah"):
+            has_valid = (data.labels_dict[source][:, 2, :] > 0).any(axis=1)
+            np.testing.assert_array_equal(data.has_labels_dict[source], has_valid)
+            assert not data.has_labels_dict[source][:20].any()
+
+
+class TestGaiaIds:
+    def test_dense_loading_without_gaia_ids_raises(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            del f["metadata/gaia_id"]
+            for source in ("apogee", "galah"):
+                del f["labels"][source]["gaia_id"]
+        with pytest.raises(ValueError, match="no Gaia IDs"):
+            CatalogueLoader(path).load_merged(["boss", "desi"])
+
+    def test_sparse_loading_rejects_labels_in_another_row_order(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            f["labels/apogee/gaia_id"][...] = f["labels/apogee/gaia_id"][:][::-1]
+        with pytest.raises(ValueError, match="does not match metadata/gaia_id"):
+            CatalogueLoader(path).load_merged_sparse(["boss"])
+
+
+class TestNanSnr:
+    def test_dense_and_sparse_loaders_skip_the_same_nan_snr_rows(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            boss = f["surveys/boss/snr"][:]
+            desi = f["surveys/desi/snr"][:]
+            boss_only = np.flatnonzero((boss > 0) & (desi == 0))[0]
+            both = np.flatnonzero((boss > 0) & (desi > 0))[0]
+            boss[[boss_only, both]] = np.nan
+            f["surveys/boss/snr"][...] = boss
+        loader = CatalogueLoader(path)
+        sparse = loader.load_merged_sparse(["boss", "desi"])
+        dense = loader.load_merged(["boss", "desi"])
+        rows = np.flatnonzero(sparse.has_data("boss") | sparse.has_data("desi"))
+        np.testing.assert_array_equal(dense.gaia_ids, sparse.gaia_ids[rows])
+        for survey in ("boss", "desi"):
+            np.testing.assert_array_equal(
+                dense.surveys[survey]["has_data"], sparse.has_data(survey)[rows]
+            )
+
+
+class TestModelInputs:
+    @pytest.mark.parametrize("flux_dtype", [np.float32, np.float64])
+    @pytest.mark.parametrize("ivar_dtype", [np.float32, np.float64])
+    def test_model_inputs_match_the_direct_computation(self, flux_dtype, ivar_dtype):
+        from dorothy.data.catalogue_loader import _spectra_to_model_inputs
+
+        rng = np.random.default_rng(0)
+        flux = rng.normal(size=(7, 9)).astype(flux_dtype)
+        ivar = rng.uniform(0.5, 2.0, size=(7, 9)).astype(ivar_dtype)
+        ivar[:, :4] = [0.0, -1.0, np.nan, np.inf]
+        flux[:, 0] = np.nan  # a masked pixel can hold any value
+        valid = ivar > 0
+        sigma = np.zeros_like(ivar)
+        sigma[valid] = 1.0 / np.sqrt(ivar[valid])
+        expected = np.stack([flux, sigma, valid.astype(np.float32)], axis=1)
+        got = _spectra_to_model_inputs(flux, ivar, block_rows=3)
+        assert got.dtype == expected.dtype and got.shape == expected.shape
+        assert got.tobytes() == expected.tobytes()
+
+
+class TestLabelSourceNames:
+    def test_v1_group_names_give_the_same_labels_in_every_loader(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        loader = CatalogueLoader(path)
+        surveys, sources = ["boss", "desi"], ["apogee", "galah"]
+
+        def load_all():
+            sparse = loader.load_merged_sparse(surveys, label_sources=sources)
+            _, dense, _, _ = loader.load_merged_for_training(
+                surveys, label_sources=sources
+            )
+            single = [
+                loader.load(s, label_source=src).labels
+                for s, src in [("boss", None), ("desi", "galah")]
+            ]
+            return sparse.labels, sparse.labels_dict, dense, single
+
+        v2 = load_all()
+        # v1 catalogues have one label group per survey: {source}_{survey}
+        with h5py.File(path, "r+") as f:
+            f.move("labels/apogee", "labels/apogee_boss")
+            f.copy("labels/apogee_boss", "labels/apogee_desi")
+            f.move("labels/galah", "labels/galah_desi")
+        v1 = load_all()
+        np.testing.assert_array_equal(v1[0], v2[0])
+        for source in sources:
+            np.testing.assert_array_equal(v1[1][source], v2[1][source])
+            np.testing.assert_array_equal(v1[2][source], v2[2][source])
+        for labels_v1, labels_v2 in zip(v1[3], v2[3], strict=True):
+            np.testing.assert_array_equal(labels_v1, labels_v2)

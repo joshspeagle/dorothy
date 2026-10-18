@@ -60,6 +60,26 @@
   `plot_ablation_saliency_heatmap` drew an empty figure.
 - The bar charts of validation metrics in the training plots showed the last
   epoch instead of the best epoch, whose weights `best_model.pth` holds.
+- LAMOST MRS has no `wavelength` dataset, so `CatalogueLoader.info`,
+  `get_info` and `load(survey=None)` raised `KeyError` for any catalogue with
+  MRS, and `load`, `load_raw_spectra` and `get_survey_wavelengths` raised it
+  for MRS. `load` now trims each MRS arm to its own grid, like the other
+  loaders.
+- `CatalogueLoader.load_multi(mode="intersection")` returned every star of a
+  v2 catalogue, because each survey has a row for every star.
+- `load_merged_sparse` counted a star as labelled by a source
+  (`has_labels_dict`) even when `max_flag_bits` removed all its labels.
+- The duplicate-star error told users to run a deduplication script that
+  moved to `scripts/legacy/` and handles only v1 catalogues. It now tells
+  them to rebuild the catalogue with `scripts/build_catalogue_v2.py`.
+- `load_merged` numbered the rows of a catalogue without Gaia IDs from 0, so
+  it dropped row 0 and merged unrelated stars that share a row number in
+  different surveys. It now raises `ValueError`.
+- `load_merged` loaded spectra with a NaN S/N, and raised `KeyError` for such
+  a star when no other requested survey had it.
+- `load_merged_sparse` read the primary label source in row order without
+  checking its Gaia IDs, so labels stored in another order went to the wrong
+  stars. It now raises `ValueError` when they differ from `metadata/gaia_id`.
 
 ### Performance
 
@@ -131,3 +151,8 @@
 - `val_metrics.png`, `zscore_calibration.png`, `per_survey_metrics.png` and
   `per_labelset_metrics.png` in a checkpoint's `plots/` show the best epoch
   instead of the last.
+- `CatalogueLoader.load_multi(mode="intersection")` keeps a star only if
+  every survey has data for it (`snr > 0`, the rule of the sparse loader).
+- `SparseMergedData.has_labels_dict` marks a star only if it has a label
+  that survives the flag filter, as its label mask does.
+- Dense loading skips spectra with a NaN S/N, as sparse loading does.
