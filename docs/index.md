@@ -1,5 +1,11 @@
 # DOROTHY
 
+```{image} _static/dorothy.svg
+:alt: Dorothy the dinosaur: a teal sauropod with gold star spots, standing on a stellar spectrum
+:width: 240px
+:align: center
+```
+
 DOROTHY infers stellar parameters, chemical abundances and their uncertainties
 from spectra. It trains neural networks on stars that both a low- or
 medium-resolution survey (DESI, BOSS, LAMOST) and a high-resolution survey

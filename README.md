@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/_static/dorothy.svg" alt="Dorothy the dinosaur: a teal sauropod with gold star spots, standing on a stellar spectrum" width="240">
+</p>
+
 # DOROTHY
 
 DOROTHY infers stellar parameters, chemical abundances and their uncertainties

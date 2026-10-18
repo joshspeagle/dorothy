@@ -8,7 +8,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 - `scripts/build_catalogue_v2.py`: builds the super-catalogue from the cross-matched FITS files in `data/raw_catalogues/`. `scripts/legacy/` holds the deprecated v1 pipeline.
 - `tests/`: the test suite. `tests/synthetic.py` writes small v2 catalogues (all four surveys, both label sources) for end-to-end tests.
 - `examples/`: training configurations (`variant*.yaml`) and saliency scripts.
-- `docs/`: the documentation site (Sphinx with the Furo theme, Markdown pages through MyST, `docs/conf.py`), published to https://joshspeagle.com/dorothy/. `docs/figures/` holds its SVG figures, `docs/references.bib` its bibliography; `docs/dev/` holds development notes, which the site excludes.
+- `docs/`: the documentation site (Sphinx with the Furo theme, Markdown pages through MyST, `docs/conf.py`), published to https://joshspeagle.com/dorothy/. `docs/figures/` holds its SVG figures, `docs/_static/` the logos and stylesheet, `docs/references.bib` the bibliography; `docs/dev/` holds development notes, which the site excludes.
 - `CHANGELOG.md`: user-visible changes since the last release.
 - `d5martin/`: the original notebooks (gitignored).
 

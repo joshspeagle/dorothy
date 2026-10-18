@@ -179,7 +179,10 @@ html_theme = "furo"
 html_title = "DOROTHY"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_favicon = "_static/favicon.svg"
 html_theme_options = {
+    "light_logo": "dorothy-line-light.svg",
+    "dark_logo": "dorothy-line-dark.svg",
     "source_repository": "https://github.com/joshspeagle/dorothy/",
     "source_branch": "main",
     "source_directory": "docs/",

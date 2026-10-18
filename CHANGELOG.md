@@ -25,6 +25,7 @@
 - `dorothy.inference.load_checkpoint` and `evaluate_model`.
 - `CatalogueLoader.load_spectrum` and `load_labels_for_index` load one star.
 - A documentation site (Sphinx), with background, methods, usage guides and an API reference.
+- The Dorothy logo in the README and on the documentation site.
 
 ### Fixed
 
