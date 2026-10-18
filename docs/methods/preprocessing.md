@@ -7,7 +7,7 @@ A spectrum enters the model as an array of shape `(3, n_wavelengths)`:
 | Channel | Content |
 |---------|---------|
 | 0 | flux |
-| 1 | σ = 1/sqrt(ivar) |
+| 1 | ρ = ln(1 + 1/σ), the [precision encoding](#precision-encoding) of σ = 1/sqrt(ivar) |
 | 2 | mask: 1 at valid pixels |
 
 A pixel is valid when its flux is finite and its ivar is finite and positive.
@@ -39,6 +39,34 @@ preprocessed the same way. The setting is stored in the checkpoint.
 LAMOST MRS spectra have a blue and a red arm on separate wavelength grids. The
 model input is the blue arm followed by the red arm, each trimmed to its own
 grid.
+
+### Precision encoding
+
+As a network input, σ has two flaws. A masked pixel has σ = 0, which reads as
+infinite precision, the opposite of the truth. σ also has no upper bound, so
+noisy pixels give large inputs. With `data.precision_encoding: true` (the
+default), the second channel therefore holds
+
+$$
+\rho = \begin{cases}
+\ln(1 + 1/\sigma) & \text{at a valid pixel,} \\
+0 & \text{at a masked pixel,}
+\end{cases}
+$$
+
+which grows with the precision 1/σ. ρ falls to 0 as σ grows, so a pixel
+without information looks like a masked one, and for small σ it grows only
+as ln(1/σ). The encoding comes last, after
+{py:func}`~dorothy.data.fits_loader.zero_invalid_pixels` and the
+normalization, which rescales σ.
+{py:func}`~dorothy.data.fits_loader.encode_precision` implements it for every
+loading path and for {py:func}`~dorothy.inference.predictor.predict_from_fits`.
+The models read the channel as it comes.
+
+The setting is stored in the checkpoint. A checkpoint saved before this
+option has no `precision_encoding` in its configuration, so it loads as
+false: its inputs keep σ, and it predicts and evaluates exactly as before.
+Training rejects `data.precision_encoding: false`.
 
 ## Labels
 

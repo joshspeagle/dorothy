@@ -138,17 +138,20 @@ loader = CatalogueLoader("data/super_catalogue.h5")
 loader.info()                          # summary of surveys and label sources
 names = loader.get_parameter_names()   # label column order
 
+# The preprocessing of the default training configuration
+inputs = {"normalize_spectra": True, "precision_encoding": True}
+
 # One survey and one label source, stars with both, as model inputs
 X, y = loader.load_for_training(survey="desi", label_source="apogee",
-                                max_flag_bits=0, normalize_spectra=True)
+                                max_flag_bits=0, **inputs)
 
 # Several surveys and label sources, spectra stored only where they exist
 data = loader.load_merged_sparse(["boss", "desi", "lamost_mrs"],
                                  label_sources=["apogee", "galah"],
-                                 max_flag_bits=-1, normalize_spectra=True)
+                                 max_flag_bits=-1, **inputs)
 
 # One star's spectrum as a model input
-X_star, wavelength, gaia_id = loader.load_spectrum("lamost_mrs", 123)
+X_star, wavelength, gaia_id = loader.load_spectrum("lamost_mrs", 123, **inputs)
 
 # One label source for every star, [values, errors, mask], no spectra
 y_galah = loader.load_labels("galah", max_flag_bits=0)
