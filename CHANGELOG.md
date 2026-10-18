@@ -93,6 +93,9 @@
   now uses the exact derivative of the predicted scatter σ:
   `SaliencyResult.jacobian_sigma_flux` and `jacobian_sigma_error` hold dσ/dx
   and replace `jacobian_lns_flux` and `jacobian_lns_error`.
+- If every validation loss was NaN, `best_epoch` was 0, but `best_model.pth`
+  and the trained model held the weights from before training. Training now
+  raises `RuntimeError` when no epoch has a finite validation loss.
 
 ### Performance
 

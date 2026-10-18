@@ -562,6 +562,9 @@ class Trainer:
 
         Returns:
             TrainingHistory with loss curves and metrics.
+
+        Raises:
+            RuntimeError: If no epoch has a finite validation loss.
         """
         key = self.label_keys[0]
         y_train_np, y_val_np = _as_numpy(y_train), _as_numpy(y_val)
@@ -624,6 +627,7 @@ class Trainer:
 
         Raises:
             TypeError: If model is not a MultiHeadMLP.
+            RuntimeError: If no epoch has a finite validation loss.
         """
         self._require_multi_head("fit_multi_survey")
         key = self.label_keys[0]
@@ -667,6 +671,7 @@ class Trainer:
         Raises:
             TypeError: If model is not a MultiHeadMLP.
             ValueError: If the model's label sources are not in the data.
+            RuntimeError: If no epoch has a finite validation loss.
 
         Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
@@ -759,6 +764,7 @@ class Trainer:
         Raises:
             TypeError: If model is not a MultiHeadMLP with multi-label support.
             ValueError: If the label sources don't match the model's heads.
+            RuntimeError: If no epoch has a finite validation loss.
         """
         self._require_multi_head("fit_multi_labelset")
         if not self.model.is_multi_label:
@@ -1282,6 +1288,12 @@ class Trainer:
                 break
 
         self.history.total_time = time.time() - start_time
+        if not np.isfinite(self.history.best_val_loss):
+            raise RuntimeError(
+                "No epoch had a finite validation loss, so there is no best "
+                "epoch. Check the validation data for NaN or infinite values "
+                "and the training losses for divergence."
+            )
         self._final_weights = copy.deepcopy(self.model.state_dict())
         self.model.load_state_dict(self._best_weights)
         logger.info(
