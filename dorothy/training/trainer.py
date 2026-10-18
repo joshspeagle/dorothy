@@ -1525,16 +1525,19 @@ class Trainer:
             checkpoint_dir / f"best_model_epoch_{epoch}.pth",
         )
 
-        # Save history
-        self.history.save(checkpoint_dir / "history_train_val.pkl")
-        self.history.save_learning_rates(checkpoint_dir / "learning_rates.pkl")
-
-        # load_checkpoint rebuilds the model from the config
-        self.config.save_yaml(checkpoint_dir / "config.yaml")
-        if self.normalizer is not None:
-            self.normalizer.save(checkpoint_dir / "normalizer.pkl")
-
+        self._save_run_files(checkpoint_dir)
         logger.debug(f"Saved checkpoint at epoch {epoch}")
+
+    def _save_run_files(self, path: Path) -> None:
+        """Save the normalizer, history and config next to a checkpoint's weights.
+
+        load_checkpoint rebuilds the model from the config.
+        """
+        if self.normalizer is not None:
+            self.normalizer.save(path / "normalizer.pkl")
+        self.history.save(path / "history_train_val.pkl")
+        self.history.save_learning_rates(path / "learning_rates.pkl")
+        self.config.save_yaml(path / "config.yaml")
 
     def save_checkpoint(self, path: str | Path | None = None) -> Path:
         """
@@ -1568,19 +1571,7 @@ class Trainer:
             else self.model.state_dict()
         )
         torch.save(final_weights, path / "final_model.pth")
-
-        # Save normalizer if it was fitted
-        if self.normalizer is not None:
-            self.normalizer.save(path / "normalizer.pkl")
-            logger.info("Saved label normalizer")
-
-        # Save training history
-        self.history.save(path / "history_train_val.pkl")
-        self.history.save_learning_rates(path / "learning_rates.pkl")
-
-        # Save config for reproducibility
-        self.config.save_yaml(path / "config.yaml")
-
+        self._save_run_files(path)
         logger.info(f"Saved final checkpoint to {path}")
         return path
 
