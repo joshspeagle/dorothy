@@ -943,18 +943,11 @@ class CatalogueLoader:
         if max_flag_bits >= 0:
             data = data.filter_by_flags(max_flag_bits)
 
-        # Create 3-channel spectral data: [flux, sigma, mask]
-        # Convert ivar to sigma: sigma = 1/sqrt(ivar) where ivar > 0
         flux = data.flux
         ivar = data.ivar
         if normalize_spectra:
             flux, ivar = _normalize_spectra(flux, ivar)
-        sigma = np.zeros_like(ivar)
-        valid_ivar = ivar > 0
-        sigma[valid_ivar] = 1.0 / np.sqrt(ivar[valid_ivar])
-        spectral_mask = valid_ivar.astype(np.float32)
-
-        X = np.stack([flux, sigma, spectral_mask], axis=1)
+        X = _spectra_to_model_inputs(flux, ivar)
 
         # Create 3-channel label data: [values, errors, mask]
         label_mask = ((data.label_flags == 0) & (data.label_errors > 0)).astype(
@@ -1943,10 +1936,7 @@ class CatalogueLoader:
         ivar = ivar.astype(np.float32)
         if normalize_spectra:
             flux, ivar = _normalize_spectra(flux, ivar)
-        valid = ivar > 0
-        sigma = np.zeros_like(ivar)
-        sigma[valid] = 1.0 / np.sqrt(ivar[valid])
-        X = np.stack([flux[0], sigma[0], valid[0].astype(np.float32)], axis=0)
+        X = _spectra_to_model_inputs(flux, ivar)[0]
         return X, wavelength.astype(np.float32), gaia_id
 
     def load_labels_for_index(

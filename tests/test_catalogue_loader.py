@@ -2014,3 +2014,23 @@ class TestNanSnr:
             np.testing.assert_array_equal(
                 dense.surveys[survey]["has_data"], sparse.has_data(survey)[rows]
             )
+
+
+class TestModelInputs:
+    @pytest.mark.parametrize("flux_dtype", [np.float32, np.float64])
+    @pytest.mark.parametrize("ivar_dtype", [np.float32, np.float64])
+    def test_model_inputs_match_the_direct_computation(self, flux_dtype, ivar_dtype):
+        from dorothy.data.catalogue_loader import _spectra_to_model_inputs
+
+        rng = np.random.default_rng(0)
+        flux = rng.normal(size=(7, 9)).astype(flux_dtype)
+        ivar = rng.uniform(0.5, 2.0, size=(7, 9)).astype(ivar_dtype)
+        ivar[:, :4] = [0.0, -1.0, np.nan, np.inf]
+        flux[:, 0] = np.nan  # a masked pixel can hold any value
+        valid = ivar > 0
+        sigma = np.zeros_like(ivar)
+        sigma[valid] = 1.0 / np.sqrt(ivar[valid])
+        expected = np.stack([flux, sigma, valid.astype(np.float32)], axis=1)
+        got = _spectra_to_model_inputs(flux, ivar, block_rows=3)
+        assert got.dtype == expected.dtype and got.shape == expected.shape
+        assert got.tobytes() == expected.tobytes()
