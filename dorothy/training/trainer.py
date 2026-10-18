@@ -67,7 +67,7 @@ from dorothy.training.batches import (
 from dorothy.utils import resolve_device
 
 if TYPE_CHECKING:
-    from dorothy.config.schema import ExperimentConfig
+    from dorothy.config.schema import ExperimentConfig, TrainingConfig
     from dorothy.inference.evaluator import EvaluationResult
 
 logger = logging.getLogger(__name__)
@@ -269,6 +269,18 @@ def _check_label_array(name: str, arr: np.ndarray) -> None:
         )
 
 
+def _mixed_precision(
+    training: TrainingConfig, device: torch.device
+) -> tuple[torch.dtype | None, GradScaler | None]:
+    """The autocast dtype of the forward pass and the gradient scaler.
+
+    Mixed precision runs on CUDA only; elsewhere both are None.
+    """
+    if not training.amp or device.type != "cuda":
+        return None, None
+    return torch.float16, GradScaler()
+
+
 class Trainer:
     """Trainer for DOROTHY stellar parameter models.
 
@@ -311,6 +323,9 @@ class Trainer:
         scheduler: Learning rate scheduler (OneCycleLR by default).
         loss_fn: Loss function (HeteroscedasticLoss).
         device: Compute device (cuda/mps/cpu).
+        autocast_dtype: Dtype of the forward pass with mixed precision
+            (``training.amp`` on CUDA), or None for float32.
+        scaler: Gradient scaler for float16 mixed precision, or None.
         history: TrainingHistory with loss curves and metrics.
         normalizer: LabelNormalizer for converting to/from normalized space.
         parameter_names: Names of stellar parameters being predicted.
@@ -362,13 +377,11 @@ class Trainer:
         # Create optimizer
         self.optimizer = self._create_optimizer()
 
-        # Mixed precision training (AMP) - disabled by default due to numerical
-        # instability with large encoder inputs (causes NaN in multi-survey training)
-        # Can be enabled via config.training.amp = True if needed
-        self.scaler: GradScaler | None = None
-        if config.training.amp and self.device.type == "cuda":
-            self.scaler = GradScaler()
-            logger.info("Mixed precision training enabled (AMP)")
+        self.autocast_dtype, self.scaler = _mixed_precision(
+            config.training, self.device
+        )
+        if self.autocast_dtype is not None:
+            logger.info(f"Mixed precision training enabled ({self.autocast_dtype})")
 
         # Scheduler will be created when we know the number of batches
         self.scheduler: (
@@ -951,8 +964,18 @@ class Trainer:
         return X_batch, has_data_batch
 
     def _forward(self, batch: Batch) -> dict[str, torch.Tensor]:
-        """Model outputs (batch, 2, n_params) for every label source key."""
-        return forward_label_sources(self.model, batch, self.label_keys)
+        """Model outputs (batch, 2, n_params) for every label source key.
+
+        With mixed precision the model runs under autocast, and its outputs
+        are cast to float32, so the loss never runs in reduced precision.
+        """
+        with autocast(
+            self.device.type,
+            dtype=self.autocast_dtype,
+            enabled=self.autocast_dtype is not None,
+        ):
+            outputs = forward_label_sources(self.model, batch, self.label_keys)
+        return {k: v.float() for k, v in outputs.items()}
 
     def _combine_losses(
         self,
@@ -1063,14 +1086,12 @@ class Trainer:
         targets = {k: [] for k in keys}
         has_data: dict[str, list[torch.Tensor]] = {}
         batch_size = self.config.training.batch_size
-        use_amp = self.scaler is not None
 
         with torch.no_grad():
             for batch in source.batches(batch_size):
-                with autocast(device_type=self.device.type, enabled=use_amp):
-                    batch_out = self._forward(batch)
+                batch_out = self._forward(batch)
                 for k in keys:
-                    outputs[k].append(batch_out[k].float().cpu())
+                    outputs[k].append(batch_out[k].cpu())
                     targets[k].append(batch.y[k].cpu())
                 for s, h in batch.has_data.items():
                     has_data.setdefault(s, []).append(h.cpu())
@@ -1154,7 +1175,6 @@ class Trainer:
             Tuple of (average_loss, average_gradient_norm).
         """
         self.model.train()
-        use_amp = self.scaler is not None
         step_scheduler = self.scheduler is not None and not isinstance(
             self.scheduler, ReduceLROnPlateau
         )
@@ -1175,8 +1195,7 @@ class Trainer:
                 batch.y = self._label_masking(batch.y)
 
             self.optimizer.zero_grad()
-            with autocast(device_type=self.device.type, enabled=use_amp):
-                loss = self._combine_losses(self._forward(batch), batch.y)
+            loss = self._combine_losses(self._forward(batch), batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
             total_grad_norm += grad_norm.to(acc_device).double()
@@ -1363,8 +1382,8 @@ class Trainer:
     ) -> torch.Tensor:
         """Backward pass, gradient clipping, and optimizer step.
 
-        This unified helper handles both AMP (mixed precision) and standard
-        training paths.
+        With float16 mixed precision, the loss and the gradients go through
+        the gradient scaler.
 
         Args:
             loss: The computed loss tensor to backpropagate.
@@ -1374,7 +1393,7 @@ class Trainer:
             The gradient norm (before clipping if clipping is applied), as a
             0-dim tensor on the device (not read back, to avoid a host sync).
         """
-        # Backward pass with gradient scaling for AMP
+        # Backward pass with gradient scaling for float16
         if self.scaler is not None:
             self.scaler.scale(loss).backward()
             # Unscale gradients before clipping (required for accurate norm)
@@ -1389,7 +1408,7 @@ class Trainer:
             max_norm=clip_value,
         ).detach()
 
-        # Optimizer step with scaler if using AMP
+        # Optimizer step through the scaler for float16
         if self.scaler is not None:
             self.scaler.step(self.optimizer)
             self.scaler.update()

@@ -31,6 +31,7 @@ from dorothy.config.schema import (
     TrainingConfig,
 )
 from dorothy.data.augmentation import DynamicInputMasking
+from dorothy.training.batches import SINGLE_SURVEY_KEY, TensorBatchSource
 from dorothy.training.trainer import EVALUATOR_METRIC_NAMES, Trainer, TrainingHistory
 
 
@@ -671,6 +672,39 @@ class TestTrainerGradientClipping:
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
         assert len(history.train_losses) == 5
+
+
+class TestTrainerMixedPrecision:
+    """Mixed precision with training.amp."""
+
+    def test_training_loss_is_the_float32_loss_of_bf16_outputs(self, simple_config):
+        """exp, log and the division of the loss do not run in bf16."""
+        simple_config.device = "cpu"
+        trainer = Trainer(simple_config)
+        trainer.autocast_dtype = torch.bfloat16  # CPU autocast stands in for CUDA
+        gen = torch.Generator().manual_seed(0)
+        n, n_params = 64, trainer.n_parameters
+        X = torch.randn(n, 3, 1000, generator=gen)
+        y = torch.stack(
+            [
+                torch.randn(n, n_params, generator=gen),
+                torch.full((n, n_params), 0.01),
+                torch.ones(n, n_params),
+            ],
+            dim=1,
+        )
+        source = TensorBatchSource(
+            {SINGLE_SURVEY_KEY: X}, {"default": y}, None, trainer.device
+        )
+        batch = next(source.batches(n, np.random.default_rng(0)))
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            outputs = trainer.model(batch.X[SINGLE_SURVEY_KEY])
+        expected = trainer.loss_fn(outputs.float(), batch.y["default"]).item()
+
+        # One batch, in the same order: the epoch loss is its loss before the step
+        loss, _ = trainer._train_epoch(source, n, np.random.default_rng(0), 10.0)
+        # Without the cast, exp runs in bf16 and this loss changes by 7e-4
+        assert loss == pytest.approx(expected, rel=1e-6)
 
 
 class TestTrainerMasking:
