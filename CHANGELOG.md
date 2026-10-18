@@ -32,7 +32,7 @@
   channel of the model inputs holds ln(1 + 1/σ) at valid pixels and 0 at
   masked pixels, applied after the normalization by every loading path and
   `predict_from_fits`. `dorothy.data.encode_precision` applies it to other
-  arrays. `dorothy train` prints the encoding and `dorothy info` shows it.
+  arrays. `dorothy info` shows the setting.
 - `training.ema_decay` keeps an exponential moving average of the weights
   during training. Validation, the best epoch and the saved weights use the
   average. It is off by default. `training.ema_cpu_every` keeps the average
