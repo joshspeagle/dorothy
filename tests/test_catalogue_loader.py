@@ -1590,7 +1590,7 @@ class TestSparseMergedDataMethods:
             "survey_a": np.random.randn(60, 1000).astype(np.float32),
             "survey_b": np.random.randn(40, 800).astype(np.float32),
         }
-        ivar = {
+        sigma = {
             "survey_a": np.abs(np.random.randn(60, 1000)).astype(np.float32),
             "survey_b": np.abs(np.random.randn(40, 800)).astype(np.float32),
         }
@@ -1624,7 +1624,7 @@ class TestSparseMergedDataMethods:
 
         return SparseMergedData(
             flux=flux,
-            ivar=ivar,
+            sigma=sigma,
             wavelengths=wavelengths,
             snr=snr,
             global_to_local=global_to_local,
@@ -1650,7 +1650,7 @@ class TestSparseMergedDataMethods:
         """memory_usage_mb should include all data arrays."""
         usage = sparse_data.memory_usage_mb()
 
-        # Flat key structure: {survey}_flux, {survey}_ivar
+        # Flat key structure: {survey}_flux, {survey}_sigma
         assert "survey_a_flux" in usage
         assert "survey_b_flux" in usage
         assert "labels" in usage
@@ -1771,7 +1771,7 @@ class TestParameterNamesAndSpectralNormalization:
         flux = norm.flux["boss"]
         assert flux.shape == raw.flux["boss"].shape == (25, 50)
         np.testing.assert_allclose(np.median(flux[:, 5:], axis=1), 0.0, atol=1e-5)
-        assert np.all(flux[:, :5] == 0) and np.all(norm.ivar["boss"][:, :5] == 0)
+        assert np.all(flux[:, :5] == 0) and np.all(norm.sigma["boss"][:, :5] == 0)
         assert not np.allclose(raw.flux["boss"][:, 5:], flux[:, 5:])
 
     def test_all_loading_paths_normalize_identically(self, tmp_path):
@@ -1805,11 +1805,8 @@ class TestParameterNamesAndSpectralNormalization:
         assert X.shape == (3, len(sparse.wavelengths[survey]))
         np.testing.assert_allclose(wavelength, sparse.wavelengths[survey])
         np.testing.assert_allclose(X[0], sparse.flux[survey][local], rtol=1e-6)
-        valid = sparse.ivar[survey][local] > 0
-        np.testing.assert_array_equal(X[2], valid.astype(np.float32))
-        np.testing.assert_allclose(
-            X[1][valid], 1 / np.sqrt(sparse.ivar[survey][local][valid]), rtol=1e-6
-        )
+        np.testing.assert_array_equal(X[2], sparse.sigma[survey][local] > 0)
+        np.testing.assert_array_equal(X[1], sparse.sigma[survey][local])
         assert gaia_id == 4
 
     def test_load_labels_for_index(self, tmp_path):
@@ -1914,7 +1911,7 @@ class TestSelectiveRowReads:
         rows = np.flatnonzero(has)
         for data in loaded.values():
             np.testing.assert_array_equal(data.flux["boss"], flux[rows])
-            np.testing.assert_array_equal(data.ivar["boss"], ivar[rows])
+            np.testing.assert_array_equal(data.sigma["boss"], 1 / np.sqrt(ivar[rows]))
             mrs = np.concatenate([spectra[rows, 0, :8], spectra[rows, 2, :6]], axis=1)
             np.testing.assert_array_equal(data.flux["lamost_mrs"], mrs)
             np.testing.assert_array_equal(data.local_to_global["boss"], rows)
@@ -1938,7 +1935,8 @@ class TestSurveyWavelengthGrid:
         rows = sparse.local_to_global[survey]
         flux, ivar = zero_invalid_pixels(data.flux[rows], data.ivar[rows])
         np.testing.assert_array_equal(flux, sparse.flux[survey])
-        np.testing.assert_array_equal(ivar, sparse.ivar[survey])
+        sigma = np.where(ivar > 0, 1 / np.sqrt(np.where(ivar > 0, ivar, 1)), 0)
+        np.testing.assert_array_equal(sigma, sparse.sigma[survey])
 
     @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
     def test_raw_spectra_are_returned_as_stored(self, tmp_path, survey):
@@ -2125,14 +2123,12 @@ class TestNanSnr:
 
 
 class TestModelInputs:
-    @pytest.mark.parametrize("flux_dtype", [np.float32, np.float64])
-    @pytest.mark.parametrize("ivar_dtype", [np.float32, np.float64])
-    def test_model_inputs_match_the_direct_computation(self, flux_dtype, ivar_dtype):
+    def test_model_inputs_match_the_direct_computation(self):
         from dorothy.data.catalogue_loader import _spectra_to_model_inputs
 
         rng = np.random.default_rng(0)
-        flux = rng.normal(size=(7, 9)).astype(flux_dtype)
-        ivar = rng.uniform(0.5, 2.0, size=(7, 9)).astype(ivar_dtype)
+        flux = rng.normal(size=(7, 9)).astype(np.float32)
+        ivar = rng.uniform(0.5, 2.0, size=(7, 9)).astype(np.float32)
         ivar[:, :4] = [0.0, -1.0, np.nan, np.inf]
         flux[:, 0] = np.nan  # a masked pixel can hold any value
         valid = ivar > 0
@@ -2158,9 +2154,13 @@ class TestModelInputs:
         with h5py.File(path, "r+") as f:
             boss = f["surveys/boss"]
             flux, ivar = boss["flux"][:], boss["ivar"][:]
+            # Varied ivar, so that an inexact 1/sqrt shows in some pixels
+            ivar *= np.random.default_rng(0).uniform(0.5, 2, ivar.shape)
             rows = np.flatnonzero(boss["snr"][:] > 0)
             # Pixels 0 and 1 are masked (ivar 0) and hold a nonzero flux
             r = rows[:3]
+            # A valid ivar that overflows when normalization scales it
+            ivar[r[0], 10] = 3e38
             flux[r[:2], 0] = [np.nan, np.inf]
             flux[r[:2], 5] = [np.nan, np.inf]
             ivar[r, 6] = [np.nan, -1.0, np.inf]
@@ -2168,10 +2168,11 @@ class TestModelInputs:
             boss["ivar"][...] = ivar
             has_apogee = (f["labels/apogee/errors"][:] > 0).any(axis=1)[rows]
         flux, ivar = flux[rows], ivar[rows]
-        valid = np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0)
         ref_flux, ref_ivar = (
             normalize_spectra(flux, ivar) if normalize else (flux, ivar)
         )
+        valid = np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0) & (ref_ivar > 0)
+        assert valid[0, 10] != normalize  # the overflow invalidates the pixel
         sigma = np.where(valid, 1 / np.sqrt(np.where(valid, ref_ivar, 1)), 0)
         expected = np.stack([np.where(valid, ref_flux, 0), sigma, valid], axis=1)
 
@@ -2205,9 +2206,7 @@ class TestModelInputs:
         np.testing.assert_array_equal(X_dict["boss"], expected)
         np.testing.assert_array_equal(single, expected[has_apogee])
         np.testing.assert_array_equal(one[0], expected[0])
-        # The batch computes 1/sqrt(ivar) in torch, which can differ from numpy
-        # by one float32 rounding step; atol=0 keeps the zeros exact
-        np.testing.assert_allclose(batch.X["boss"].numpy(), expected, rtol=1e-6, atol=0)
+        np.testing.assert_array_equal(batch.X["boss"].numpy(), expected)
         np.testing.assert_array_equal(
             from_fits.get_model_input_3channel(apply_quality_mask=False), expected
         )
