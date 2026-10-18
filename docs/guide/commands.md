@@ -78,5 +78,7 @@ arms are not supported yet.
 dorothy info <checkpoint>
 ```
 
-Prints the model architecture, the configuration, the parameter names, the
-label normalization and a summary of the training history.
+Prints the model architecture, the uncertainty model (label-aware, or the
+additive model of checkpoints saved before it), the configuration, the
+parameter names, the label normalization and a summary of the training
+history.

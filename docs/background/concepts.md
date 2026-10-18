@@ -57,14 +57,16 @@ Two choices follow from this design:
 
 The network predicts, for every label, a value μ and a
 {term}`predicted scatter` s. Training maximizes the likelihood of the measured
-label y under a normal distribution with variance σ_y² + s², where σ_y is the
-label's reported uncertainty ([Loss](../methods/training.md#the-loss)).
-The predicted scatter is the spread of the true labels around μ beyond the
-label uncertainty: it is large where the spectrum constrains the label poorly.
-This is heteroscedastic regression {cite:p}`nix1994mean,kendall2017uncertainties`.
+label y under a normal distribution with mean μ and variance s²
+([Loss](../methods/training.md#the-loss)). μ depends on the spectrum alone.
+s can also read the label's reported uncertainty σ_y; prediction replaces σ_y
+with a learned {term}`missing vector`. The predicted scatter is the expected
+spread of the measured labels around μ, label noise included: it is large
+where the spectrum constrains the label poorly or the labels are noisy. This
+is heteroscedastic regression {cite:p}`nix1994mean,kendall2017uncertainties`.
 
 The predictions are calibrated when the {term}`z-scores <z-score>`
-z = (μ − y) / sqrt(σ_y² + s²) of held-out stars have unit scatter
+z = (μ − y) / s of held-out stars have unit scatter
 ([Calibration](../methods/evaluation.md#calibration)).
 
 ## Normalized units

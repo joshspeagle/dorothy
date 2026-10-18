@@ -18,6 +18,16 @@
 - `training.amp_dtype` (`bfloat16` by default, or `float16`) selects the
   precision of `training.amp`.
 - `loss: mse` trains with a masked mean squared error.
+- Label-aware uncertainty: each head predicts the mean with a label decoder
+  and the log-scatter with a parallel error decoder, which also reads the
+  reported label errors, or a learned missing vector where an error is
+  missing. No layer that feeds the mean reads the label errors. Both
+  decoders have the same hidden layers: the `output_hidden` layers in the
+  multi-head model, and the last hidden layer in the MLP, which the decoders
+  take over. `training.label_error_dropout` (default 0.5) sets the fraction
+  of training stars that get the missing vector.
+  `HeadEvaluation.z_label_errors` holds the label errors that the z-scores
+  add to the predicted scatter, which only old checkpoints have.
 - `training.ema_decay` keeps an exponential moving average of the weights
   during training. Validation, the best epoch and the saved weights use the
   average. It is off by default. `training.ema_cpu_every` keeps the average
@@ -113,6 +123,9 @@
 - If every validation loss was NaN, `best_epoch` was 0, but `best_model.pth`
   and the trained model held the weights from before training. Training now
   raises `RuntimeError` when no epoch has a finite validation loss.
+- The epoch checkpoints of `training.save_every` include `config.yaml` and
+  `normalizer.pkl`, so `load_checkpoint` rebuilds their model, multi-head
+  models included.
 - When `MultiHeadMLP` encoded every row of a batch (an encoder with batch
   normalization or dropout in training mode, or
   `encode_present_rows_only = False`), a NaN in a row without that survey's
@@ -160,6 +173,12 @@
 
 ### Behaviour changes
 
+- The default embedding of a newly trained MLP
+  (`MLP.get_embeddings`, and so `AnomalyDetector`) is the input of its two
+  decoders, which take over the last hidden layer: the layer before it, for
+  example 256 values instead of 64 for `examples/variant1_boss_apogee.yaml`.
+  Old checkpoints keep the last hidden layer. Embeddings are always flat, so
+  `layer_index=-1` gives (batch, 2 n_parameters).
 - `load_merged_sparse` computes σ = 1/√ivar once, with the numpy code of the
   other loading paths, and sparse batches copy it. Before, each batch
   computed σ with `torch.sqrt`, which is not exactly rounded on the CPU, so σ
@@ -213,6 +232,20 @@
 - Dense loading skips spectra with a NaN S/N, as sparse loading does.
 - `training.optimizer.weight_decay` applies only to weight matrices; biases
   and normalization weights are no longer decayed.
+- The loss variance is s² instead of σ_y² + s², and new models have
+  label-aware uncertainty. The predicted scatter s is the expected scatter
+  between the prediction and the label source's measurement, label noise
+  included; before, it was the scatter beyond the reported label error.
+  Validation, evaluation and prediction use the missing vector.
+- The z-scores of label-aware models are (μ − y) / s in training validation,
+  `evaluate_model` and the `dorothy evaluate` plots. Checkpoints saved before
+  label-aware uncertainty keep (μ − y) / sqrt(σ_y² + s²).
+- Checkpoint configurations store `label_aware_uncertainty` in the model
+  section. A checkpoint without it loads with the additive output layer and
+  predicts and evaluates exactly as before. Training rejects
+  `label_aware_uncertainty: false`, so `--resume` from such a checkpoint
+  fails. `load_checkpoint` without a `config.yaml` builds only the additive
+  layer and raises `ValueError` for label-aware weights.
 - With `data.normalize_spectra: false`, every loading path and prediction set
   the flux and ivar of invalid pixels to 0, as normalization does. A pixel is
   invalid when its flux is not finite, or its ivar is not finite and

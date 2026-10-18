@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from torch import nn
 
 from dorothy.config.schema import (
     DataConfig,
@@ -23,10 +24,12 @@ from dorothy.config.schema import (
     ModelConfig,
 )
 from dorothy.data.normalizer import LabelNormalizer
+from dorothy.inference.checkpoint import build_model
 from dorothy.inference.predictor import (
     PredictionResult,
     Predictor,
 )
+from dorothy.losses import predicted_scatter
 from dorothy.models import MLP
 
 
@@ -37,6 +40,20 @@ def simple_model():
         input_features=100,
         output_features=6,
         hidden_layers=[32, 16],
+    )
+    model.eval()
+    return model
+
+
+@pytest.fixture
+def additive_model():
+    """An MLP with the output layer of checkpoints saved before label-aware
+    uncertainty, the only one that loads without a config.yaml."""
+    model = MLP(
+        input_features=100,
+        output_features=6,
+        hidden_layers=[32, 16],
+        label_aware_uncertainty=False,
     )
     model.eval()
     return model
@@ -265,7 +282,7 @@ class TestPredictorEmbeddings:
 
         embeddings = predictor.get_embeddings(simple_input)
 
-        # Should be (n_samples, last_hidden_dim)
+        # The input of the decoders, which take over the last hidden layer
         assert embeddings.shape[0] == 50
         assert embeddings.shape[1] > 0
 
@@ -281,11 +298,26 @@ class TestPredictorEmbeddings:
         assert embed_default.shape[0] == embed_earlier.shape[0]  # Same n_samples
 
 
+def test_prediction_uses_the_missing_vector(simple_model, simple_input):
+    """Predictions read no label errors: the missing vector sets the scatter."""
+    predictor = Predictor(simple_model, device="cpu")
+    X = torch.as_tensor(simple_input)
+    before = predictor.predict(X)
+    with torch.no_grad():
+        simple_model.layers[-1].missing_log_error.fill_(-2.0)
+        expected = simple_model(X, label_errors=torch.zeros(len(X), 3))
+    after = predictor.predict(X)
+
+    np.testing.assert_array_equal(after.raw_output, expected.numpy())
+    np.testing.assert_array_equal(after.predictions, before.predictions)
+    assert not np.allclose(after.uncertainties, before.uncertainties)
+
+
 class TestPredictorLoad:
     """Tests for loading predictors from checkpoints."""
 
     @pytest.fixture
-    def temp_checkpoint(self, simple_model):
+    def temp_checkpoint(self, additive_model):
         """Create a temporary checkpoint directory."""
         # Create a normalizer with all 11 default parameters for testing
         from dorothy.config.schema import STELLAR_PARAMETERS
@@ -308,7 +340,7 @@ class TestPredictorLoad:
             checkpoint_path = Path(tmpdir)
 
             # Save model
-            torch.save(simple_model.state_dict(), checkpoint_path / "best_model.pth")
+            torch.save(additive_model.state_dict(), checkpoint_path / "best_model.pth")
 
             # Save normalizer
             full_normalizer.save(checkpoint_path / "normalizer.pkl")
@@ -338,9 +370,9 @@ class TestPredictorLoad:
         with tempfile.TemporaryDirectory() as tmpdir, pytest.raises(FileNotFoundError):
             Predictor.load(tmpdir, device="cpu")
 
-    def test_infer_architecture(self, simple_model):
+    def test_infer_architecture(self, additive_model):
         """Test architecture inference from state dict."""
-        state_dict = simple_model.state_dict()
+        state_dict = additive_model.state_dict()
 
         input_features, output_features, hidden_layers = Predictor._infer_architecture(
             state_dict
@@ -349,6 +381,14 @@ class TestPredictorLoad:
         assert input_features == 100
         assert output_features == 6
         assert hidden_layers == [32, 16]
+
+    def test_weights_only_label_aware_checkpoint_is_rejected(
+        self, simple_model, tmp_path
+    ):
+        """Without its config, a label-aware model cannot be rebuilt."""
+        torch.save(simple_model.state_dict(), tmp_path / "best_model.pth")
+        with pytest.raises(ValueError, match="config.yaml"):
+            Predictor.load(tmp_path, device="cpu")
 
 
 class TestPredictorFromConfig:
@@ -367,14 +407,14 @@ class TestPredictorFromConfig:
             ),
         )
 
-    def test_from_config_creates_predictor(self, simple_config, simple_model):
+    def test_from_config_creates_predictor(self, simple_config, additive_model):
         """Test creating predictor from config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Config expects: output_dir / name / name_final
             checkpoint_path = Path(tmpdir) / "test_experiment" / "test_experiment_final"
             checkpoint_path.mkdir(parents=True)
 
-            torch.save(simple_model.state_dict(), checkpoint_path / "best_model.pth")
+            torch.save(additive_model.state_dict(), checkpoint_path / "best_model.pth")
 
             simple_config = ExperimentConfig(
                 name="test_experiment",
@@ -428,7 +468,12 @@ class TestCheckpointArchitecture:
 
     def test_weights_only_checkpoint_layer_order(self, tmp_path):
         torch.manual_seed(1)
-        model = MLP(input_features=60, output_features=8, hidden_layers=[40] * 11)
+        model = MLP(
+            input_features=60,
+            output_features=8,
+            hidden_layers=[40] * 11,
+            label_aware_uncertainty=False,
+        )
         path = tmp_path / "w"
         path.mkdir()
         torch.save(model.state_dict(), path / "best_model.pth")
@@ -436,3 +481,77 @@ class TestCheckpointArchitecture:
         assert hidden == [40] * 11
         predictor = Predictor.load(path, device="cpu")
         assert predictor.model.hidden_layers == [40] * 11
+
+
+@pytest.mark.parametrize("multi_head", [False, True], ids=["mlp", "multi_head"])
+def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
+    """A checkpoint saved before label-aware uncertainty loads and predicts
+    bit-identically to its model's forward pass from before this option."""
+    import yaml
+
+    if multi_head:
+        sections = {
+            "data": DataConfig(catalogue_path=tmp_path / "c.h5", surveys=["boss"]),
+            "multi_head_model": {
+                "survey_wavelengths": {"boss": 20},
+                "n_parameters": 3,
+                "latent_dim": 16,
+                "encoder_hidden": [24],
+                "trunk_hidden": [16],
+                "output_hidden": [8],
+                "label_aware_uncertainty": False,
+            },
+        }
+    else:
+        sections = {
+            "data": DataConfig(catalogue_path=tmp_path / "c.h5"),
+            "model": ModelConfig(
+                input_features=60,
+                output_features=6,
+                hidden_layers=[24, 16],
+                label_aware_uncertainty=False,
+            ),
+        }
+    config = ExperimentConfig(name="old", device="cpu", **sections)
+    torch.manual_seed(0)
+    model = build_model(config).eval()
+    # The layers that label-aware uncertainty replaced, as checkpoints saved
+    # before it store them
+    if multi_head:
+        old = nn.Sequential(
+            nn.Linear(128, 8), nn.LayerNorm(8), nn.GELU(), nn.Linear(8, 6)
+        )
+        model.output_head.head.load_state_dict(old.state_dict())
+    else:
+        old = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(60, 24),
+            nn.LayerNorm(24),
+            nn.GELU(),
+            nn.Linear(24, 16),
+            nn.LayerNorm(16),
+            nn.GELU(),
+            nn.Linear(16, 6),
+        )
+        model.layers.load_state_dict(old.state_dict())
+    path = tmp_path / "ckpt"
+    path.mkdir()
+    torch.save(model.state_dict(), path / "best_model.pth")
+    config.save_yaml(path / "config.yaml")
+    # Configs saved before this option have no label_aware_uncertainty key
+    raw = yaml.full_load((path / "config.yaml").read_text())
+    del raw["multi_head_model" if multi_head else "model"]["label_aware_uncertainty"]
+    (path / "config.yaml").write_text(yaml.dump(raw))
+
+    X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
+    with torch.no_grad():
+        # The forward pass before label-aware uncertainty
+        old_input = model.get_embeddings(X, "boss", level="trunk") if multi_head else X
+        expected = old(old_input).view(9, 2, 3)
+    result = Predictor.load(path, device="cpu").predict(X)
+
+    np.testing.assert_array_equal(result.raw_output, expected.numpy())
+    np.testing.assert_array_equal(result.predictions, expected[:, 0].numpy())
+    np.testing.assert_array_equal(
+        result.uncertainties, predicted_scatter(expected[:, 1], 0.01).numpy()
+    )

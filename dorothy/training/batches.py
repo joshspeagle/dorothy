@@ -219,17 +219,34 @@ class SparseBatchSource:
 
 
 def forward_label_sources(
-    model: MLP | MultiHeadMLP, batch: Batch, label_keys: list[str]
+    model: MLP | MultiHeadMLP,
+    batch: Batch,
+    label_keys: list[str],
+    label_errors: dict[str, torch.Tensor] | None = None,
 ) -> dict[str, torch.Tensor]:
     """Run the model on a batch, returning (batch, 2, n_params) per label source.
 
     A multi-label MultiHeadMLP returns every head; a single-head model's
     output is keyed by ``label_keys[0]``.
+
+    Args:
+        model: The model.
+        batch: The batch.
+        label_keys: Label source names, in model output-head order.
+        label_errors: Label source name -> label errors (batch, n_params)
+            for that head's log-scatter, keyed like the targets. None, or a
+            head without an entry, uses the learned missing vector.
+
+    Returns:
+        Label source name -> output (batch, 2, n_params) = [mu, ln_s].
     """
+    errors = (label_errors or {}).get(label_keys[0])
     if isinstance(model, MultiHeadMLP):
         if model.is_multi_label:
-            return model.forward_all_label_sources(batch.X, has_data=batch.has_data)
-        output = model(batch.X, has_data=batch.has_data)
+            return model.forward_all_label_sources(
+                batch.X, has_data=batch.has_data, label_errors=label_errors
+            )
+        output = model(batch.X, has_data=batch.has_data, label_errors=errors)
     else:
-        output = model(batch.X[SINGLE_SURVEY_KEY])
+        output = model(batch.X[SINGLE_SURVEY_KEY], label_errors=errors)
     return {label_keys[0]: output}

@@ -92,9 +92,10 @@ The files `examples/variant*.yaml` cover the supported setups:
 :   Epochs, batch size, loss, optimizer, learning-rate schedule, gradient
     clipping, early stopping, mixed precision (`amp`, `amp_dtype`), weight
     averaging (`ema_decay`, `ema_cpu_every`, see
-    [Training](../methods/training.md#weight-averaging)) and, with several
-    label sources, how their losses combine (`label_source_weighting`,
-    `label_source_weights`).
+    [Training](../methods/training.md#weight-averaging)), the fraction of
+    stars trained without their label errors (`label_error_dropout`) and,
+    with several label sources, how their losses combine
+    (`label_source_weighting`, `label_source_weights`).
 
 `label_masking`, `input_masking`
 :   Training-time augmentation that randomly hides labels, label sources,

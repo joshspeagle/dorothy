@@ -47,6 +47,9 @@ class HeadEvaluation:
         parameter_names: Parameter names, in column order.
         y_pred, pred_scatter, y_true, y_err, mask: Physical-unit arrays of
             shape (n_stars, n_params) (model units without a normalizer).
+        z_label_errors: The label errors that the z-scores add to the
+            predicted scatter: ``y_err`` for a model with an AdditiveOutput,
+            else None.
     """
 
     label_source: str
@@ -58,6 +61,7 @@ class HeadEvaluation:
     y_true: np.ndarray
     y_err: np.ndarray
     mask: np.ndarray
+    z_label_errors: np.ndarray | None
 
     def to_dict(self) -> dict:
         """Metrics as a JSON-serializable dict."""
@@ -84,6 +88,11 @@ def evaluate_model(
     device: str | torch.device = "auto",
 ) -> dict[str, HeadEvaluation]:
     """Evaluate a trained model on the given rows of a dataset.
+
+    The model reads no label errors, so it predicts with its missing vector.
+    The z-scores divide the residuals by s for a model with label-aware
+    uncertainty, and by sqrt(sigma_y^2 + s^2) for the additive model of
+    checkpoints saved before it.
 
     Args:
         model: Trained MLP or MultiHeadMLP (moved to ``device``, eval mode).
@@ -130,6 +139,7 @@ def evaluate_model(
                 outputs[k].append(batch_out[k].float().cpu())
 
     evaluator = Evaluator(parameter_names, teff_in_log=False, scatter_floor=floor)
+    additive = not model.label_aware_uncertainty
     results = {}
     for k in keys:
         out = torch.cat(outputs[k])
@@ -141,7 +151,7 @@ def evaluate_model(
             y_pred=pred,
             y_true=target[:, 0, :],
             pred_scatter=scatter,
-            label_errors=target[:, 1, :],
+            label_errors=target[:, 1, :] if additive else None,
             mask=mask,
         )
         result_physical = None
@@ -153,7 +163,7 @@ def evaluate_model(
                 y_pred=pred,
                 y_true=y_true,
                 pred_scatter=scatter,
-                label_errors=y_err,
+                label_errors=y_err if additive else None,
                 mask=mask,
             )
         results[k] = HeadEvaluation(
@@ -166,6 +176,7 @@ def evaluate_model(
             y_true=y_true,
             y_err=y_err,
             mask=mask,
+            z_label_errors=y_err if additive else None,
         )
     return results
 

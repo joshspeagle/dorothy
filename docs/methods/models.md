@@ -7,12 +7,19 @@ followed by a normalization (`layernorm` {cite:p}`ba2016layernorm` or
 `(2, n_parameters)` per star: the predicted value μ and the log-scatter ln s
 of every parameter, in {term}`normalized units`.
 
+Both end in a {py:class}`~dorothy.models.output.LabelAwareOutput`: a label
+decoder predicts μ, and a parallel error decoder predicts ln s from the same
+input and the reported label errors
+([Scatter and label errors](training.md#scatter-and-label-errors)).
+
 ## MLP
 
 {py:class}`~dorothy.models.mlp.MLP` reads one survey. It flattens the
 `(3, n_wavelengths)` input and passes it through the hidden layers
-(`model.hidden_layers`, by default 5000, 2000, 1000, 500, 200 and 100 units)
-to 2 × `n_parameters` outputs. Configure it with the `model` section.
+(`model.hidden_layers`, by default 5000, 2000, 1000, 500, 200 and 100 units).
+The two decoders take over the last hidden layer: each has one hidden layer
+of that size on the output of the layer before. Configure it with the `model`
+section.
 
 ## Multi-head MLP
 
@@ -43,8 +50,9 @@ Trunk
 
 Heads
 : One {py:class}`~dorothy.models.multi_head_mlp.OutputHead` per label source
-  maps the trunk output through `output_hidden` layers to that source's
-  2 × `n_parameters` outputs. `head_dropout` sets the dropout of each head.
+  maps the trunk output to that source's μ and ln s with its two decoders,
+  each with `output_hidden` layers. Each head reads only its own source's
+  label errors. `head_dropout` sets the dropout of each head.
 
 The {term}`has_data` mask tells the model which surveys each star has. Only
 the stars that have a survey use its encoder's output, and a survey that no
@@ -58,4 +66,6 @@ predict from any one of them:
 {py:meth}`~dorothy.models.multi_head_mlp.MultiHeadMLP.get_embeddings` returns
 a survey encoder's vector (`level="encoder"`) or the trunk output
 (`level="trunk"`). Trunk embeddings place stars from different surveys in one
-space; [anomaly detection](analysis.md#anomaly-detection) uses them.
+space; [anomaly detection](analysis.md#anomaly-detection) uses them. For the
+MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns the input of
+the decoders by default.

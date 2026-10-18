@@ -37,11 +37,17 @@ the same metrics for the stars of each survey.
 
 ## Calibration
 
-The z-score of a prediction divides its residual by its total uncertainty:
+The z-score of a prediction divides its residual by its predicted scatter:
 
 $$
-z = \frac{\mu - y}{\sqrt{\sigma_y^2 + s^2}} .
+z = \frac{\mu - y}{s} .
 $$
+
+The predicted scatter already includes the label noise
+([Scatter and label errors](training.md#scatter-and-label-errors)).
+Checkpoints saved before `label_aware_uncertainty` existed predict the scatter
+beyond the reported label error σ_y, so their z-scores divide by
+$\sqrt{\sigma_y^2 + s^2}$.
 
 If the model's uncertainties are right, the z-scores of held-out stars follow
 a standard normal distribution, and `z_robust_scatter` is close to 1.
@@ -56,5 +62,5 @@ a standard normal distribution, and `z_robust_scatter` is close to 1.
   the model is underconfident.
 
 `dorothy evaluate` plots a z-score histogram per parameter and label source.
-Calibration can differ between label sources, because each source's reported
-uncertainties σ_y enter the z-score.
+Calibration can differ between label sources, because each head predicts the
+scatter against its own source's labels.

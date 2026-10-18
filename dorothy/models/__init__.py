@@ -7,6 +7,7 @@ from dorothy.models.multi_head_mlp import (
     SharedTrunk,
     SurveyEncoder,
 )
+from dorothy.models.output import LabelAwareOutput
 
 __all__ = [
     "MLP",
@@ -14,4 +15,5 @@ __all__ = [
     "SurveyEncoder",
     "SharedTrunk",
     "OutputHead",
+    "LabelAwareOutput",
 ]

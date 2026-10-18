@@ -26,27 +26,92 @@ stores the catalogue rows of each set in `data_split.pkl`.
 
 ## The loss
 
-For one valid label with value y and uncertainty σ_y, the heteroscedastic loss
-is the negative log-likelihood of y under a normal distribution centred on the
-prediction μ, up to a constant and a factor of 2:
+For one valid label with value y, the heteroscedastic loss is the negative
+log-likelihood of y under a normal distribution centred on the prediction μ
+with standard deviation s, up to a constant and a factor of 2:
 
 $$
-\mathcal{L} = \frac{(\mu - y)^2}{\sigma_y^2 + s^2} + \ln\left(\sigma_y^2 + s^2\right),
+\mathcal{L} = \frac{(\mu - y)^2}{s^2} + \ln s^2,
 \qquad s^2 = e^{2 \ln s} + s_0^2 .
 $$
+
+The first term rewards accurate predictions, weighted by the predicted
+variance; the second keeps the model from inflating its scatter s. The scatter
+floor s₀ (`training.scatter_floor`, 0.01 in normalized units by default) stops
+s from collapsing to zero. The model output ln s is clamped to [−10, 5] before
+use. Masked labels contribute nothing.
+{py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` is the one
+definition of s, shared by the loss, validation, evaluation and prediction.
+
+### Scatter and label errors
+
+Every head is a {py:class}`~dorothy.models.output.LabelAwareOutput` with two
+parallel decoders that read the same head input x. The label decoder D_μ
+predicts μ from x alone. The error decoder D_s predicts ln s from x and, for
+each parameter p, the label source's reported error σ_y,p in normalized units:
+
+$$
+\mu = D_\mu(x), \qquad
+\ln s = D_s(x, u), \qquad
+u_p = \begin{cases}
+\ln \sigma_{y,p} & \text{if } \sigma_{y,p} > 0, \\
+m_p & \text{otherwise,}
+\end{cases}
+$$
+
+where ln σ_y,p is clamped to [−10, 5] like ln s, and m is the learned
+{term}`missing vector`. m starts at 0, an error of one normalized unit, far
+above real label errors. No layer that feeds μ reads u: the label errors and
+the missing labels correlate with the label values, and prediction has no
+label errors.
 
 ```{raw} html
 :file: ../figures/uncertainty.svg
 ```
 
-The first term rewards accurate predictions, weighted by the total variance;
-the second keeps the model from inflating its scatter s. The scatter floor s₀
-(`training.scatter_floor`, 0.01 in normalized units by default) stops s from
-collapsing to zero for labels with small reported uncertainties. The model
-output ln s is clamped to [−10, 5] before use. Masked labels contribute
-nothing. {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` is the
-one definition of s, shared by the loss, validation, evaluation and
-prediction.
+Each decoder is a stack of hidden layers (linear, normalization, activation
+and optional dropout) followed by a linear layer with one output per
+parameter. Both decoders have the same hidden layer sizes, and u enters the
+first layer of the error decoder:
+
+Multi-head model
+: x is the trunk output, and the hidden layers are the `output_hidden`
+  layers.
+
+MLP
+: The decoders take over the last hidden layer: x is the input of that
+  layer, and each decoder has one hidden layer of its size. μ therefore
+  passes through exactly the layers of `model.hidden_layers`.
+
+The error decoder always has a hidden layer, so that ln s can be a nonlinear
+function of u. If the true label noise is $\sqrt{a}\,\sigma_y$ and adds in
+quadrature to the model error $\varepsilon$, for example,
+
+$$
+s^2 = a \sigma_y^2 + \varepsilon^2, \qquad
+\ln s = \tfrac{1}{2} \ln\left(a\, e^{2u} + \varepsilon^2\right),
+$$
+
+which tends to ln ε for small label errors and to u + ½ ln a for large ones.
+
+In training, masked labels always get m. A fraction
+`training.label_error_dropout` of the stars (0.5 by default), drawn afresh for
+every batch and head, also get m for all their parameters, so the model learns
+to predict without the errors. Validation, evaluation and prediction always
+use m, so the best epoch is the best one for the reported uncertainties.
+
+The reported uncertainty s is therefore the expected scatter between the
+prediction and the label source's measurement of the star, the source's label
+noise included. The variance s² has no term fixed by the reported errors, so s
+follows the scatter that the labels show: for a label source that
+overestimates its errors, s falls below them.
+
+Checkpoints saved before `label_aware_uncertainty` existed have the additive
+model: one linear layer predicts μ and ln s, the loss variance is σ_y² + s²,
+and s is the scatter beyond the reported label error. Their configuration has
+no `label_aware_uncertainty`, so it loads as false: they predict and evaluate
+exactly as before. They cannot be trained further, because training rejects
+`label_aware_uncertainty: false` and `--resume` needs the same layers.
 
 `loss: mse` trains μ alone with a masked mean squared error and leaves ln s
 untrained.
@@ -168,5 +233,6 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 
 `dorothy train config.yaml --resume <checkpoint>` starts from the weights of
 an earlier run, with a new optimizer and schedule. `training.save_every: N`
-also saves the weights every N epochs. BatchNorm needs at least two stars per
+also saves the weights, the configuration and the normalization every N
+epochs, in `epoch_N/`. BatchNorm needs at least two stars per
 batch in training.

@@ -389,10 +389,17 @@ class Trainer:
                 when set, otherwise the first n STELLAR_PARAMETERS).
 
         Raises:
-            ValueError: If ``parameter_names`` does not have one name per
-                predicted parameter, or if ``training.amp_dtype`` is bfloat16
-                and the GPU has no native bfloat16.
+            ValueError: If the model configuration sets label_aware_uncertainty
+                to false, ``parameter_names`` does not have one name per
+                predicted parameter, or ``training.amp_dtype`` is bfloat16 and
+                the GPU has no native bfloat16.
         """
+        section = "multi_head_model" if config.is_multi_head else "model"
+        if not getattr(config, section).label_aware_uncertainty:
+            raise ValueError(
+                f"{section}.label_aware_uncertainty must be true for training; "
+                "false only loads checkpoints saved before this option"
+            )
         self.config = config
         self.history = TrainingHistory()
 
@@ -1040,9 +1047,25 @@ class Trainer:
         }
         return X_batch, has_data_batch
 
-    def _forward(self, batch: Batch) -> dict[str, torch.Tensor]:
+    def _forward(
+        self, batch: Batch, label_errors: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, torch.Tensor]:
         """Model outputs (batch, 2, n_params) for every label source key."""
-        return forward_label_sources(self.model, batch, self.label_keys)
+        return forward_label_sources(self.model, batch, self.label_keys, label_errors)
+
+    def _label_errors(self, y: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Each head's label-error input: the errors of valid labels, else 0.
+
+        Whole stars get 0 (the missing vector) with probability
+        ``training.label_error_dropout``, drawn independently per head.
+        """
+        p = self.config.training.label_error_dropout
+        errors = {}
+        for key, target in y.items():
+            dropped = torch.rand(target.shape[0], 1, device=target.device) < p
+            keep = (target[:, 2, :] > 0) & ~dropped
+            errors[key] = torch.where(keep, target[:, 1, :], 0.0)
+        return errors
 
     def _combine_losses(
         self,
@@ -1114,7 +1137,6 @@ class Trainer:
             "y_pred": np.asfortranarray(output[:, 0, :].numpy()),
             "y_true": np.asfortranarray(target[:, 0, :].numpy()),
             "pred_scatter": None if scatter is None else np.asfortranarray(scatter),
-            "label_errors": np.asfortranarray(target[:, 1, :].numpy()),
             "mask": np.asfortranarray(target[:, 2, :].numpy()),
         }
 
@@ -1263,6 +1285,7 @@ class Trainer:
                 )
             if self._label_masking is not None:
                 batch.y = self._label_masking(batch.y)
+            label_errors = self._label_errors(batch.y)
 
             self.optimizer.zero_grad()
             # torch < 2.5 rejects autocast on MPS even when it is disabled
@@ -1271,7 +1294,7 @@ class Trainer:
                 if self.autocast_dtype is not None
                 else nullcontext()
             ):
-                outputs = self._forward(batch)
+                outputs = self._forward(batch, label_errors)
             # exp(2 ln s) in the loss would otherwise run in 16 bits
             outputs = {k: v.float() for k, v in outputs.items()}
             loss = self._combine_losses(outputs, batch.y)
@@ -1623,11 +1646,19 @@ class Trainer:
             checkpoint_dir / f"best_model_epoch_{epoch}.pth",
         )
 
-        # Save history
-        self.history.save(checkpoint_dir / "history_train_val.pkl")
-        self.history.save_learning_rates(checkpoint_dir / "learning_rates.pkl")
-
+        self._save_run_files(checkpoint_dir)
         logger.debug(f"Saved checkpoint at epoch {epoch}")
+
+    def _save_run_files(self, path: Path) -> None:
+        """Save the normalizer, history and config next to a checkpoint's weights.
+
+        load_checkpoint rebuilds the model from the config.
+        """
+        if self.normalizer is not None:
+            self.normalizer.save(path / "normalizer.pkl")
+        self.history.save(path / "history_train_val.pkl")
+        self.history.save_learning_rates(path / "learning_rates.pkl")
+        self.config.save_yaml(path / "config.yaml")
 
     def save_checkpoint(self, path: str | Path | None = None) -> Path:
         """
@@ -1663,19 +1694,7 @@ class Trainer:
             else self.model.state_dict()
         )
         torch.save(final_weights, path / "final_model.pth")
-
-        # Save normalizer if it was fitted
-        if self.normalizer is not None:
-            self.normalizer.save(path / "normalizer.pkl")
-            logger.info("Saved label normalizer")
-
-        # Save training history
-        self.history.save(path / "history_train_val.pkl")
-        self.history.save_learning_rates(path / "learning_rates.pkl")
-
-        # Save config for reproducibility
-        self.config.save_yaml(path / "config.yaml")
-
+        self._save_run_files(path)
         logger.info(f"Saved final checkpoint to {path}")
         return path
 
