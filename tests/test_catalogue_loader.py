@@ -1564,6 +1564,14 @@ class TestDuplicateDetection:
                 label_source="apogee",
             )
 
+    def test_duplicate_error_tells_the_user_to_rebuild_the_catalogue(
+        self, duplicate_catalogue
+    ):
+        loader = CatalogueLoader(duplicate_catalogue)
+        with pytest.raises(ValueError, match="scripts/build_catalogue_v2.py") as err:
+            loader.load_merged_sparse(surveys=["desi"], label_source="apogee")
+        assert "create_deduplicated_catalogue" not in str(err.value)
+
 
 class TestSparseMergedDataMethods:
     """Tests for SparseMergedData utility methods."""

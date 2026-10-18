@@ -1344,9 +1344,8 @@ class CatalogueLoader:
         """
         Check for duplicate observations and raise an error if found.
 
-        This method enforces that catalogues must be pre-deduplicated before
-        training. If duplicates are found, it provides instructions for creating
-        a clean catalogue.
+        Training needs one row per star. The error tells the user to rebuild
+        the catalogue with ``scripts/build_catalogue_v2.py``.
 
         Args:
             survey_meta: Survey metadata from pass 1, containing duplicate info.
@@ -1375,14 +1374,10 @@ class CatalogueLoader:
                 f"{'='*60}\n\n"
                 f"Found {total_duplicates:,} stars with duplicate observations:\n"
                 f"{details}\n\n"
-                f"Training requires a deduplicated catalogue. To create one, run:\n\n"
-                f"  python scripts/create_deduplicated_catalogue.py \\\n"
-                f"      {self.path} \\\n"
-                f"      data/super_catalogue_clean.h5 \\\n"
-                f"      --surveys {' '.join(surveys)}\n\n"
-                f"Then update your config to use the clean catalogue:\n"
-                f"  data:\n"
-                f"    catalogue_path: data/super_catalogue_clean.h5\n"
+                f"Training needs one row per star. Rebuild the catalogue with\n\n"
+                f"  python scripts/build_catalogue_v2.py --output <new file>.h5\n\n"
+                f"which keeps each star's highest-S/N spectrum, and set\n"
+                f"data.catalogue_path to the new file.\n"
                 f"{'='*60}\n"
             )
 
@@ -1401,9 +1396,8 @@ class CatalogueLoader:
         Stars that don't appear in a survey have ivar=0 (natural masking).
 
         Note:
-            This method requires a pre-deduplicated catalogue. If duplicates are
-            found, an error is raised with instructions to run the deduplication
-            script: scripts/create_deduplicated_catalogue.py
+            This method needs one row per star, as catalogues built by
+            ``scripts/build_catalogue_v2.py`` have; duplicate rows raise an error.
 
         Args:
             surveys: List of survey names to load and merge.
@@ -1564,9 +1558,8 @@ class CatalogueLoader:
         - Sparse (this method): ~7 GB for spectra
 
         Note:
-            This method requires a pre-deduplicated catalogue. If duplicates are
-            found, an error is raised with instructions to run the deduplication
-            script: scripts/create_deduplicated_catalogue.py
+            This method needs one row per star, as catalogues built by
+            ``scripts/build_catalogue_v2.py`` have; duplicate rows raise an error.
 
         Args:
             surveys: List of survey names to load and merge.
@@ -2001,9 +1994,8 @@ class CatalogueLoader:
         training with per-source loss masking.
 
         Note:
-            This method requires a pre-deduplicated catalogue. If duplicates are
-            found, an error is raised with instructions to run the deduplication
-            script: scripts/create_deduplicated_catalogue.py
+            This method needs one row per star, as catalogues built by
+            ``scripts/build_catalogue_v2.py`` have; duplicate rows raise an error.
 
         Args:
             surveys: List of survey names to load and merge.
