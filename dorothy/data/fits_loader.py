@@ -266,8 +266,9 @@ def normalize_spectra(
     where the median and IQR are computed over valid pixels only (finite flux,
     finite and positive ivar). Invalid pixels are returned with flux = 0 and
     ivar = 0 (:func:`zero_invalid_pixels`), so downstream code that derives
-    the pixel mask from ivar > 0 treats them as masked. Spectra with no valid
-    pixels, or zero IQR, use median = 0 / IQR = 1.
+    the pixel mask from ivar > 0 treats them as masked. So are pixels whose
+    normalized flux or scaled ivar overflows to infinity. Spectra with no
+    valid pixels, or zero IQR, use median = 0 / IQR = 1.
 
     Args:
         flux: Flux array of shape (n_spectra, n_wavelengths) or (n_wavelengths,).
@@ -307,9 +308,12 @@ def normalize_spectra(
         iqr = q75 - q25
         iqr = torch.where(torch.isfinite(iqr) & (iqr > 0), iqr, torch.ones_like(iqr))
         med = torch.nan_to_num(med, nan=0.0)
-        # Compute both outputs before writing (f and iv are views of them)
-        new_flux = torch.where(valid, (f - med) / iqr, zero)
-        new_ivar = torch.where(valid, iv * iqr**2, zero)
+        # Compute both outputs before writing (f and iv are views of them).
+        # A finite ivar can overflow when scaled; such a pixel is invalid too.
+        scaled_flux, scaled_ivar = (f - med) / iqr, iv * iqr**2
+        keep = valid & torch.isfinite(scaled_flux) & torch.isfinite(scaled_ivar)
+        new_flux = torch.where(keep, scaled_flux, zero)
+        new_ivar = torch.where(keep, scaled_ivar, zero)
         flux_2d[sl] = new_flux.numpy()
         ivar_2d[sl] = new_ivar.numpy()
     return flux, ivar
