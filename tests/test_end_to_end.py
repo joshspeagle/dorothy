@@ -209,6 +209,16 @@ class TestCLIEndToEnd:
         assert main(["train", str(config_path), "--resume", str(ckpt)]) == 0
         assert "Initialized weights from" in capsys.readouterr().out
 
+        # A checkpoint saved before the precision encoding was trained on sigma
+        saved = ckpt / "config.yaml"
+        text, removed = re.subn(
+            r"^ *precision_encoding: true\n", "", saved.read_text(), flags=re.M
+        )
+        assert removed == 1
+        saved.write_text(text)
+        assert main(["train", str(config_path), "--resume", str(ckpt)]) == 1
+        assert "before the precision encoding" in capsys.readouterr().out
+
 
 class TestPredictorMultiHead:
     def test_load_and_predict_single_survey_and_dict(self, tmp_path, catalogue):

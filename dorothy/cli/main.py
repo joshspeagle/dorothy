@@ -317,7 +317,6 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"Output: {config.get_output_path()}")
     print(f"Surveys: {config.data.surveys}")
     print(f"Label sources: {config.data.label_sources}")
-    print(f"Precision encoding: {config.data.precision_encoding}")
     _print_memory("After config")
 
     # Load data, keep stars with >= 1 survey and >= 1 valid label, and split
@@ -351,6 +350,18 @@ def cmd_train(args: argparse.Namespace) -> int:
         weights = args.resume / "best_model.pth"
         if not weights.exists():
             print(f"Error: No best_model.pth in {args.resume}")
+            return 1
+        resumed = args.resume / "config.yaml"
+        if (
+            resumed.exists()
+            and not ExperimentConfig.load_checkpoint_config(
+                resumed
+            ).data.precision_encoding
+        ):
+            print(
+                f"Error: {args.resume} was trained on sigma inputs, before the "
+                "precision encoding, so its weights cannot start a new run"
+            )
             return 1
         try:
             trainer.model.load_state_dict(

@@ -1905,7 +1905,9 @@ class TestSelectiveRowReads:
                 f.attrs["parameter_names"] = PARAMETER_NAMES
             paths[compression] = path
         loaded = {
-            c: CatalogueLoader(p).load_merged_sparse(["boss", "lamost_mrs"])
+            c: CatalogueLoader(p).load_merged_sparse(
+                ["boss", "lamost_mrs"], precision_encoding=False
+            )
             for c, p in paths.items()
         }
         rows = np.flatnonzero(has)
@@ -1923,7 +1925,7 @@ class TestSurveyWavelengthGrid:
     @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
     def test_every_loader_path_gives_the_same_grid_and_spectra(self, tmp_path, survey):
         loader = CatalogueLoader(build_catalogue(tmp_path / "cat.h5"))
-        sparse = loader.load_merged_sparse([survey])
+        sparse = loader.load_merged_sparse([survey], precision_encoding=False)
         grid = sparse.wavelengths[survey]
         info = loader.get_info().surveys[survey]
         assert info["wavelength_bins"] == len(grid)

@@ -37,7 +37,7 @@ from dorothy.analysis import (
     plot_saliency_heatmap,
 )
 from dorothy.config.schema import ExperimentConfig
-from dorothy.data import CatalogueLoader
+from dorothy.data import CatalogueLoader, encode_precision
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.models import MultiHeadMLP
 
@@ -298,6 +298,8 @@ def main():
             n_wavelengths = 4506
         print(f"Creating synthetic spectrum with {n_wavelengths} wavelengths")
         X, wavelength = create_synthetic_spectrum(n_wavelengths)
+        if precision_encoding:
+            X = encode_precision(X[None])[0]
 
     print(
         f"Spectrum shape: {X.shape}, wavelength range: {wavelength.min():.0f}-{wavelength.max():.0f} Å"

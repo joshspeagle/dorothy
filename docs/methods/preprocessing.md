@@ -66,7 +66,8 @@ The models read the channel as it comes.
 The setting is stored in the checkpoint. A checkpoint saved before this
 option has no `precision_encoding` in its configuration, so it loads as
 false: its inputs keep σ, and it predicts and evaluates exactly as before.
-Training rejects `data.precision_encoding: false`.
+Training rejects `data.precision_encoding: false`, and `dorothy train --resume`
+rejects a checkpoint saved before the encoding.
 
 ## Labels
 

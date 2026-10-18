@@ -341,8 +341,8 @@ def encode_precision(spectra: NDArray, inplace: bool = False) -> NDArray[np.floa
     Flux and mask are unchanged. rho falls to 0 as sigma grows, so a pixel
     without information reads like a masked one. Apply it after
     :func:`zero_invalid_pixels` and :func:`normalize_spectra`, which rescales
-    sigma. A valid pixel needs sigma > 0, as every loading path gives it; a
-    masked pixel may hold any value, including NaN.
+    sigma. A valid pixel needs sigma > 0; a masked pixel may hold any value,
+    including NaN.
 
     Args:
         spectra: Model inputs of shape (N, 3, n_wavelengths) = [flux, sigma,
@@ -355,13 +355,18 @@ def encode_precision(spectra: NDArray, inplace: bool = False) -> NDArray[np.floa
 
     Raises:
         ValueError: If ``spectra`` does not have shape (N, 3, n_wavelengths),
-            or ``inplace`` is set and it is not float32.
+            has sigma <= 0 or NaN at a valid pixel, or ``inplace`` is set
+            and it is not float32.
     """
     spectra = np.asarray(spectra)
     if spectra.ndim != 3 or spectra.shape[1] != 3:
         raise ValueError(
             f"spectra must have shape (N, 3, n_wavelengths), got {spectra.shape}"
         )
+    for start in range(0, len(spectra), _BLOCK_ROWS):
+        block = spectra[start : start + _BLOCK_ROWS]
+        if not (block[:, 1][block[:, 2] > 0] > 0).all():
+            raise ValueError("spectra must have sigma > 0 at every valid pixel")
     if not inplace:
         spectra = spectra.astype(np.float32)
     elif spectra.dtype != np.float32:

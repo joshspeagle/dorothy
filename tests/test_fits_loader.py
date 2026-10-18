@@ -938,3 +938,11 @@ def test_precision_encoding_replaces_only_valid_sigma_and_leaves_input_unchanged
     np.testing.assert_allclose(encoded[0, 1], expected, rtol=1e-6)
     np.testing.assert_array_equal(encoded[:, [0, 2]], x[:, [0, 2]])
     np.testing.assert_array_equal(x, original)
+
+
+@pytest.mark.parametrize("sigma", [0.0, -1.0, float("nan")])
+def test_precision_encoding_rejects_a_valid_pixel_without_positive_sigma(sigma):
+    x = np.ones((1, 3, 4), dtype=np.float32)
+    x[0, 1, 2] = sigma
+    with pytest.raises(ValueError, match="sigma > 0"):
+        encode_precision(x)

@@ -92,7 +92,9 @@ class Predictor:
     units.
 
     Inputs use the training format: arrays of shape (n_samples, 3,
-    n_wavelengths) with channels [flux, sigma, mask]. For a MultiHeadMLP,
+    n_wavelengths) with channels [flux, rho, mask], where rho is the precision
+    encoding of sigma (``encode_precision``) unless the checkpoint's
+    ``data.precision_encoding`` is false. For a MultiHeadMLP,
     pass either one survey's array (set ``survey``) or a dict mapping survey
     names to arrays (optionally with ``has_data`` masks).
 

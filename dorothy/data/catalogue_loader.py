@@ -947,7 +947,7 @@ class CatalogueLoader:
         label_source: str | None = None,
         max_flag_bits: int = 0,
         normalize_spectra: bool = False,
-        precision_encoding: bool = False,
+        precision_encoding: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Load data ready for training in unified 3-channel format.
@@ -1570,7 +1570,7 @@ class CatalogueLoader:
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
         normalize_spectra: bool = False,
-        precision_encoding: bool = False,
+        precision_encoding: bool = True,
     ) -> SparseMergedData:
         """
         Load and merge multiple surveys with memory-efficient sparse storage.
@@ -1864,7 +1864,7 @@ class CatalogueLoader:
         survey: str,
         index: int,
         normalize_spectra: bool = False,
-        precision_encoding: bool = False,
+        precision_encoding: bool = True,
     ) -> tuple[np.ndarray, np.ndarray, int]:
         """
         Load one star's spectrum as a 3-channel model input.
@@ -1982,7 +1982,7 @@ class CatalogueLoader:
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
         normalize_spectra: bool = False,
-        precision_encoding: bool = False,
+        precision_encoding: bool = True,
     ) -> tuple[
         dict[str, np.ndarray],
         np.ndarray | dict[str, np.ndarray],

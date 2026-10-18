@@ -307,5 +307,6 @@
   `SparseMergedData.sigma` holds the encoded values. A checkpoint
   configuration without `data.precision_encoding` loads it as false, so old
   checkpoints predict and evaluate exactly as before. Training rejects
-  `data.precision_encoding: false`. Arrays passed to `Predictor.predict` must
+  `data.precision_encoding: false`, and `dorothy train --resume` rejects a
+  checkpoint saved before it. Arrays passed to `Predictor.predict` must
   be encoded when the checkpoint's configuration says so.
