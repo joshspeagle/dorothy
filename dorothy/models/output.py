@@ -84,7 +84,8 @@ class LabelAwareOutput(nn.Module):
             # 0, a negative value or NaN
             log_errors = torch.log(torch.where(reported, label_errors, 1.0))
             u = torch.where(reported, log_errors.clamp(LN_S_MIN, LN_S_MAX), u)
-        ln_s = self.scatter(torch.cat([h, u], dim=1))
+        # u is float32; matching h's dtype avoids two full casts under AMP
+        ln_s = self.scatter(torch.cat([h, u.to(h.dtype)], dim=1))
         return torch.stack([self.mean(h), ln_s], dim=1)
 
 
