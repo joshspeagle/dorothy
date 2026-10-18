@@ -681,3 +681,123 @@ class TestDynamicInputMaskingRandomOffset:
         assert X_out["survey"].shape == (10, 3, 50)
         mask = X_out["survey"][:, 2, :]
         assert (mask.sum(dim=1) >= 1).all()
+
+
+# ============================================================================
+# DynamicInputMasking: exact algorithm and in-place mode
+# ============================================================================
+
+
+def _reference_block_masking(masking, X, N):
+    """Straightforward version of the block masking algorithm.
+
+    Draws the same random numbers in the same order as DynamicInputMasking.
+    """
+    f_min = masking.f_min_override if masking.f_min_override is not None else 1 / N
+    f_min = max(f_min, 1.0 / N)
+    f = np.exp(np.random.uniform(np.log(f_min), np.log(masking.f_max)))
+    block_size = max(1, int(np.ceil(f * N)))
+    offset = np.random.randint(0, block_size)
+    n_blocks = int(np.ceil((offset + N) / block_size))
+    post_pad = n_blocks * block_size - (offset + N)
+    p_keep = np.random.uniform(masking.p_block_min, masking.p_block_max)
+    mask = X[:, 2, :]
+    padded = torch.nn.functional.pad(mask, (offset, post_pad), value=0)
+    available = padded.view(len(X), n_blocks, block_size).any(dim=2)
+    any_available = available.any(dim=1)
+    if not any_available.any():
+        return X
+    rand = torch.rand(len(X), n_blocks, dtype=X.dtype)
+    guaranteed = rand.clone()
+    guaranteed[~available] = -float("inf")
+    keep = (rand < p_keep) & available
+    keep[torch.arange(len(X)), guaranteed.argmax(dim=1)] = True
+    keep = keep | ~any_available.unsqueeze(1)
+    keep_wave = keep.unsqueeze(2).expand(-1, -1, block_size).reshape(len(X), -1)
+    keep_float = keep_wave[:, offset : offset + N].float()
+    out = X.clone()
+    for channel in range(3):
+        out[:, channel, :] = X[:, channel, :] * keep_float
+    return out
+
+
+def _reference_input_masking(masking, X, n_wavelengths):
+    """Straightforward version of DynamicInputMasking.__call__."""
+    surveys = list(X)
+    p_keep = np.random.uniform(masking.p_survey_min, masking.p_survey_max)
+    if len(surveys) == 1:
+        return {
+            surveys[0]: _reference_block_masking(
+                masking, X[surveys[0]], N=n_wavelengths[surveys[0]]
+            )
+        }
+    batch = len(X[surveys[0]])
+    available = torch.stack([X[s][:, 2, :].any(dim=1) for s in surveys], dim=1)
+    any_available = available.any(dim=1)
+    rand = torch.rand(batch, len(surveys))
+    guaranteed = rand.clone()
+    guaranteed[~available] = -float("inf")
+    keep = (rand < p_keep) & available
+    keep[torch.arange(batch), guaranteed.argmax(dim=1)] = True
+    keep = keep | ~any_available.unsqueeze(1)
+    out = {}
+    for i, s in enumerate(surveys):
+        if not keep[:, i].any():
+            out[s] = torch.zeros_like(X[s])
+            continue
+        masked = _reference_block_masking(masking, X[s], n_wavelengths[s])
+        out[s] = masked * keep[:, i].float().view(-1, 1, 1)
+    return out
+
+
+def _spectra(batch, waves, coverage, seed):
+    g = torch.Generator().manual_seed(seed)
+    X = {}
+    for (survey, n_wave), frac in zip(waves.items(), coverage, strict=True):
+        x = torch.randn(batch, 3, n_wave, generator=g)
+        x[:, 2] = (torch.rand(batch, n_wave, generator=g) > 0.05).float()
+        x[torch.rand(batch, generator=g) >= frac] = 0.0
+        X[survey] = x
+    return X
+
+
+class TestDynamicInputMaskingExact:
+    """Outputs and random draws match the reference algorithm exactly."""
+
+    WAVES = {"desi": 76, "boss": 45, "lamost_lrs": 34, "lamost_mrs": 60}
+
+    @pytest.mark.parametrize("seed", range(8))
+    @pytest.mark.parametrize("inplace", [False, True])
+    @pytest.mark.parametrize(
+        "waves,coverage",
+        [
+            (WAVES, [0.05, 0.3, 0.6, 0.0]),
+            ({"boss": 45}, [1.0]),
+            ({"boss": 45, "desi": 7}, [0.9, 0.0]),
+        ],
+    )
+    def test_matches_reference(self, seed, inplace, waves, coverage):
+        masking = DynamicInputMasking(p_survey_min=0.2, p_block_min=0.2)
+        X = _spectra(32, waves, coverage, seed)
+        n_wave = {s: x.shape[2] for s, x in X.items()}
+
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        expected = _reference_input_masking(
+            masking, {s: x.clone() for s, x in X.items()}, n_wave
+        )
+        rng_np, rng_torch = np.random.get_state()[1].copy(), torch.get_rng_state()
+
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        inputs = {s: x.clone() for s, x in X.items()}
+        out = masking(inputs, n_wave, inplace=inplace)
+
+        assert np.array_equal(np.random.get_state()[1], rng_np)
+        assert torch.equal(torch.get_rng_state(), rng_torch)
+        for s in X:
+            assert torch.equal(out[s], expected[s]), s
+            if inplace:
+                assert out[s] is inputs[s]
+            else:
+                assert torch.equal(inputs[s], X[s])

@@ -720,9 +720,7 @@ class Trainer:
         )
         logger.info(f"Memory usage: {data.memory_usage_mb()['total']:.1f} MB")
         train_source = SparseBatchSource(data, train_indices, labels, self.device)
-        val_source = SparseBatchSource(
-            data, val_indices, labels, self.device, share_buffers_with=train_source
-        )
+        val_source = SparseBatchSource(data, val_indices, labels, self.device)
         return self._run(train_source, val_source, survey_names=list(data.surveys))
 
     def fit_multi_labelset(
@@ -933,8 +931,11 @@ class Trainer:
         DynamicInputMasking zeroes out whole surveys (including the mask
         channel). The model must then treat that survey as missing, exactly as
         at inference time, rather than encoding an all-zero spectrum.
+
+        The batch tensors are freshly built for this step, so they are masked
+        in place.
         """
-        X_batch = self._input_masking(X_batch, self._survey_wavelengths)
+        X_batch = self._input_masking(X_batch, self._survey_wavelengths, inplace=True)
         has_data_batch = {
             survey: has_data_batch[survey] & (X_batch[survey][:, 2, :] > 0).any(dim=1)
             for survey in has_data_batch
@@ -974,10 +975,12 @@ class Trainer:
                 numerator * 0.0,
             )
 
+        # Which sources have any valid label, in one host transfer
+        has_labels = torch.stack(counts).gt(0).tolist()
         terms = [
             (w, s / c)
-            for w, s, c in zip(weights, sums, counts, strict=True)
-            if c.item() > 0
+            for w, s, c, ok in zip(weights, sums, counts, has_labels, strict=True)
+            if ok
         ]
         if not terms or sum(w for w, _ in terms) == 0:
             return sums[0] * 0.0
@@ -999,36 +1002,45 @@ class Trainer:
             for name in EVALUATOR_METRIC_NAMES
         }
 
-    def _evaluate_head(
-        self,
-        output: torch.Tensor,
-        target: torch.Tensor,
-        has_data: dict[str, torch.Tensor] | None = None,
-    ) -> tuple[dict[str, np.ndarray], dict[str, float], dict[str, dict]]:
-        """Evaluator metrics overall and (optionally) per survey for one head."""
-        kwargs = {
-            "y_pred": output[:, 0, :].numpy(),
-            "y_true": target[:, 0, :].numpy(),
-            "pred_scatter": self._predicted_scatter(output),
-            "label_errors": target[:, 1, :].numpy(),
-            "mask": target[:, 2, :].numpy(),
+    def _head_inputs(
+        self, output: torch.Tensor, target: torch.Tensor
+    ) -> dict[str, np.ndarray | None]:
+        """Evaluator inputs for one head, as column-major arrays.
+
+        The Evaluator selects each parameter's valid entries column by
+        column, which is much faster on column-major copies. The values (and
+        their order) are unchanged.
+        """
+        scatter = self._predicted_scatter(output)
+        return {
+            "y_pred": np.asfortranarray(output[:, 0, :].numpy()),
+            "y_true": np.asfortranarray(target[:, 0, :].numpy()),
+            "pred_scatter": None if scatter is None else np.asfortranarray(scatter),
+            "label_errors": np.asfortranarray(target[:, 1, :].numpy()),
+            "mask": np.asfortranarray(target[:, 2, :].numpy()),
         }
-        metrics = self._metric_arrays(self._evaluator.evaluate(**kwargs))
-        survey_losses, survey_metrics = {}, {}
-        if has_data:
-            by_survey = self._evaluator.evaluate_by_survey(
-                **kwargs, has_data={s: h.numpy() for s, h in has_data.items()}
-            )
-            for survey, mask in has_data.items():
-                survey_losses[survey] = (
-                    self.loss_fn(output[mask], target[mask]).item()
-                    if mask.any()
-                    else float("nan")
-                )
-                survey_metrics[survey] = self._metric_arrays(
-                    by_survey.by_survey[survey]
-                )
-        return metrics, survey_losses, survey_metrics
+
+    def _head_metrics(
+        self,
+        inputs: dict[str, np.ndarray | None],
+        rows: np.ndarray | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Evaluator metrics for one head, optionally on a subset of rows.
+
+        A subset without rows gives NaN metrics, as
+        ``Evaluator.evaluate_by_survey`` does for a survey without samples.
+        """
+        if rows is not None:
+            if not rows.any():
+                return {
+                    name: np.full(len(self.parameter_names), np.nan, dtype=np.float32)
+                    for name in EVALUATOR_METRIC_NAMES
+                }
+            inputs = {
+                k: None if v is None else np.asfortranarray(v[rows])
+                for k, v in inputs.items()
+            }
+        return self._metric_arrays(self._evaluator.evaluate(**inputs))
 
     def _evaluate(self, source: TensorBatchSource | SparseBatchSource) -> dict:
         """Run validation over a batch source and compute all metrics.
@@ -1058,15 +1070,36 @@ class Trainer:
         outputs = {k: torch.cat(v) for k, v in outputs.items()}
         targets = {k: torch.cat(v) for k, v in targets.items()}
         has_data_all = {s: torch.cat(v) for s, v in has_data.items()}
+        return self._validation_results(outputs, targets, has_data_all)
 
+    def _validation_results(
+        self,
+        outputs: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        has_data: dict[str, torch.Tensor],
+    ) -> dict:
+        """Losses and Evaluator metrics from concatenated validation outputs.
+
+        Each (head, row subset) is evaluated once: the primary head's overall
+        metrics also serve as its per-labelset metrics, and per-survey metrics
+        evaluate only that survey's rows.
+        """
+        keys = list(outputs)
         primary = keys[0]
         details = self.loss_fn.forward_detailed(outputs[primary], targets[primary])
-        multi_survey = isinstance(self.model, MultiHeadMLP)
-        metrics, survey_losses, survey_metrics = self._evaluate_head(
-            outputs[primary],
-            targets[primary],
-            has_data_all if multi_survey else None,
-        )
+        inputs = self._head_inputs(outputs[primary], targets[primary])
+        metrics = self._head_metrics(inputs)
+
+        survey_losses, survey_metrics = {}, {}
+        if isinstance(self.model, MultiHeadMLP):
+            output, target = outputs[primary], targets[primary]
+            for survey, mask in has_data.items():
+                survey_losses[survey] = (
+                    self.loss_fn(output[mask], target[mask]).item()
+                    if mask.any()
+                    else float("nan")
+                )
+                survey_metrics[survey] = self._head_metrics(inputs, mask.numpy())
 
         labelset_losses, labelset_metrics = {}, {}
         if len(keys) > 1:
@@ -1077,7 +1110,11 @@ class Trainer:
                     if has_labels
                     else float("nan")
                 )
-                labelset_metrics[k], _, _ = self._evaluate_head(outputs[k], targets[k])
+                labelset_metrics[k] = (
+                    {name: arr.copy() for name, arr in metrics.items()}
+                    if k == primary
+                    else self._head_metrics(self._head_inputs(outputs[k], targets[k]))
+                )
 
         return {
             "loss": self._combine_losses(outputs, targets).item(),
@@ -1113,8 +1150,11 @@ class Trainer:
         step_scheduler = self.scheduler is not None and not isinstance(
             self.scheduler, ReduceLROnPlateau
         )
-        total_loss = 0.0
-        total_grad_norm = 0.0
+        # Summed on the device in float64 (as the Python floats were) and read
+        # once per epoch, so steps do not wait for the GPU. MPS has no float64.
+        acc_device = self.device if self.device.type != "mps" else torch.device("cpu")
+        total_loss = torch.zeros((), dtype=torch.float64, device=acc_device)
+        total_grad_norm = torch.zeros((), dtype=torch.float64, device=acc_device)
         n_batches = 0
 
         for batch in source.batches(batch_size, rng):
@@ -1130,15 +1170,17 @@ class Trainer:
             with autocast(device_type=self.device.type, enabled=use_amp):
                 loss = self._combine_losses(self._forward(batch), batch.y)
 
-            total_grad_norm += self._backward_and_step(loss, gradient_clip)
+            grad_norm = self._backward_and_step(loss, gradient_clip)
+            total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
                 self.scheduler.step()
             self.history.learning_rates.append(self.optimizer.param_groups[0]["lr"])
 
-            total_loss += loss.item()
+            total_loss += loss.detach().to(acc_device).double()
             n_batches += 1
 
-        return total_loss / max(n_batches, 1), total_grad_norm / max(n_batches, 1)
+        n = max(n_batches, 1)
+        return total_loss.item() / n, total_grad_norm.item() / n
 
     def _run(
         self,
@@ -1222,7 +1264,7 @@ class Trainer:
             if val_loss < self.history.best_val_loss:
                 self.history.best_val_loss = val_loss
                 self.history.best_epoch = epoch
-                self._best_weights = copy.deepcopy(self.model.state_dict())
+                self._store_best_weights()
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -1304,7 +1346,7 @@ class Trainer:
         self,
         loss: torch.Tensor,
         gradient_clip: float,
-    ) -> float:
+    ) -> torch.Tensor:
         """Backward pass, gradient clipping, and optimizer step.
 
         This unified helper handles both AMP (mixed precision) and standard
@@ -1315,7 +1357,8 @@ class Trainer:
             gradient_clip: Max gradient norm for clipping (0 or negative = no clip).
 
         Returns:
-            The gradient norm (before clipping if clipping is applied).
+            The gradient norm (before clipping if clipping is applied), as a
+            0-dim tensor on the device (not read back, to avoid a host sync).
         """
         # Backward pass with gradient scaling for AMP
         if self.scaler is not None:
@@ -1330,7 +1373,7 @@ class Trainer:
         grad_norm = torch.nn.utils.clip_grad_norm_(
             self.model.parameters(),
             max_norm=clip_value,
-        ).item()
+        ).detach()
 
         # Optimizer step with scaler if using AMP
         if self.scaler is not None:
@@ -1341,18 +1384,39 @@ class Trainer:
 
         return grad_norm
 
+    def _store_best_weights(self) -> None:
+        """Copy the current weights into the best-weights state dict.
+
+        Copies in place into the state dict made at the start of training,
+        instead of deep-copying a new one on every improvement.
+        """
+        with torch.no_grad():
+            for name, tensor in self.model.state_dict().items():
+                self._best_weights[name].copy_(tensor)
+
+    def _weight_matrices(self) -> dict[str, torch.Tensor]:
+        """Weight matrices tracked for grokking detection (not biases/1D)."""
+        return {
+            name: param.detach()
+            for name, param in self.model.named_parameters()
+            if "weight" in name and param.dim() >= 2
+        }
+
+    @staticmethod
+    def _norms(tensors: dict[str, torch.Tensor]) -> dict[str, float]:
+        """L2 norm of each tensor, read back in one host transfer."""
+        if not tensors:
+            return {}
+        norms = torch.stack([torch.norm(t) for t in tensors.values()]).tolist()
+        return dict(zip(tensors, norms, strict=True))
+
     def _compute_weight_norms(self) -> dict[str, float]:
         """Compute L2 norms of weight matrices for each layer.
 
         Returns:
             Dictionary mapping layer names to their L2 norms.
         """
-        norms = {}
-        for name, param in self.model.named_parameters():
-            if "weight" in name and param.dim() >= 2:
-                # Only track weight matrices (not biases or 1D params)
-                norms[name] = torch.norm(param).item()
-        return norms
+        return self._norms(self._weight_matrices())
 
     def _get_weight_snapshot(self) -> dict[str, torch.Tensor]:
         """Get a copy of current weight matrices.
@@ -1360,29 +1424,30 @@ class Trainer:
         Returns:
             Dictionary mapping layer names to detached weight tensors.
         """
-        snapshot = {}
-        for name, param in self.model.named_parameters():
-            if "weight" in name and param.dim() >= 2:
-                snapshot[name] = param.detach().clone()
-        return snapshot
+        return {name: w.clone() for name, w in self._weight_matrices().items()}
 
     def _compute_weight_updates(
         self, prev_weights: dict[str, torch.Tensor]
     ) -> dict[str, float]:
         """Compute magnitude of weight updates since last snapshot.
 
+        The snapshot is overwritten with W_old - W_new (whose norm equals
+        ||W_new - W_old|| exactly) to avoid allocating the differences.
+
         Args:
-            prev_weights: Previous weight snapshot from _get_weight_snapshot.
+            prev_weights: Previous weight snapshot from _get_weight_snapshot
+                (modified in place).
 
         Returns:
             Dictionary mapping layer names to ||W_new - W_old||.
         """
-        updates = {}
-        for name, param in self.model.named_parameters():
-            if name in prev_weights:
-                delta = param.detach() - prev_weights[name].to(param.device)
-                updates[name] = torch.norm(delta).item()
-        return updates
+        weights = self._weight_matrices()
+        deltas = {
+            name: prev.sub_(weights[name].to(prev.device))
+            for name, prev in prev_weights.items()
+            if name in weights
+        }
+        return self._norms(deltas)
 
     def _to_tensor(self, data: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Convert numpy array to tensor if needed."""

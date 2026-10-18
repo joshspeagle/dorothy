@@ -91,36 +91,37 @@ class TensorBatchSource:
         for start in range(0, self.n_samples, batch_size):
             idx = torch.from_numpy(order[start : start + batch_size])
             yield Batch(
-                X={s: x[idx].to(self.device) for s, x in self.X.items()},
-                has_data={s: h[idx].to(self.device) for s, h in self.has_data.items()},
-                y={k: v[idx].to(self.device) for k, v in self.y.items()},
+                X={s: _rows_to(x, idx, self.device) for s, x in self.X.items()},
+                has_data={
+                    s: _rows_to(h, idx, self.device) for s, h in self.has_data.items()
+                },
+                y={k: _rows_to(v, idx, self.device) for k, v in self.y.items()},
             )
 
 
-class _StagingBuffers:
-    """Per-survey flux/ivar host buffers, pinned on CUDA for async copies."""
+def _rows_to(
+    tensor: torch.Tensor, idx: torch.Tensor, device: torch.device
+) -> torch.Tensor:
+    """Rows ``idx`` of a tensor, as a new tensor on ``device``.
 
-    def __init__(self, data: SparseMergedData, pinned: bool) -> None:
-        self.data = data
-        self.pinned = pinned
-        self.size = 0
-        self.buffers: dict[str, dict[str, torch.Tensor]] = {}
+    Host rows bound for CUDA are gathered into pinned memory and copied
+    asynchronously. PyTorch's caching host allocator keeps a pinned block
+    from being reused until its copy has completed, so no host sync is needed.
+    """
+    if tensor.device.type != "cpu":
+        return tensor[idx].to(device)
+    pin = device.type == "cuda"
+    out = torch.empty((len(idx), *tensor.shape[1:]), dtype=tensor.dtype, pin_memory=pin)
+    torch.index_select(tensor, 0, idx, out=out)
+    return out.to(device, non_blocking=pin)
 
-    def get(self, batch_size: int) -> dict[str, dict[str, torch.Tensor]]:
-        """Return buffers with room for batch_size rows, growing if needed."""
-        if batch_size > self.size:
-            self.buffers = {
-                survey: {
-                    key: torch.zeros(
-                        (batch_size, self.data.wavelengths[survey].shape[0]),
-                        pin_memory=self.pinned,
-                    )
-                    for key in ("flux", "ivar")
-                }
-                for survey in self.data.surveys
-            }
-            self.size = batch_size
-        return self.buffers
+
+def _numpy_to(array: np.ndarray, device: torch.device) -> torch.Tensor:
+    """A host array as a tensor on ``device`` (async pinned copy on CUDA)."""
+    tensor = torch.from_numpy(array)
+    if device.type != "cuda":
+        return tensor.to(device)
+    return tensor.pin_memory().to(device, non_blocking=True)
 
 
 class SparseBatchSource:
@@ -128,8 +129,10 @@ class SparseBatchSource:
 
     Spectra are stored only for stars that have them (see
     :class:`~dorothy.data.catalogue_loader.SparseMergedData`); dense batches
-    are assembled per step. On CUDA, pinned staging buffers allow
-    asynchronous host-to-device copies and sigma/mask are computed on the GPU.
+    are assembled per step. Only the rows of stars that have a survey are
+    gathered, moved to the device and converted to sigma/mask; the other
+    rows stay zero. On CUDA the gathered rows go through pinned memory with
+    asynchronous copies, and nothing in batch assembly waits for the GPU.
 
     Args:
         data: Sparse survey data (spectra and index mappings).
@@ -138,9 +141,6 @@ class SparseBatchSource:
         labels: Label source name -> labels (n_total, 3, n_params), indexed by
             global star index (typically normalized copies of the data labels).
         device: Device batches are moved to.
-        share_buffers_with: Another source over the same data whose staging
-            buffers to reuse (e.g. validation reusing the training buffers),
-            to avoid allocating extra page-locked memory.
     """
 
     def __init__(
@@ -149,18 +149,21 @@ class SparseBatchSource:
         indices: np.ndarray,
         labels: dict[str, np.ndarray],
         device: torch.device,
-        share_buffers_with: SparseBatchSource | None = None,
     ) -> None:
         self.data = data
         self.indices = np.asarray(indices)
         self.labels = labels
         self.device = device
         self.n_samples = len(self.indices)
-        self._staging = (
-            share_buffers_with._staging
-            if share_buffers_with is not None
-            else _StagingBuffers(data, pinned=device.type == "cuda")
-        )
+
+    def _gather(self, array: np.ndarray, local: np.ndarray) -> torch.Tensor:
+        """Rows ``local`` of a sparse survey array, as a device tensor."""
+        source = torch.from_numpy(array)
+        index = torch.from_numpy(np.asarray(local, dtype=np.int64))
+        dtype = torch.get_default_dtype()
+        if source.dtype != dtype:
+            return source.index_select(0, index).to(self.device, dtype)
+        return _rows_to(source, index, self.device)
 
     @property
     def label_keys(self) -> list[str]:
@@ -168,36 +171,37 @@ class SparseBatchSource:
         return list(self.labels)
 
     def build_batch(self, global_indices: np.ndarray) -> Batch:
-        """Assemble a dense batch for the given global star indices."""
+        """Assemble a dense batch for the given global star indices.
+
+        Each survey gives X (batch, 3, n_wavelengths) = [flux, sigma, mask]
+        with sigma = 1/sqrt(ivar) and mask = 1 where ivar > 0 (both 0
+        elsewhere), and all-zero rows for stars without that survey.
+        """
         n = len(global_indices)
-        buffers = self._staging.get(n)
         X, has_data = {}, {}
         for survey in self.data.surveys:
             local_idx = self.data.global_to_local[survey][global_indices]
             present = local_idx >= 0
-            flux = buffers[survey]["flux"][:n]
-            ivar = buffers[survey]["ivar"][:n]
-            flux.zero_()
-            ivar.zero_()
-            if present.any():
-                rows = np.where(present)[0]
-                flux.numpy()[rows] = self.data.flux[survey][local_idx[present]]
-                ivar.numpy()[rows] = self.data.ivar[survey][local_idx[present]]
-
-            # The copies below must not alias the reused staging buffers
-            if self.device.type == "cpu":
-                flux_dev, ivar_dev = flux.clone(), ivar.clone()
-            else:
-                flux_dev = flux.to(self.device, non_blocking=True)
-                ivar_dev = ivar.to(self.device, non_blocking=True)
-            valid = ivar_dev > 0
-            sigma = torch.zeros_like(ivar_dev)
-            sigma[valid] = 1.0 / torch.sqrt(ivar_dev[valid])
-            X[survey] = torch.stack([flux_dev, sigma, valid.float()], dim=1)
-            has_data[survey] = torch.from_numpy(present).to(self.device)
+            rows = np.flatnonzero(present)
+            n_wave = self.data.wavelengths[survey].shape[0]
+            x = torch.zeros((n, 3, n_wave), device=self.device)
+            if len(rows):
+                flux = self._gather(self.data.flux[survey], local_idx[rows])
+                ivar = self._gather(self.data.ivar[survey], local_idx[rows])
+                valid = ivar > 0
+                sigma = torch.where(valid, 1.0 / torch.sqrt(ivar), 0.0)
+                if len(rows) == n:
+                    x[:, 0], x[:, 1], x[:, 2] = flux, sigma, valid
+                else:
+                    rows_dev = _numpy_to(rows, self.device)
+                    x[:, 0].index_copy_(0, rows_dev, flux)
+                    x[:, 1].index_copy_(0, rows_dev, sigma)
+                    x[:, 2].index_copy_(0, rows_dev, valid.to(x.dtype))
+            X[survey] = x
+            has_data[survey] = _numpy_to(present, self.device)
 
         y = {
-            source: torch.from_numpy(labels[global_indices]).to(self.device)
+            source: _numpy_to(labels[global_indices], self.device)
             for source, labels in self.labels.items()
         }
         return Batch(X=X, has_data=has_data, y=y)

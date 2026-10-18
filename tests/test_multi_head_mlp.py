@@ -647,3 +647,97 @@ class TestMultiHeadModelConfigLabelSources:
         )
         assert model.label_sources == ["apogee", "galah"]
         assert model.is_multi_label
+
+
+class TestPresentRowsOnlyEncoding:
+    """Encoding only the rows that have a survey's data (the default)."""
+
+    @staticmethod
+    def _model(**kwargs):
+        torch.manual_seed(0)
+        return MultiHeadMLP(
+            survey_configs={"boss": 40, "desi": 30, "lamost": 25},
+            n_parameters=4,
+            latent_dim=16,
+            encoder_hidden=[32],
+            trunk_hidden=[32],
+            output_hidden=[16],
+            label_sources=["apogee", "galah"],
+            **kwargs,
+        )
+
+    @staticmethod
+    def _inputs(batch=48, seed=1):
+        g = torch.Generator().manual_seed(seed)
+        X, has = {}, {}
+        for survey, n_wave, frac in [
+            ("boss", 40, 0.8),
+            ("desi", 30, 0.1),
+            ("lamost", 25, 1.0),
+        ]:
+            has[survey] = torch.rand(batch, generator=g) < frac
+            x = torch.randn(batch, 3, n_wave, generator=g)
+            x[~has[survey]] = 0.0
+            X[survey] = x
+        return X, has
+
+    @staticmethod
+    def _outputs_and_grads(model, X, has, present_rows_only):
+        model.encode_present_rows_only = present_rows_only
+        model.zero_grad(set_to_none=True)
+        out = model.forward_all_label_sources(X, has_data=has)
+        out = torch.cat([out[k] for k in sorted(out)], dim=1)
+        weights = torch.randn(out.shape, generator=torch.Generator().manual_seed(2))
+        (out * weights).sum().backward()
+        grads = {n: p.grad.clone() for n, p in model.named_parameters()}
+        return out.detach(), grads
+
+    @pytest.mark.parametrize("mode", ["concat", "mean"])
+    @pytest.mark.parametrize("train", [True, False])
+    def test_matches_encoding_every_row(self, mode, train):
+        """Same outputs and gradients as encoding every row, up to rounding."""
+        model = self._model(combination_mode=mode)
+        model.train(train)
+        X, has = self._inputs()
+        out_sub, grads_sub = self._outputs_and_grads(model, X, has, True)
+        out_all, grads_all = self._outputs_and_grads(model, X, has, False)
+        # Rounding differs (GEMMs over fewer rows), so compare relative to
+        # each tensor's scale rather than element by element
+        for name, a, b in [("output", out_sub, out_all)] + [
+            (n, grads_sub[n], grads_all[n]) for n in grads_all
+        ]:
+            assert (a - b).abs().max() <= 1e-5 * b.abs().max(), name
+
+    @pytest.mark.parametrize(
+        "kwargs", [{"normalization": "batchnorm"}, {"dropout": 0.2}]
+    )
+    def test_batch_dependent_encoders_encode_every_row_in_training(self, kwargs):
+        """BatchNorm statistics and dropout draws keep the whole-batch path."""
+        model = self._model(**kwargs)
+        model.train()
+        X, has = self._inputs()
+        torch.manual_seed(3)
+        out_sub, grads_sub = self._outputs_and_grads(model, X, has, True)
+        torch.manual_seed(3)
+        out_all, grads_all = self._outputs_and_grads(model, X, has, False)
+        assert torch.equal(out_sub, out_all)
+        for name in grads_all:
+            assert torch.equal(grads_sub[name], grads_all[name]), name
+
+    def test_rows_without_data_are_not_encoded(self):
+        """Values in rows without a survey's data cannot affect the output."""
+        model = self._model(combination_mode="mean")
+        X, has = self._inputs()
+        out = model(X, has_data=has)
+        X_bad = {s: x.clone() for s, x in X.items()}
+        X_bad["desi"][~has["desi"]] = float("nan")
+        assert torch.equal(model(X_bad, has_data=has), out)
+
+    def test_survey_without_rows_gets_no_gradient(self):
+        """An encoder with no rows in the batch is skipped, as before."""
+        model = self._model()
+        X, has = self._inputs()
+        has["desi"] = torch.zeros_like(has["desi"])
+        model(X, has_data=has).sum().backward()
+        assert all(p.grad is None for p in model.encoders["desi"].parameters())
+        assert all(p.grad is not None for p in model.encoders["boss"].parameters())
