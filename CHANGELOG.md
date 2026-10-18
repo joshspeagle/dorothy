@@ -154,6 +154,9 @@
   computed σ with `torch.sqrt`, which is not exactly rounded on the CPU: σ
   differed from the other paths by up to two rounding steps in about 0.6% of
   pixels.
+- `normalize_spectra` marks a pixel invalid (flux and ivar 0) when the
+  scaled ivar or the normalized flux overflows to infinity. Before, such a
+  pixel kept an infinite ivar, which gave σ = 0 with mask 1.
 - Multi-head encoders run only on the stars that have their survey (except
   encoders with batch normalization or dropout in training mode). Results
   change by floating-point rounding only: losses after a few epochs differ

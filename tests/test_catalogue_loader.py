@@ -2161,6 +2161,8 @@ class TestModelInputs:
             rows = np.flatnonzero(boss["snr"][:] > 0)
             # Pixels 0 and 1 are masked (ivar 0) and hold a nonzero flux
             r = rows[:3]
+            # A valid ivar that overflows when normalization scales it
+            ivar[r[0], 10] = 3e38
             flux[r[:2], 0] = [np.nan, np.inf]
             flux[r[:2], 5] = [np.nan, np.inf]
             ivar[r, 6] = [np.nan, -1.0, np.inf]
@@ -2168,10 +2170,11 @@ class TestModelInputs:
             boss["ivar"][...] = ivar
             has_apogee = (f["labels/apogee/errors"][:] > 0).any(axis=1)[rows]
         flux, ivar = flux[rows], ivar[rows]
-        valid = np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0)
         ref_flux, ref_ivar = (
             normalize_spectra(flux, ivar) if normalize else (flux, ivar)
         )
+        valid = np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0) & (ref_ivar > 0)
+        assert valid[0, 10] != normalize  # the overflow invalidates the pixel
         sigma = np.where(valid, 1 / np.sqrt(np.where(valid, ref_ivar, 1)), 0)
         expected = np.stack([np.where(valid, ref_flux, 0), sigma, valid], axis=1)
 
