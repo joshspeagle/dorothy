@@ -1987,6 +1987,13 @@ class TestGaiaIds:
         with pytest.raises(ValueError, match="no Gaia IDs"):
             CatalogueLoader(path).load_merged(["boss", "desi"])
 
+    def test_sparse_loading_rejects_labels_in_another_row_order(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            f["labels/apogee/gaia_id"][...] = f["labels/apogee/gaia_id"][:][::-1]
+        with pytest.raises(ValueError, match="does not match metadata/gaia_id"):
+            CatalogueLoader(path).load_merged_sparse(["boss"])
+
 
 class TestNanSnr:
     def test_dense_and_sparse_loaders_skip_the_same_nan_snr_rows(self, tmp_path):

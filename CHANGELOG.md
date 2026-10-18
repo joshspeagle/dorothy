@@ -62,6 +62,9 @@
   different surveys. It now raises `ValueError`.
 - `load_merged` loaded spectra with a NaN S/N, and raised `KeyError` for such
   a star when no other requested survey had it.
+- `load_merged_sparse` read the primary label source in row order without
+  checking its Gaia IDs, so labels stored in another order went to the wrong
+  stars. It now raises `ValueError` when they differ from `metadata/gaia_id`.
 
 ### Performance
 

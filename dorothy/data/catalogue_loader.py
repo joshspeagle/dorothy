@@ -1582,7 +1582,9 @@ class CatalogueLoader:
             Use with trainer's sparse batch construction for training.
 
         Raises:
-            ValueError: If duplicate observations are found in the catalogue.
+            ValueError: If duplicate observations are found in the catalogue,
+                or the primary label group's ``gaia_id`` differs from
+                ``metadata/gaia_id``.
 
         Examples:
             >>> sparse_data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
@@ -1603,11 +1605,21 @@ class CatalogueLoader:
             # PASS 1: Fast scan - read only SNR arrays and gaia_ids
             # =========================================================
             # Load master gaia_ids (from metadata or first label source)
+            resolved_label = self._resolve_label_source(surveys[0], label_source, f)
+            label_grp = f["labels"][resolved_label]
             if "metadata" in f and "gaia_id" in f["metadata"]:
                 all_gaia_ids = f["metadata"]["gaia_id"][:]
+                # The primary labels are read in catalogue row order
+                if "gaia_id" in label_grp and not np.array_equal(
+                    label_grp["gaia_id"][:], all_gaia_ids
+                ):
+                    raise ValueError(
+                        f"{label_grp.name}/gaia_id does not match "
+                        "metadata/gaia_id: label rows must be the catalogue "
+                        "rows, as scripts/build_catalogue_v2.py writes them"
+                    )
             else:
-                resolved_label = self._resolve_label_source(surveys[0], label_source, f)
-                all_gaia_ids = f["labels"][resolved_label]["gaia_id"][:]
+                all_gaia_ids = label_grp["gaia_id"][:]
 
             n_total = len(all_gaia_ids)
 
@@ -1654,8 +1666,6 @@ class CatalogueLoader:
             primary_flags = np.zeros((n_total, n_params), dtype=np.uint8)
 
             # Load primary labels once (not per survey)
-            resolved_label = self._resolve_label_source(surveys[0], label_source, f)
-            label_grp = f["labels"][resolved_label]
             primary_labels[:] = label_grp["values"][:]
             primary_errors[:] = label_grp["errors"][:]
             primary_flags[:] = label_grp["flags"][:]
