@@ -54,6 +54,9 @@
   uncertainties disagreed with `Predictor` when ln s was outside [-10, 5].
 - A NaN or infinity in a masked pixel made the whole saliency map NaN: the
   analyzers multiplied the flux and error by the mask.
+- The saliency plots raise a `ValueError` for a fully masked spectrum. Three
+  of them failed with an unrelated numpy error, and
+  `plot_ablation_saliency_heatmap` drew an empty figure.
 
 ### Performance
 

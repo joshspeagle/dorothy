@@ -1101,6 +1101,14 @@ class AblationSaliencyAnalyzer:
         return importance
 
 
+def _require_valid_pixels(result: SaliencyResult | AblationSaliencyResult) -> None:
+    if not result.mask.any():
+        raise ValueError(
+            "result.mask has no valid pixel: a fully masked spectrum has no "
+            "saliency to plot"
+        )
+
+
 def plot_parameter_saliency(
     result: SaliencyResult,
     param_name: str,
@@ -1137,7 +1145,11 @@ def plot_parameter_saliency(
 
     Returns:
         Matplotlib Figure.
+
+    Raises:
+        ValueError: If param_name is unknown or result.mask has no valid pixel.
     """
+    _require_valid_pixels(result)
     import matplotlib.pyplot as plt
     from matplotlib.collections import LineCollection
     from matplotlib.colors import Normalize
@@ -1392,7 +1404,11 @@ def plot_saliency_heatmap(
 
     Returns:
         Matplotlib Figure with 3 heatmap panels.
+
+    Raises:
+        ValueError: If result.mask has no valid pixel.
     """
+    _require_valid_pixels(result)
     import matplotlib.pyplot as plt
     from matplotlib.colors import Normalize
 
@@ -1627,7 +1643,11 @@ def plot_ablation_parameter_saliency(
 
     Returns:
         Matplotlib Figure.
+
+    Raises:
+        ValueError: If param_name is unknown or result.mask has no valid pixel.
     """
+    _require_valid_pixels(result)
     import matplotlib.pyplot as plt
     from matplotlib.collections import LineCollection
     from matplotlib.colors import Normalize
@@ -1709,18 +1729,15 @@ def plot_ablation_parameter_saliency(
         valid_vals = flux_imp[mask]
         if is_fisher:
             # Fisher importance is non-negative
-            if len(valid_vals) > 0 and valid_vals.max() > 0:
+            if valid_vals.max() > 0:
                 norm = Normalize(vmin=0, vmax=np.percentile(valid_vals, 99))
             else:
                 norm = Normalize(vmin=0, vmax=1)
         else:
             # Signed values - symmetric around zero
-            if len(valid_vals) > 0:
-                max_abs = np.percentile(np.abs(valid_vals), 99)
-                if max_abs > 0:
-                    norm = Normalize(vmin=-max_abs, vmax=max_abs)
-                else:
-                    norm = Normalize(vmin=-1, vmax=1)
+            max_abs = np.percentile(np.abs(valid_vals), 99)
+            if max_abs > 0:
+                norm = Normalize(vmin=-max_abs, vmax=max_abs)
             else:
                 norm = Normalize(vmin=-1, vmax=1)
 
@@ -1884,7 +1901,11 @@ def plot_ablation_saliency_heatmap(
 
     Returns:
         Matplotlib Figure with 3 heatmap panels.
+
+    Raises:
+        ValueError: If result.mask has no valid pixel.
     """
+    _require_valid_pixels(result)
     import matplotlib.pyplot as plt
     from matplotlib.colors import Normalize
 
@@ -1918,7 +1939,7 @@ def plot_ablation_saliency_heatmap(
             rows = data[2 * i : 2 * i + 2, :]
             # Compute max abs value over valid (masked) wavelengths
             valid_data = rows[:, mask]
-            max_abs = np.abs(valid_data).max() if valid_data.size > 0 else 0
+            max_abs = np.abs(valid_data).max()
             if max_abs > 0:
                 normalized[2 * i : 2 * i + 2, :] = rows / max_abs
             else:
@@ -1936,7 +1957,7 @@ def plot_ablation_saliency_heatmap(
             rows = data[2 * i : 2 * i + 2, :]
             # Compute max value over valid (masked) wavelengths
             valid_data = rows[:, mask]
-            max_val = valid_data.max() if valid_data.size > 0 else 0
+            max_val = valid_data.max()
             if max_val > 0:
                 normalized[2 * i : 2 * i + 2, :] = rows / max_val
             else:

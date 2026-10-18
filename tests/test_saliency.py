@@ -1141,6 +1141,27 @@ def test_non_finite_masked_pixels_leave_saliency_unchanged(analyzer_cls, kwargs)
             np.testing.assert_array_equal(getattr(bad, name), value, err_msg=name)
 
 
+@pytest.mark.parametrize(
+    "plot, analyzer_cls, args",
+    [
+        (plot_parameter_saliency, SaliencyAnalyzer, ("teff",)),
+        (plot_saliency_heatmap, SaliencyAnalyzer, ()),
+        (plot_ablation_parameter_saliency, AblationSaliencyAnalyzer, ("teff",)),
+        (plot_ablation_saliency_heatmap, AblationSaliencyAnalyzer, ()),
+    ],
+)
+def test_fully_masked_spectrum_is_rejected(plot, analyzer_cls, args):
+    """Every saliency plot raises ValueError for a spectrum with no valid pixel."""
+    X = torch.randn(3, 100, generator=torch.Generator().manual_seed(0))
+    X[2] = 0.0
+    wavelength = np.linspace(3600, 9000, 100).astype(np.float32)
+    analyzer = analyzer_cls(SimpleLinearModel(), device="cpu")
+    result = analyzer.compute_saliency(X, wavelength)
+
+    with pytest.raises(ValueError, match="no valid pixel"):
+        plot(result, *args)
+
+
 class TestAblationVisualization:
     """Tests for ablation visualization functions."""
 
