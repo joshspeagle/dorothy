@@ -102,11 +102,12 @@ $$
 
 The average starts from the weights before the first step. It includes the
 buffers, such as the running statistics of batch normalization; integer
-buffers are copied, not averaged. Validation, the choice of the best epoch,
-`best_model.pth`, `final_model.pth` and the weights saved every
-`training.save_every` epochs use the averaged weights, and after training the
-model holds the averaged weights of the best epoch. The training steps, and
-the weight norms and updates in the history, use the trained weights.
+buffers are copied, not averaged. Validation, and so the choice of the best
+epoch, early stopping and the `reduce_on_plateau` schedule, use the averaged
+weights, as do `best_model.pth`, `final_model.pth` and the weights saved
+every `training.save_every` epochs. After training the model holds the
+averaged weights of the best epoch. The training steps, and the weight norms
+and updates in the history, use the trained weights.
 
 The average is one more copy of the weights on the training device, 4 bytes
 per parameter. Training with AdamW already holds five such copies: the
