@@ -1937,3 +1937,16 @@ class TestSurveyWavelengthGrid:
             assert set(raw) == set(grp)
             for name in grp:
                 np.testing.assert_array_equal(raw[name], grp[name][:])
+
+
+class TestLoadMulti:
+    def test_intersection_keeps_only_stars_with_data_in_every_survey(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5", n_stars=10)
+        with h5py.File(path, "r+") as f:
+            for survey, rows in [("boss", slice(0, 5)), ("desi", slice(3, 10))]:
+                snr = np.zeros(10)
+                snr[rows] = 20.0
+                f["surveys"][survey]["snr"][...] = snr
+        data = CatalogueLoader(path).load_multi(["boss", "desi"], mode="intersection")
+        for survey in ("boss", "desi"):
+            np.testing.assert_array_equal(data[survey].gaia_ids, [4, 5])

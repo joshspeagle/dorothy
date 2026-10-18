@@ -50,6 +50,8 @@
   MRS, and `load`, `load_raw_spectra` and `get_survey_wavelengths` raised it
   for MRS. `load` now trims each MRS arm to its own grid, like the other
   loaders.
+- `CatalogueLoader.load_multi(mode="intersection")` returned every star of a
+  v2 catalogue, because each survey has a row for every star.
 
 ### Performance
 
@@ -111,3 +113,5 @@
   and zeroes non-finite pixels. Rebuilt catalogues differ for stars with
   repeat observations.
 - Learning rates are logged per optimizer step in every training mode.
+- `CatalogueLoader.load_multi(mode="intersection")` keeps a star only if
+  every survey has data for it (`snr > 0`, the rule of the sparse loader).

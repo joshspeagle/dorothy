@@ -1023,15 +1023,15 @@ class CatalogueLoader:
         Load data from multiple surveys.
 
         This method loads data from multiple surveys and returns them as a
-        dictionary. In "intersection" mode, only stars that appear in ALL
-        specified surveys are returned (useful for cross-survey comparisons).
-        In "union" mode, all stars from all surveys are returned.
+        dictionary. In "intersection" mode, only stars with data (snr > 0) in
+        ALL specified surveys are returned (useful for cross-survey
+        comparisons). In "union" mode, all stars from all surveys are returned.
 
         Args:
             surveys: List of survey names to load.
             mode: How to combine surveys:
                 - "union": Return all stars from all surveys (default)
-                - "intersection": Return only stars common to all surveys
+                - "intersection": Return only stars with data in every survey
             deduplicate: If True (default), keep only one observation per star
                 (the first occurrence). If False, keep all observations.
 
@@ -1059,55 +1059,33 @@ class CatalogueLoader:
                     data = self._deduplicate(data)
                 result[survey] = data
         else:
-            # intersection mode - find common stars
-            # First, get IDs for each survey (unique IDs only)
             survey_data = {}
-            survey_unique_ids = {}
-
+            survey_rows = {}
+            common_ids = None
             for survey in surveys:
                 data = self.load(survey=survey)
+                # A star belongs to a survey only where the survey has data;
+                # v2 surveys have a row for every star in the catalogue
+                has_data = data.snr > 0
+                if np.issubdtype(data.gaia_ids.dtype, np.integer):
+                    has_data &= data.gaia_ids > 0
+                rows = np.flatnonzero(has_data)
+                ids = data.gaia_ids[rows]
+                common_ids = (
+                    ids if common_ids is None else np.intersect1d(common_ids, ids)
+                )
                 survey_data[survey] = data
-
-                # Get unique IDs for intersection
-                ids = data.gaia_ids
-                # Handle int64 Gaia IDs
-                if np.issubdtype(ids.dtype, np.integer):
-                    unique_ids = {int(i) for i in ids if i > 0}
-                else:
-                    # String IDs (fallback)
-                    if hasattr(ids[0], "decode"):
-                        ids = np.array([i.decode("utf-8") for i in ids])
-                    unique_ids = {str(i) for i in ids}
-                survey_unique_ids[survey] = unique_ids
-
-            # Find intersection of all unique IDs
-            common_ids = survey_unique_ids[surveys[0]]
-            for survey in surveys[1:]:
-                common_ids &= survey_unique_ids[survey]
+                survey_rows[survey] = rows
 
             if len(common_ids) == 0:
                 raise ValueError(f"No common stars found across surveys: {surveys}")
 
-            # Sort common IDs for consistent ordering
-            common_ids_sorted = sorted(common_ids)
-
             for survey in surveys:
                 data = survey_data[survey]
-                ids = data.gaia_ids
-
-                # Find first index of each common ID (deduplicate)
-                first_indices = {}
-                for idx, gid in enumerate(ids):
-                    gid_key = (
-                        int(gid) if np.issubdtype(ids.dtype, np.integer) else str(gid)
-                    )
-                    if gid_key in common_ids and gid_key not in first_indices:
-                        first_indices[gid_key] = idx
-
-                # Sort indices by common_ids_sorted order
-                sorted_indices = np.array(
-                    [first_indices[gid] for gid in common_ids_sorted]
-                )
+                rows = survey_rows[survey]
+                # First row with data of each common star, in Gaia ID order
+                ids, first = np.unique(data.gaia_ids[rows], return_index=True)
+                sorted_indices = rows[first[np.isin(ids, common_ids)]]
 
                 # Create filtered data
                 result[survey] = CatalogueData(
