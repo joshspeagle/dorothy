@@ -247,6 +247,15 @@ class TrainingHistory:
         }
 
 
+def _is_weight_matrix(param: torch.Tensor) -> bool:
+    """Whether weight decay and the grokking metrics apply to a parameter.
+
+    Biases and normalization weights (1-D) set offsets and scales, which
+    weight decay does not regularize.
+    """
+    return param.ndim > 1
+
+
 def _as_numpy(arr: np.ndarray | torch.Tensor) -> np.ndarray:
     """Return a numpy view/copy of a tensor or array."""
     return arr.detach().cpu().numpy() if isinstance(arr, torch.Tensor) else arr
@@ -445,12 +454,13 @@ class Trainer:
         # Check if fused optimizers are available (CUDA only, faster by 10-20%)
         use_fused = torch.cuda.is_available() and self.device.type == "cuda"
 
-        # Decay only weight matrices: biases and normalization weights (1-D)
-        # set offsets and scales, which decay does not regularize
         params = list(self.model.parameters())
         groups = [
-            {"params": [p for p in params if p.ndim > 1]},
-            {"params": [p for p in params if p.ndim <= 1], "weight_decay": 0.0},
+            {"params": [p for p in params if _is_weight_matrix(p)]},
+            {
+                "params": [p for p in params if not _is_weight_matrix(p)],
+                "weight_decay": 0.0,
+            },
         ]
 
         if optimizer_config.type == OptimizerType.ADAMW:
@@ -1391,7 +1401,7 @@ class Trainer:
         return {
             name: param.detach()
             for name, param in self.model.named_parameters()
-            if param.ndim > 1
+            if _is_weight_matrix(param)
         }
 
     @staticmethod
