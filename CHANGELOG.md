@@ -46,6 +46,20 @@
   labels or no valid pixels.
 - `load_merged_sparse` did not detect duplicate stars.
 - `loss: penalty` passed configuration checks but failed when training started; the configuration now rejects it.
+- Ablation saliency with `use_training_distribution=True` weighted its
+  log-spaced block sizes by 1/b, so the map was close to single-pixel
+  ablation: for BOSS, block sizes of at most 5 pixels had 84% of the weight.
+  A size that several grid points round to counted only once.
+- The saliency analyzers converted the predicted log-scatter ln s to a
+  scatter without the clamp of `losses.predicted_scatter`, so their
+  uncertainties disagreed with `Predictor` when ln s was outside [-10, 5].
+- A NaN or infinity in a masked pixel made the whole saliency map NaN: the
+  analyzers multiplied the flux and error by the mask.
+- The saliency plots raise a `ValueError` for a fully masked spectrum. Three
+  of them failed with an unrelated numpy error, and
+  `plot_ablation_saliency_heatmap` drew an empty figure.
+- The bar charts of validation metrics in the training plots showed the last
+  epoch instead of the best epoch, whose weights `best_model.pth` holds.
 
 ### Performance
 
@@ -107,3 +121,13 @@
   and zeroes non-finite pixels. Rebuilt catalogues differ for stars with
   repeat observations.
 - Learning rates are logged per optimizer step in every training mode.
+- Ablation saliency with `use_training_distribution=True` gives every point
+  of its block-size grid equal weight (for BOSS, block sizes of at most 5
+  pixels now have 24% of the weight), and `AblationSaliencyResult.block_size`
+  lists one size per grid point, with repeats.
+- The saliency analyzers compute the predicted scatter with
+  `losses.predicted_scatter`. Their uncertainties, scatter changes and
+  Fisher weights change where ln s is outside [-10, 5].
+- `val_metrics.png`, `zscore_calibration.png`, `per_survey_metrics.png` and
+  `per_labelset_metrics.png` in a checkpoint's `plots/` show the best epoch
+  instead of the last.

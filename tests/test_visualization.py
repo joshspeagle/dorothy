@@ -22,6 +22,7 @@ from dorothy.visualization.training_plots import (
     plot_loss_components,
     plot_loss_curves,
     plot_metrics_evolution,
+    plot_per_labelset_metrics,
     plot_per_survey_loss_curves,
     plot_per_survey_metrics,
     plot_per_survey_metrics_evolution,
@@ -365,6 +366,50 @@ class TestPerSurveyPlotsWithData:
         assert result is not None
         assert result.exists()
         assert result.name == "per_survey_metrics_evolution.png"
+
+
+@pytest.mark.skipif(_try_import_matplotlib() is None, reason="matplotlib not available")
+@pytest.mark.parametrize(
+    "plot",
+    [
+        plot_val_metrics,
+        plot_zscore_calibration,
+        plot_per_survey_metrics,
+        plot_per_labelset_metrics,
+    ],
+)
+def test_metric_bar_charts_show_the_best_epoch(plot, tmp_path, monkeypatch):
+    """The bars show the metrics of the best epoch, whose weights
+    best_model.pth holds, not those of the last epoch."""
+    import matplotlib.pyplot as plt
+
+    n_epochs, best = 5, 1
+
+    def metrics():  # every metric of epoch e equals e + 1
+        names = ["rmse", "bias", "sd", "mae", "robust_scatter", "z_median"]
+        return {
+            name: [np.full(3, epoch + 1.0) for epoch in range(n_epochs)]
+            for name in [*names, "z_robust_scatter"]
+        }
+
+    history = TrainingHistory(
+        parameter_names=["teff", "logg", "fe_h"],
+        best_epoch=best,
+        val_metrics=metrics(),
+        survey_names=["boss", "desi"],
+        per_survey_val_metrics={"boss": metrics(), "desi": metrics()},
+        label_source_names=["apogee", "galah"],
+        per_labelset_val_metrics={"apogee": metrics(), "galah": metrics()},
+    )
+    figures = []
+    close = plt.close
+    monkeypatch.setattr(plt, "close", lambda fig: (figures.append(fig), close(fig)))
+
+    plot(history, tmp_path)
+
+    heights = [bar.get_height() for bar in figures[0].axes[0].patches]
+    assert len(heights) > 0
+    np.testing.assert_array_equal(heights, best + 1.0)
 
 
 # =============================================================================

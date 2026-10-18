@@ -121,7 +121,7 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 | `data_split.pkl` | Catalogue rows of the training, validation and test sets |
 | `history_train_val.pkl` | Losses and metrics per epoch |
 | `learning_rates.pkl` | The learning rate after each optimizer step |
-| `plots/` | Training plots |
+| `plots/` | Training plots; the bar charts of validation metrics show the best epoch |
 
 `dorothy train config.yaml --resume <checkpoint>` starts from the weights of
 an earlier run, with a new optimizer and schedule. `training.save_every: N`

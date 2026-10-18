@@ -64,6 +64,7 @@ from dorothy.training.batches import (
     TensorBatchSource,
     forward_label_sources,
 )
+from dorothy.utils import resolve_device
 
 if TYPE_CHECKING:
     from dorothy.config.schema import ExperimentConfig
@@ -335,8 +336,7 @@ class Trainer:
         self.config = config
         self.history = TrainingHistory()
 
-        # Determine device
-        self.device = self._resolve_device(config.device)
+        self.device = resolve_device(config.device)
         logger.info(f"Using device: {self.device}")
 
         # Set random seeds for reproducibility
@@ -390,17 +390,6 @@ class Trainer:
         self._input_masking: DynamicInputMasking | None = None
         self._survey_wavelengths: dict[str, int] | None = None
         self._evaluator: Evaluator | None = None
-
-    def _resolve_device(self, device: str) -> torch.device:
-        """Resolve the device string to a torch.device."""
-        if device == "auto":
-            if torch.cuda.is_available():
-                return torch.device("cuda")
-            elif torch.backends.mps.is_available():
-                return torch.device("mps")
-            else:
-                return torch.device("cpu")
-        return torch.device(device)
 
     def _set_seeds(self, seed: int) -> None:
         """Set random seeds for reproducibility."""

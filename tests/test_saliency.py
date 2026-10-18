@@ -27,6 +27,7 @@ from dorothy.analysis.saliency import (
     plot_parameter_saliency,
     plot_saliency_heatmap,
 )
+from dorothy.losses import predicted_scatter
 
 
 class SimpleLinearModel(nn.Module):
@@ -796,6 +797,41 @@ class TestAblationSaliencyAnalyzer:
         assert np.all(np.isfinite(result.delta_mu))
         assert np.all(result.fisher_weighted >= 0)
 
+    def test_training_distribution_weights_block_sizes_equally(self, analyzer):
+        """The map is the mean of single-block maps over block sizes ceil(N f),
+        with f evenly spaced in log f; a size that several f round to counts
+        once for each."""
+        n_wavelengths, n_sizes, f_max = 100, 21, 0.5
+        X = torch.randn(3, n_wavelengths, generator=torch.Generator().manual_seed(0))
+        X[2] = 1.0
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+        fractions = np.exp(
+            np.linspace(np.log(1 / n_wavelengths), np.log(f_max), n_sizes)
+        )
+        sizes = np.ceil(fractions * n_wavelengths).astype(int).tolist()
+        assert len(set(sizes)) < n_sizes
+
+        result = analyzer.compute_saliency(
+            X,
+            wavelength,
+            use_training_distribution=True,
+            n_block_sizes=n_sizes,
+            f_max=f_max,
+        )
+
+        assert result.block_size == sizes
+        single = {
+            b: analyzer.compute_saliency(X, wavelength, block_size=b) for b in sizes
+        }
+        for name in ("delta_mu", "delta_sigma", "fisher_weighted"):
+            expected = np.mean([getattr(single[b], name) for b in sizes], axis=0)
+            np.testing.assert_allclose(
+                getattr(result, name),
+                expected,
+                rtol=0,
+                atol=1e-6 * np.abs(expected).max(),
+            )
+
     def test_large_block_size(self, analyzer):
         """Test with block size larger than spectrum."""
         n_wavelengths = 100
@@ -973,9 +1009,7 @@ class TestAblationInputLayerShortcut:
         X = torch.randn(3, n_wavelengths, generator=generator)
         X[2] = 1.0
         X[2, 20:30] = 0.0
-        X_masked = X.clone()
-        X_masked[:2] *= X[2]
-        return X, X_masked
+        return X, torch.where(X[2] > 0.5, X, 0.0)
 
     def test_layer_outputs_match_direct_forward(self, multi_head_model):
         """Model outputs with the shortcut match forwarding ablated inputs."""
@@ -1005,7 +1039,7 @@ class TestAblationInputLayerShortcut:
         X, X_masked = self._masked_input(150)
         mu_0, ln_s_0, shortcut = analyzer._baseline_forward(X_masked, "desi")
         mu_0, ln_s_0 = mu_0[0], ln_s_0[0]
-        sigma_0 = torch.sqrt(torch.exp(2 * ln_s_0) + analyzer.scatter_floor**2)
+        sigma_0 = predicted_scatter(ln_s_0, analyzer.scatter_floor)
         args = (X_masked, "desi", block_size, mu_0, ln_s_0, sigma_0, X[2].numpy() > 0)
 
         fast = analyzer._compute_ablation_importance(*args, shortcut=shortcut)
@@ -1057,6 +1091,75 @@ class TestAblationInputLayerShortcut:
         with torch.no_grad():
             after = multi_head_model.forward_single(X_masked.unsqueeze(0), "desi")
         assert torch.equal(before, after)
+
+
+def test_saliency_scatter_is_the_predicted_scatter():
+    """Both analyzers convert ln s with losses.predicted_scatter, which clamps
+    ln s to [LN_S_MIN, LN_S_MAX]."""
+    model = SimpleLinearModel(n_wavelengths=20, n_params=2)
+    with torch.no_grad():
+        model.linear.weight.zero_()
+        model.linear.weight[2, :20] = 0.01  # ln s of parameter 0 follows the flux
+        model.linear.bias.copy_(torch.tensor([0.0, 0.0, 8.0, -12.0]))
+    X = torch.randn(3, 20, generator=torch.Generator().manual_seed(0))
+    X[2] = 1.0
+    wavelength = np.linspace(3600, 9000, 20).astype(np.float32)
+    with torch.no_grad():
+        expected = predicted_scatter(model(X.unsqueeze(0))[0, 1], 0.01).numpy()
+
+    gradient = SaliencyAnalyzer(model, device="cpu").compute_saliency(X, wavelength)
+    ablation = AblationSaliencyAnalyzer(model, device="cpu").compute_saliency(
+        X, wavelength, block_size=3
+    )
+
+    np.testing.assert_array_equal(gradient.uncertainties, expected)
+    np.testing.assert_array_equal(ablation.uncertainties, expected)
+    # Ablation moves ln s of parameter 0 by < 0.1, so it stays above LN_S_MAX
+    assert np.all(ablation.delta_sigma[0] == 0)
+
+
+@pytest.mark.parametrize(
+    "analyzer_cls, kwargs",
+    [(SaliencyAnalyzer, {}), (AblationSaliencyAnalyzer, {"block_size": 5})],
+)
+def test_non_finite_masked_pixels_leave_saliency_unchanged(analyzer_cls, kwargs):
+    """NaN or infinity in masked pixels gives the results of zeros there."""
+    analyzer = analyzer_cls(SimpleLinearModel(), device="cpu")
+    X = torch.randn(3, 100, generator=torch.Generator().manual_seed(0))
+    X[2] = 1.0
+    X[:, 40:50] = 0.0
+    X_bad = X.clone()
+    X_bad[0, 40:45] = float("nan")
+    X_bad[1, 45:50] = float("inf")
+    wavelength = np.linspace(3600, 9000, 100).astype(np.float32)
+
+    clean = analyzer.compute_saliency(X, wavelength, **kwargs)
+    bad = analyzer.compute_saliency(X_bad, wavelength, **kwargs)
+
+    for name, value in vars(clean).items():
+        if name not in ("spectrum", "spectrum_error"):  # raw input, kept as given
+            np.testing.assert_array_equal(getattr(bad, name), value, err_msg=name)
+
+
+@pytest.mark.parametrize(
+    "plot, analyzer_cls, args",
+    [
+        (plot_parameter_saliency, SaliencyAnalyzer, ("teff",)),
+        (plot_saliency_heatmap, SaliencyAnalyzer, ()),
+        (plot_ablation_parameter_saliency, AblationSaliencyAnalyzer, ("teff",)),
+        (plot_ablation_saliency_heatmap, AblationSaliencyAnalyzer, ()),
+    ],
+)
+def test_fully_masked_spectrum_is_rejected(plot, analyzer_cls, args):
+    """Every saliency plot raises ValueError for a spectrum with no valid pixel."""
+    X = torch.randn(3, 100, generator=torch.Generator().manual_seed(0))
+    X[2] = 0.0
+    wavelength = np.linspace(3600, 9000, 100).astype(np.float32)
+    analyzer = analyzer_cls(SimpleLinearModel(), device="cpu")
+    result = analyzer.compute_saliency(X, wavelength)
+
+    with pytest.raises(ValueError, match="no valid pixel"):
+        plot(result, *args)
 
 
 class TestAblationVisualization:
