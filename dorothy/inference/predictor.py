@@ -5,7 +5,7 @@ This module provides inference capabilities for trained models, including:
 - Loading trained model checkpoints
 - Chunk-based prediction for memory efficiency with large datasets
 - Denormalization of predictions to physical units
-- Uncertainty extraction from heteroscedastic outputs
+- Calibrated uncertainties from heteroscedastic outputs
 
 Examples:
     >>> predictor = Predictor.load("path/to/checkpoint")
@@ -25,7 +25,12 @@ import torch
 from numpy.typing import NDArray
 
 from dorothy.data.normalizer import LabelNormalizer
-from dorothy.inference.checkpoint import infer_mlp_architecture, load_checkpoint
+from dorothy.inference.calibration import calibrate_scatter
+from dorothy.inference.checkpoint import (
+    head_label_sources,
+    infer_mlp_architecture,
+    load_checkpoint,
+)
 from dorothy.losses.heteroscedastic import predicted_scatter
 from dorothy.models import MLP, MultiHeadMLP
 from dorothy.utils import resolve_device
@@ -47,6 +52,8 @@ class PredictionResult:
             raw_output[:, 1, :] contains predicted log-scatter.
         parameter_names: List of parameter names in order.
         is_normalized: Whether predictions are in normalized space.
+        calibrated: Whether the uncertainties are scaled by calibration
+            factors.
     """
 
     predictions: NDArray[np.float32]
@@ -54,6 +61,7 @@ class PredictionResult:
     raw_output: NDArray[np.float32]
     parameter_names: list[str]
     is_normalized: bool = True
+    calibrated: bool = False
 
     @property
     def n_samples(self) -> int:
@@ -97,6 +105,10 @@ class Predictor:
         survey: Survey of single-array inputs (MultiHeadMLP only).
         label_source: Output head to predict from (MultiHeadMLP with several
             label sources; None uses the first / primary head).
+        calibration: Calibration factor per parameter name of the head
+            predicted from, which scales the predicted scatter (see
+            :func:`~dorothy.inference.calibration.calibrate_scatter`), or
+            None for the raw scatter.
         config: Experiment config of the checkpoint, if loaded from one.
 
     Examples:
@@ -114,6 +126,7 @@ class Predictor:
         scatter_floor: float = 0.01,
         survey: str | None = None,
         label_source: str | None = None,
+        calibration: dict[str, float] | None = None,
     ) -> None:
         """
         Initialize the predictor.
@@ -128,11 +141,15 @@ class Predictor:
             survey: For a MultiHeadMLP, the survey of single-array inputs.
             label_source: For a multi-label MultiHeadMLP, which output head
                 to use (default: the first label source).
+            calibration: Calibration factor per parameter name of that head,
+                which scales the predicted scatter; None reports the raw
+                scatter.
         """
         self.model = model
         self.normalizer = normalizer
         self.scatter_floor = scatter_floor
         self.device = resolve_device(device)
+        self.calibration = calibration
         self.config = None
 
         if isinstance(model, MultiHeadMLP):
@@ -174,6 +191,7 @@ class Predictor:
         device: str = "auto",
         survey: str | None = None,
         label_source: str | None = None,
+        calibrate: bool = True,
     ) -> Predictor:
         """
         Load a predictor from a checkpoint directory.
@@ -189,6 +207,8 @@ class Predictor:
             device: Device for inference ("auto", "cpu", "cuda", "mps").
             survey: For a MultiHeadMLP, the survey of single-array inputs.
             label_source: For a multi-label model, which output head to use.
+            calibrate: Scale the predicted scatter by the checkpoint's
+                calibration factors for that head, if it has them.
 
         Returns:
             Configured Predictor instance.
@@ -199,6 +219,13 @@ class Predictor:
                 label-aware uncertainty.
         """
         ckpt = load_checkpoint(checkpoint_path, model_file, normalizer_file, device)
+        calibration = None
+        if calibrate and ckpt.calibration is not None:
+            # A single head is filed under the configured label source, while
+            # the model may call it "default"
+            heads = head_label_sources(ckpt.model, ckpt.config)
+            head = label_source if label_source in heads else heads[0]
+            calibration = ckpt.calibration.get(head)
         predictor = cls(
             model=ckpt.model,
             normalizer=ckpt.normalizer,
@@ -207,6 +234,7 @@ class Predictor:
             scatter_floor=ckpt.scatter_floor,
             survey=survey,
             label_source=label_source,
+            calibration=calibration,
         )
         predictor.config = ckpt.config
         return predictor
@@ -281,7 +309,9 @@ class Predictor:
                 of which stars have that survey (default: all).
 
         Returns:
-            PredictionResult containing predictions and uncertainties.
+            PredictionResult containing predictions and uncertainties: the
+            predicted scatter, times the calibration factors if the predictor
+            has them.
         """
 
         def as_tensor(a):
@@ -319,6 +349,10 @@ class Predictor:
         )
         predictions = raw[:, 0, :].numpy().copy()
         uncertainties = predicted_scatter(raw[:, 1, :], self.scatter_floor).numpy()
+        if self.calibration is not None:
+            uncertainties = calibrate_scatter(
+                uncertainties, self.calibration, self.parameter_names
+            )
 
         # Denormalize if requested and normalizer available
         is_normalized = True
@@ -334,6 +368,7 @@ class Predictor:
             raw_output=raw.numpy(),
             parameter_names=self.parameter_names,
             is_normalized=is_normalized,
+            calibrated=self.calibration is not None,
         )
 
     def predict_chunked(
@@ -386,6 +421,7 @@ class Predictor:
             raw_output=np.vstack([r.raw_output for r in results]),
             parameter_names=self.parameter_names,
             is_normalized=not (denormalize and self.normalizer is not None),
+            calibrated=self.calibration is not None,
         )
 
     def get_embeddings(
@@ -441,6 +477,7 @@ def predict_from_fits(
     denormalize: bool = True,
     survey: str | None = None,
     label_source: str | None = None,
+    calibrate: bool = True,
 ) -> PredictionResult | None:
     """
     Predict stellar parameters for every spectrum in a FITS file.
@@ -452,13 +489,18 @@ def predict_from_fits(
     Args:
         fits_path: Path to input FITS file (SPECTRA / SPEC_IVAR extensions).
         checkpoint_path: Path to model checkpoint directory.
-        output_path: Path to save predictions (CSV). If None, returns results.
+        output_path: Path to save predictions (CSV): the star ID, each
+            parameter and its uncertainty, and a ``calibrated`` column that
+            says whether the uncertainties are calibrated. If None, returns
+            results.
         chunk_size: Number of spectra to process at a time.
         device: Device for inference.
         batch_size: Batch size for inference.
         denormalize: Output physical units (requires a normalizer).
         survey: Survey of the spectra, for multi-survey models.
         label_source: Output head to use, for multi-label models.
+        calibrate: Scale the uncertainties by the checkpoint's calibration
+            factors, if it has them.
 
     Returns:
         PredictionResult if output_path is None, otherwise None.
@@ -469,7 +511,11 @@ def predict_from_fits(
     from dorothy.data import FITSLoader
 
     predictor = Predictor.load(
-        checkpoint_path, device=device, survey=survey, label_source=label_source
+        checkpoint_path,
+        device=device,
+        survey=survey,
+        label_source=label_source,
+        calibrate=calibrate,
     )
     normalize = (
         predictor.config.data.normalize_spectra
@@ -518,6 +564,7 @@ def predict_from_fits(
 
         df = pd.DataFrame(result.to_dict())
         df.insert(0, "star_id", data.ids)
+        df["calibrated"] = result.calibrated
         output_path = Path(output_path)
         df.to_csv(output_path, index=False)
         return None

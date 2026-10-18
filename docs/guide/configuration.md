@@ -94,7 +94,8 @@ The files `examples/variant*.yaml` cover the supported setups:
     [Training](../methods/training.md#weight-averaging)), the warm-up of the
     loss (`nll_warmup_fraction`, see
     [Training](../methods/training.md#warm-up)), the fraction of
-    stars trained without their label errors (`label_error_dropout`) and,
+    stars trained without their label errors (`label_error_dropout`), the
+    calibration factors fit after training (`calibrate_uncertainties`) and,
     with several label sources, how their losses combine
     (`label_source_weighting`, `label_source_weights`).
 

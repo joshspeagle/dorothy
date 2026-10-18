@@ -29,9 +29,13 @@ data.fit(trainer, split)
 checkpoint_dir = trainer.save_checkpoint()
 split.save(checkpoint_dir, data)
 
-# Metrics on the test split, one entry per label source
+# Metrics on the test split, one entry per label source, with the
+# calibrated uncertainties
 ckpt = load_checkpoint(checkpoint_dir)
-results = evaluate_model(ckpt.model, ckpt.normalizer, ckpt.config, data, split.test)
+results = evaluate_model(
+    ckpt.model, ckpt.normalizer, ckpt.config, data, split.test,
+    calibration=ckpt.calibration,
+)
 print(results["apogee"].physical.summary())
 
 # Predictions for new BOSS spectra X of shape (n, 3, n_wavelengths),
@@ -61,7 +65,11 @@ shape `(n, 3, n_wavelengths)` for a single survey (set with `survey=` when
 loading a multi-survey model), or a dict of such arrays per survey together
 with `has_data`, a dict of `(n,)` booleans. `label_source=` selects the head
 of a multi-label model. With `denormalize=False` (the default) the outputs
-stay in normalized units.
+stay in normalized units. A predictor from
+{py:meth}`~dorothy.inference.predictor.Predictor.load` multiplies the
+predicted scatter by the checkpoint's calibration factors for its head, when
+the checkpoint has them; `calibrate=False` gives the raw scatter, and
+`PredictionResult.calibrated` says which.
 
 Spectra must be preprocessed as in training: 3 channels, invalid pixels set
 to 0, and the per-spectrum normalization when the checkpoint's

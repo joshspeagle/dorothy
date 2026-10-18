@@ -13,7 +13,7 @@ from spectra with neural networks.
   source.
 - **Uncertainties:** each prediction comes with a predicted scatter, the
   expected difference from the label source's measurement, learned with the
-  reported label errors as an input.
+  reported label errors as an input and calibrated on the validation stars.
 
 **Documentation: <https://joshspeagle.com/dorothy/>**
 

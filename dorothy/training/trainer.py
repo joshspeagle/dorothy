@@ -53,6 +53,8 @@ from dorothy.data.augmentation import (
 )
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.data.normalizer import LabelNormalizer
+from dorothy.inference.calibration import CALIBRATION_FILE, save_calibration
+from dorothy.inference.checkpoint import head_label_sources
 from dorothy.inference.evaluator import Evaluator
 from dorothy.losses.heteroscedastic import (
     HeteroscedasticLoss,
@@ -345,7 +347,9 @@ class Trainer:
         4. fit*() normalizes labels, creates the scheduler and runs the loop
         5. Each epoch: train epoch -> validate -> update history
         6. Best model weights saved based on validation loss
-        7. After training: save_checkpoint() to persist model + normalizer
+        7. After training: calibration factors from the best epoch's
+           validation z-scores
+        8. save_checkpoint() persists the model, normalizer and factors
 
     Attributes:
         config: Experiment configuration.
@@ -361,6 +365,10 @@ class Trainer:
         history: TrainingHistory with loss curves and metrics.
         normalizer: LabelNormalizer for converting to/from normalized space.
         parameter_names: Names of stellar parameters being predicted.
+        calibration: Calibration factors fit after training, label source ->
+            parameter name -> factor, or None when
+            ``training.calibrate_uncertainties`` is false, the loss has no
+            scatter, or training has not run.
 
     Examples:
         >>> from dorothy.config import ExperimentConfig, DataConfig
@@ -451,6 +459,7 @@ class Trainer:
 
         # Normalizer will be fitted during training
         self.normalizer: LabelNormalizer | None = None
+        self.calibration: dict[str, dict[str, float]] | None = None
 
         # Dynamic masking for hierarchical label/input augmentation
         self._label_masking: DynamicLabelMasking | None = None
@@ -1344,6 +1353,7 @@ class Trainer:
         keys = train_source.label_keys
         multi_label = len(keys) > 1
         labelsets = keys if multi_label else []
+        self.calibration = None
         self.history = TrainingHistory(
             parameter_names=self.parameter_names,
             val_loss_breakdown={"mean_component": [], "scatter_component": []},
@@ -1463,6 +1473,7 @@ class Trainer:
             else self._ema.tensors
         )
         self.model.load_state_dict(self._best_weights)
+        self.calibration = self._fit_calibration(keys)
         logger.info(
             f"Training complete in {self.history.total_time:.1f}s. Best val loss: "
             f"{self.history.best_val_loss:.6f} at epoch {self.history.best_epoch + 1}"
@@ -1475,6 +1486,44 @@ class Trainer:
                     f"at epoch {self.history.per_labelset_best_epoch.get(k, -1) + 1}"
                 )
         return self.history
+
+    def _fit_calibration(self, keys: list[str]) -> dict[str, dict[str, float]] | None:
+        """Calibration factors of the best weights, or None if off or without scatter.
+
+        Each trained head's factor for a parameter is its validation
+        z_robust_scatter at the best epoch, whose validation ran on the weights
+        that best_model.pth holds. A factor that is not finite and positive,
+        as for a parameter with fewer than two validation labels, becomes 1,
+        which leaves that scatter unchanged.
+        """
+        if not self.config.training.calibrate_uncertainties or not isinstance(
+            self.loss_fn, HeteroscedasticLoss
+        ):
+            return None
+        names = dict(
+            zip(
+                self.label_keys,
+                head_label_sources(self.model, self.config),
+                strict=True,
+            )
+        )
+        history = self.history
+        heads = history.per_labelset_val_metrics or {keys[0]: history.val_metrics}
+        calibration = {}
+        for key, metrics in heads.items():
+            spread = metrics["z_robust_scatter"][history.best_epoch]
+            valid = np.isfinite(spread) & (spread > 0)
+            if not valid.all():
+                missing = np.array(self.parameter_names)[~valid].tolist()
+                logger.warning(
+                    f"{names[key]}: no validation z-score spread for {missing}; "
+                    "their predicted scatter keeps a calibration factor of 1"
+                )
+            factors = np.where(valid, spread, 1.0).tolist()
+            calibration[names[key]] = dict(
+                zip(self.parameter_names, factors, strict=True)
+            )
+        return calibration
 
     def _record_validation(self, epoch: int, val: dict) -> None:
         """Append one epoch's validation results to the history."""
@@ -1683,6 +1732,9 @@ class Trainer:
         Saves:
             - best_model.pth: Best model weights (also loaded in self.model)
             - final_model.pth: Weights after the last training epoch
+            - calibration.json: The calibration factors of best_model.pth,
+              if fit; otherwise a calibration.json already in the directory
+              is removed
             - normalizer.pkl: Label normalizer (if used)
             - history_train_val.pkl: Training/validation losses
             - learning_rates.pkl: Learning rate history
@@ -1710,6 +1762,11 @@ class Trainer:
             else self.model.state_dict()
         )
         torch.save(final_weights, path / "final_model.pth")
+        if self.calibration is None:
+            # A file from an earlier run would describe other weights
+            (path / CALIBRATION_FILE).unlink(missing_ok=True)
+        else:
+            save_calibration(path, self.calibration)
         self._save_run_files(path)
         logger.info(f"Saved final checkpoint to {path}")
         return path
@@ -1750,7 +1807,8 @@ class Trainer:
         Returns:
             Tuple of (predictions, uncertainties) as numpy arrays.
             predictions has shape (batch, n_params).
-            uncertainties has shape (batch, n_params).
+            uncertainties has shape (batch, n_params): the predicted scatter,
+            without the calibration factors.
         """
         output = self.predict(X)
         predictions = output[:, 0, :]

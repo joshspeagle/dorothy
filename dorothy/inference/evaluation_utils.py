@@ -4,8 +4,9 @@ Test-set evaluation that matches training validation exactly.
 :func:`evaluate_model` runs a trained model over a set of rows using the same
 batch construction, label normalization and predicted-scatter definition as
 the trainer, and scores every output head (label source) in both normalized
-space (directly comparable to the training validation metrics) and physical
-units. It also returns the physical-unit predictions for plotting.
+space (directly comparable to the training validation metrics, unless
+calibration factors are given) and physical units. It also returns the
+physical-unit predictions for plotting.
 
 The older per-layout helpers (``evaluate_on_test_set``,
 ``evaluate_on_dense_data``, ``evaluate_on_single_survey_data`` and the
@@ -24,6 +25,8 @@ from torch import nn
 
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.data.training_data import TrainingData
+from dorothy.inference.calibration import calibrate_scatter
+from dorothy.inference.checkpoint import head_label_sources
 from dorothy.inference.evaluator import EvaluationResult, Evaluator
 from dorothy.losses.heteroscedastic import predicted_scatter
 from dorothy.models.multi_head_mlp import MultiHeadMLP
@@ -50,6 +53,11 @@ class HeadEvaluation:
         z_label_errors: The label errors that the z-scores add to the
             predicted scatter: ``y_err`` for a model with an AdditiveOutput,
             else None.
+        calibration: Parameter name -> the calibration factor that scales
+            the predicted scatter of the metrics and of pred_scatter, or
+            None for the raw scatter.
+        uncalibrated: Metrics in normalized units with the raw scatter, when
+            calibration is set; else None.
     """
 
     label_source: str
@@ -62,20 +70,18 @@ class HeadEvaluation:
     y_err: np.ndarray
     mask: np.ndarray
     z_label_errors: np.ndarray | None
+    calibration: dict[str, float] | None
+    uncalibrated: EvaluationResult | None
 
     def to_dict(self) -> dict:
-        """Metrics as a JSON-serializable dict."""
+        """Metrics, and the calibration factors if any, as a JSON-serializable dict."""
         out = {"normalized_space": self.normalized.to_dict()}
         if self.physical is not None:
             out["physical_space"] = self.physical.to_dict()
+        if self.uncalibrated is not None:
+            out["calibration_factors"] = self.calibration
+            out["uncalibrated_normalized_space"] = self.uncalibrated.to_dict()
         return out
-
-
-def _head_names(model: nn.Module, config: ExperimentConfig) -> list[str]:
-    """Label source of each output head (the configured one for a single head)."""
-    if isinstance(model, MultiHeadMLP) and model.label_sources != ["default"]:
-        return list(model.label_sources)
-    return list(config.data.label_sources[:1])
 
 
 def evaluate_model(
@@ -86,6 +92,7 @@ def evaluate_model(
     rows: np.ndarray,
     batch_size: int = 1024,
     device: str | torch.device = "auto",
+    calibration: dict[str, dict[str, float]] | None = None,
 ) -> dict[str, HeadEvaluation]:
     """Evaluate a trained model on the given rows of a dataset.
 
@@ -93,6 +100,12 @@ def evaluate_model(
     The z-scores divide the residuals by s for a model with label-aware
     uncertainty, and by sqrt(sigma_y^2 + s^2) for the additive model of
     checkpoints saved before it.
+
+    Without calibration factors, the metrics on the validation stars equal
+    the ones recorded during training. A head with factors scales its
+    predicted scatter as prediction does, so its metrics and pred_scatter
+    describe the calibrated uncertainties; it also reports the
+    normalized-unit metrics of the raw scatter.
 
     Args:
         model: Trained MLP or MultiHeadMLP (moved to ``device``, eval mode).
@@ -102,6 +115,9 @@ def evaluate_model(
         rows: Row indices to evaluate (e.g. the test split).
         batch_size: Batch size for inference.
         device: Device for inference.
+        calibration: Label source -> parameter name -> calibration factor,
+            as in ``LoadedCheckpoint.calibration``. None evaluates the raw
+            scatter.
 
     Returns:
         Label source name -> HeadEvaluation, in the model's head order. A
@@ -111,7 +127,7 @@ def evaluate_model(
     model.to(device)
     model.eval()
     rows = np.asarray(rows)
-    keys = _head_names(model, config)
+    keys = head_label_sources(model, config)
     parameter_names = (
         list(normalizer.parameters)
         if normalizer is not None
@@ -144,18 +160,24 @@ def evaluate_model(
     for k in keys:
         out = torch.cat(outputs[k])
         pred = out[:, 0, :].numpy()
-        scatter = predicted_scatter(out[:, 1, :], floor).numpy()
+        raw_scatter = predicted_scatter(out[:, 1, :], floor).numpy()
+        factors = None if calibration is None else calibration.get(k)
+        scatter = (
+            raw_scatter
+            if factors is None
+            else calibrate_scatter(raw_scatter, factors, parameter_names)
+        )
         target = model_labels[k][rows]
         mask = target[:, 2, :]
-        normalized = evaluator.evaluate(
-            y_pred=pred,
-            y_true=target[:, 0, :],
-            pred_scatter=scatter,
-            label_errors=target[:, 1, :] if additive else None,
-            mask=mask,
+        y_true, y_err = target[:, 0, :], target[:, 1, :]
+        label_errors = y_err if additive else None
+        normalized = evaluator.evaluate(pred, y_true, scatter, label_errors, mask)
+        uncalibrated = (
+            None
+            if factors is None
+            else evaluator.evaluate(pred, y_true, raw_scatter, label_errors, mask)
         )
         result_physical = None
-        y_true, y_err = target[:, 0, :], target[:, 1, :]
         if normalizer is not None:
             pred, scatter = normalizer.inverse_transform(pred, scatter)
             y_true, y_err = physical[k][rows, 0, :], physical[k][rows, 1, :]
@@ -177,6 +199,8 @@ def evaluate_model(
             y_err=y_err,
             mask=mask,
             z_label_errors=y_err if additive else None,
+            calibration=factors,
+            uncalibrated=uncalibrated,
         )
     return results
 

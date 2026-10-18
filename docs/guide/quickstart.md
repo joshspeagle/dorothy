@@ -49,7 +49,9 @@ dorothy predict \
 ```
 
 The CSV has one row per spectrum, with each parameter and its uncertainty
-(`teff`, `teff_err`, ...) in physical units.
+(`teff`, `teff_err`, ...) in physical units. The uncertainties include the
+[calibration factors](../methods/evaluation.md#calibration-factors) that
+training fit.
 
 ## From Python
 

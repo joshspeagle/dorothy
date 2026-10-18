@@ -8,6 +8,7 @@ sources.
 from __future__ import annotations
 
 import json
+import re
 
 import numpy as np
 import pytest
@@ -22,7 +23,7 @@ from dorothy.data.training_data import (
 )
 from dorothy.inference import Predictor, evaluate_model, load_checkpoint
 from dorothy.training import Trainer
-from tests.synthetic import PARAMS, build_catalogue, write_config
+from tests.synthetic import PARAMS, SURVEY_WAVES, build_catalogue, write_config
 
 MULTI_SURVEYS = ["boss", "desi", "lamost_mrs"]
 
@@ -119,6 +120,33 @@ class TestEvaluateMatchesTraining:
         assert primary.physical is not None
         assert 3000 < np.nanmedian(primary.y_pred[:, 0]) < 8000
 
+    @pytest.mark.parametrize(
+        "surveys,sources",
+        [(["boss"], ["apogee"]), (MULTI_SURVEYS, ["apogee", "galah"])],
+        ids=["single", "sparse_multilabel"],
+    )
+    def test_calibrated_validation_z_scores_have_unit_spread(
+        self, tmp_path, catalogue, surveys, sources
+    ):
+        config_path = _config(tmp_path, catalogue, surveys, sources, epochs=3)
+        _, data, split, trainer = _train(config_path)
+        ckpt = load_checkpoint(trainer.save_checkpoint(tmp_path / "ckpt"), device="cpu")
+        results = evaluate_model(
+            ckpt.model,
+            ckpt.normalizer,
+            ckpt.config,
+            data,
+            split.val,
+            device="cpu",
+            calibration=ckpt.calibration,
+        )
+
+        assert list(results) == list(ckpt.calibration) == sources
+        for head in results.values():
+            spread = [head.normalized.metrics[p].z_robust_scatter for p in PARAMS]
+            # The tolerance of the reproduction above; measured within 2e-7
+            np.testing.assert_allclose(spread, 1.0, rtol=1e-4)
+
 
 class TestCLIEndToEnd:
     def test_train_evaluate_info_multilabel(self, tmp_path, catalogue, capsys):
@@ -127,6 +155,7 @@ class TestCLIEndToEnd:
         ckpt = tmp_path / "outputs" / "e2e" / "e2e_final"
         for name in [
             "best_model.pth",
+            "calibration.json",
             "config.yaml",
             "normalizer.pkl",
             "data_split.pkl",
@@ -157,6 +186,11 @@ class TestCLIEndToEnd:
         assert "MultiHeadMLP" in info and "galah" in info
         assert "Parameters (4)" in info
         assert "Uncertainty model: label-aware" in info
+        # One column of calibration factors per head
+        table = info.split("Calibration factors of best_model.pth")[1]
+        assert re.search(
+            r"Parameter\s+apogee\s+galah\n\s+teff\s+[\d.]+\s+[\d.]+", table
+        )
 
     def test_saved_split_matches_recreated_split(self, tmp_path, catalogue):
         config_path = _config(tmp_path, catalogue, MULTI_SURVEYS, ["apogee"])
@@ -284,6 +318,37 @@ class TestPredictFromFits:
         np.testing.assert_allclose(
             df["teff_err"].to_numpy(), expected.uncertainties[:, 0], rtol=1e-4
         )
+
+    def test_predict_command_writes_calibrated_uncertainties_unless_told_not_to(
+        self, tmp_path, catalogue
+    ):
+        import pandas as pd
+
+        config_path = _config(tmp_path, catalogue, ["boss"], ["apogee"], epochs=1)
+        _, _, _, trainer = _train(config_path)
+        path = trainer.save_checkpoint(tmp_path / "ckpt")
+        rng = np.random.default_rng(0)
+        flux = rng.normal(10.0, 1.0, (4, SURVEY_WAVES["boss"])).astype(np.float32)
+        fits_path = tmp_path / "spectra.fits"
+        self._write_fits(fits_path, flux, np.full_like(flux, 50.0))
+
+        tables = []
+        for flags in ([], ["--no-calibration"]):
+            out = tmp_path / f"predictions{len(flags)}.csv"
+            args = ["--checkpoint", str(path), "--input", str(fits_path)]
+            args += ["--output", str(out), "--device", "cpu", *flags]
+            assert main(["predict", *args]) == 0
+            tables.append(pd.read_csv(out))
+        calibrated, raw = tables
+
+        assert calibrated["calibrated"].all() and not raw["calibrated"].any()
+        np.testing.assert_array_equal(calibrated["teff"], raw["teff"])
+        for p in PARAMS:
+            np.testing.assert_allclose(
+                calibrated[f"{p}_err"] / raw[f"{p}_err"],
+                trainer.calibration["apogee"][p],
+                rtol=1e-6,  # float32 rounding of the scatter and the CSV
+            )
 
     def test_wrong_wavelength_grid_raises(self, tmp_path, catalogue):
         from dorothy.inference import predict_from_fits

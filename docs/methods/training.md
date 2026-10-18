@@ -8,8 +8,9 @@
 2. Load the spectra and labels
    ({py:func}`~dorothy.data.training_data.load_training_data`).
 3. Split the stars into training, validation and test sets.
-4. Fit the label normalization on the training stars and train
-   ({py:class}`~dorothy.training.trainer.Trainer`).
+4. Fit the label normalization on the training stars, train, and fit the
+   [calibration factors](evaluation.md#calibration-factors) of the predicted
+   scatter ({py:class}`~dorothy.training.trainer.Trainer`).
 5. Save the {term}`checkpoint`, the split and the training plots.
 
 `dorothy evaluate` and the Python API load and split data through the same
@@ -100,7 +101,7 @@ every batch and head, also get m for all their parameters, so the model learns
 to predict without the errors. Validation, evaluation and prediction always
 use m, so the best epoch is the best one for the reported uncertainties.
 
-The reported uncertainty s is therefore the expected scatter between the
+The predicted scatter s is therefore the expected scatter between the
 prediction and the label source's measurement of the star, the source's label
 noise included. The variance s² has no term fixed by the reported errors, so s
 follows the scatter that the labels show: for a label source that
@@ -263,6 +264,7 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 |------|----------|
 | `best_model.pth` | Weights from the best epoch |
 | `final_model.pth` | Weights after the last epoch |
+| `calibration.json` | One factor per head and parameter that scales the predicted scatter of `best_model.pth` |
 | `config.yaml` | The completed configuration |
 | `normalizer.pkl` | The label normalization |
 | `data_split.pkl` | Catalogue rows of the training, validation and test sets |
@@ -273,5 +275,5 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 `dorothy train config.yaml --resume <checkpoint>` starts from the weights of
 an earlier run, with a new optimizer, schedule and warm-up.
 `training.save_every: N` also saves the weights, the configuration and the
-normalization every N epochs, in `epoch_N/`. BatchNorm needs at least two
-stars per batch in training.
+normalization every N epochs, in `epoch_N/`, without calibration factors.
+BatchNorm needs at least two stars per batch in training.

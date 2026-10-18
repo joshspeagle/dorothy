@@ -1,5 +1,6 @@
 """Prediction and evaluation utilities."""
 
+from dorothy.inference.calibration import calibrate_scatter
 from dorothy.inference.checkpoint import LoadedCheckpoint, load_checkpoint
 from dorothy.inference.evaluation_utils import (
     HeadEvaluation,
@@ -29,6 +30,7 @@ from dorothy.inference.predictor import (
 __all__ = [
     "HeadEvaluation",
     "LoadedCheckpoint",
+    "calibrate_scatter",
     "evaluate_model",
     "load_checkpoint",
     "Predictor",

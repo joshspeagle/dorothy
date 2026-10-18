@@ -2,7 +2,8 @@
 Loading trained DOROTHY checkpoints.
 
 A checkpoint directory written by ``Trainer.save_checkpoint()`` contains the
-model weights, ``config.yaml``, and (usually) ``normalizer.pkl``. The model is
+model weights, ``config.yaml``, (usually) ``normalizer.pkl`` and the
+calibration factors in ``calibration.json``, if training fit them. The model is
 rebuilt from the saved config, so every architecture option (MLP or
 MultiHeadMLP, normalization, activation, label sources, per-head dropout)
 matches training. Directories with weights only fall back to inferring a
@@ -20,6 +21,7 @@ import torch
 
 from dorothy.config.schema import ExperimentConfig
 from dorothy.data.normalizer import LabelNormalizer
+from dorothy.inference.calibration import load_calibration
 from dorothy.models import MLP, MultiHeadMLP
 from dorothy.utils import resolve_device
 
@@ -37,6 +39,9 @@ class LoadedCheckpoint:
             weights-only checkpoints.
         path: The checkpoint directory.
         device: Device the model was moved to.
+        calibration: Calibration factors of best_model.pth, label source ->
+            parameter name -> factor, or None without calibration.json or
+            for another weights file.
     """
 
     model: MLP | MultiHeadMLP
@@ -44,6 +49,7 @@ class LoadedCheckpoint:
     config: ExperimentConfig | None
     path: Path
     device: torch.device
+    calibration: dict[str, dict[str, float]] | None
 
     @property
     def parameter_names(self) -> list[str]:
@@ -120,17 +126,38 @@ def build_model(config: ExperimentConfig) -> MLP | MultiHeadMLP:
     return MLP.from_config(config.model)
 
 
+def head_label_sources(
+    model: MLP | MultiHeadMLP, config: ExperimentConfig
+) -> list[str]:
+    """Label source of each output head, in model order.
+
+    A single-head model's head is named after the configured label source.
+
+    Args:
+        model: The model.
+        config: The experiment config the model was built from.
+
+    Returns:
+        One label source name per output head.
+    """
+    if isinstance(model, MultiHeadMLP) and model.label_sources != ["default"]:
+        return list(model.label_sources)
+    return list(config.data.label_sources[:1])
+
+
 def load_checkpoint(
     checkpoint_path: str | Path,
     model_file: str = "best_model.pth",
     normalizer_file: str | None = "normalizer.pkl",
     device: str | torch.device = "auto",
 ) -> LoadedCheckpoint:
-    """Load a trained model, its normalizer and config from a checkpoint.
+    """Load a trained model, its normalizer, config and calibration factors.
 
     Args:
         checkpoint_path: Checkpoint directory.
-        model_file: Weights file inside the directory.
+        model_file: Weights file inside the directory. The calibration
+            factors in calibration.json describe best_model.pth, so other
+            files load without them.
         normalizer_file: Normalizer file name (None to skip loading it).
         device: Device for the model ("auto", "cpu", "cuda", "mps").
 
@@ -169,5 +196,14 @@ def load_checkpoint(
         normalizer = LabelNormalizer.load(path / normalizer_file)
 
     return LoadedCheckpoint(
-        model=model, normalizer=normalizer, config=config, path=path, device=device
+        model=model,
+        normalizer=normalizer,
+        config=config,
+        path=path,
+        device=device,
+        calibration=(
+            load_calibration(path)
+            if config is not None and Path(model_file).name == "best_model.pth"
+            else None
+        ),
     )

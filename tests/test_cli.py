@@ -979,6 +979,20 @@ class TestCLIEvaluateIntegration:
         assert "teff" in data["physical_space"]
         assert "rmse" in data["physical_space"]["teff"]
 
+    def test_evaluate_reports_calibrated_and_raw_z_scores_unless_told_not_to(
+        self, trained_checkpoint, capsys
+    ):
+        assert main(["evaluate", str(trained_checkpoint), "--no-plots"]) == 0
+        out = capsys.readouterr().out
+        assert "Calibration: factors from calibration.json" in out
+        assert "CALIBRATION [apogee]" in out and "z_scatter raw" in out
+
+        args = ["evaluate", str(trained_checkpoint), "--no-plots", "--no-calibration"]
+        assert main(args) == 0
+        out = capsys.readouterr().out
+        assert "Calibration: off (--no-calibration)" in out
+        assert "CALIBRATION [" not in out
+
     def test_evaluate_recreates_split(self, trained_checkpoint, capsys):
         """Test that evaluate can recreate split from seed when data_split.pkl is missing."""
         import os

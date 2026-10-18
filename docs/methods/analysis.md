@@ -12,7 +12,9 @@ as in training (for example from
 {py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum`), and
 its wavelength grid. For a multi-survey model, `survey` selects the encoder.
 The analyzers set the masked pixels to zero in all three channels before the
-model sees them, so masked pixels may hold any value, including NaN.
+model sees them, so masked pixels may hold any value, including NaN. They use
+the model's predicted scatter s, without the
+[calibration factors](evaluation.md#calibration-factors).
 
 ### Gradient saliency
 
