@@ -16,20 +16,29 @@ model sees them, so masked pixels may hold any value, including NaN.
 ### Gradient saliency
 
 {py:class}`~dorothy.analysis.saliency.SaliencyAnalyzer` computes the Jacobian
-of the predicted values μ and log-scatters ln s with respect to the flux f and
-its uncertainty σ at each pixel {cite:p}`simonyan2014saliency`. It weights the
+of the predicted values μ and scatters s with respect to the flux f and its
+uncertainty σ at each pixel {cite:p}`simonyan2014saliency`. It weights the
 derivatives by the Fisher information of the predicted normal distribution,
 N(μ_p, s_p²), so the importance of pixel i for parameter p is
 
 $$
 I_p(i) = \frac{1}{s_p^2}\left[\left(\frac{\partial \mu_p}{\partial f_i}\right)^2
-  + \left(\frac{\partial \mu_p}{\partial \sigma_i}\right)^2\right]
-  + 2\left[\left(\frac{\partial \ln s_p}{\partial f_i}\right)^2
-  + \left(\frac{\partial \ln s_p}{\partial \sigma_i}\right)^2\right].
+  + \left(\frac{\partial \mu_p}{\partial \sigma_i}\right)^2
+  + 2\left(\frac{\partial s_p}{\partial f_i}\right)^2
+  + 2\left(\frac{\partial s_p}{\partial \sigma_i}\right)^2\right].
 $$
 
-A pixel scores high when changing it would move the prediction by much
-compared with the predicted scatter, or would change the scatter itself.
+The scatter is $s^2 = e^{2 \ln s} + s_0^2$, as in
+[the loss](training.md#the-loss), so its derivative with respect to an input
+x is
+
+$$
+\frac{\partial s}{\partial x} = \frac{e^{2 \ln s}}{s}\,\frac{\partial \ln s}{\partial x},
+$$
+
+and 0 where the clamp of ln s to [−10, 5] is active. A pixel scores high when
+changing it would move the prediction by much compared with the predicted
+scatter, or would change the scatter itself.
 
 ```python
 from dorothy.analysis import SaliencyAnalyzer, plot_parameter_saliency

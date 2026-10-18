@@ -191,6 +191,18 @@ class TestTrainerFit:
         assert history.best_val_loss == min(history.val_losses)
         assert history.best_epoch == history.val_losses.index(min(history.val_losses))
 
+    def test_training_fails_when_no_validation_loss_is_finite(
+        self, simple_config, training_data
+    ):
+        """Without a finite validation loss, no epoch has the best weights."""
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        X_val = X[80:].copy()
+        X_val[:, 0, 0] = np.nan  # every validation prediction becomes NaN
+
+        with pytest.raises(RuntimeError, match="finite validation loss"):
+            trainer.fit(X[:80], y[:80], X_val, y[80:])
+
     def test_fit_with_numpy_arrays(self, simple_config, training_data):
         """Test that numpy arrays work as input."""
         trainer = Trainer(simple_config)

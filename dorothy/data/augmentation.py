@@ -145,14 +145,8 @@ class DynamicLabelMasking:
         # Only apply to samples that have available labels
         keep = keep | ~any_available.unsqueeze(1)  # Don't modify samples with no labels
 
-        # Apply masking
-        y_out = y.clone()
-        keep_float = keep.float()
-        y_out[:, 2, :] = mask * keep_float  # Update mask
-        y_out[:, 0, :] = y[:, 0, :] * keep_float  # Zero masked values
-        y_out[:, 1, :] = y[:, 1, :] * keep_float  # Zero masked uncertainties
-
-        return y_out
+        # Zero the values, uncertainties and mask of the dropped labels
+        return y.masked_fill(~keep.unsqueeze(1), 0.0)
 
     def _apply_hierarchical(
         self,
@@ -250,8 +244,7 @@ class DynamicLabelMasking:
             )
 
             # Zero out samples where this labelset is not kept
-            labelset_mask = labelset_kept.float().view(-1, 1, 1)  # (batch, 1, 1)
-            y_out[name] = y_masked * labelset_mask
+            y_out[name] = y_masked.masked_fill(~labelset_kept.view(-1, 1, 1), 0.0)
 
         return y_out
 
@@ -264,6 +257,16 @@ class DynamicLabelMasking:
             f"p_label_min={self.p_label_min}, "
             f"p_label_max={self.p_label_max})"
         )
+
+
+def _zero_dropped(X: torch.Tensor, keep: torch.Tensor, inplace: bool) -> torch.Tensor:
+    """Zero all three channels of X (batch, 3, N) where ``keep`` is False.
+
+    ``keep`` has shape (batch, N) or (batch, 1). Dropped entries are selected,
+    not multiplied by the mask, so they become 0 even where X holds NaN.
+    """
+    drop = ~keep.unsqueeze(1)
+    return X.masked_fill_(drop, 0.0) if inplace else X.masked_fill(drop, 0.0)
 
 
 class DynamicInputMasking:
@@ -436,18 +439,14 @@ class DynamicInputMasking:
                 continue
 
             # Block-level masking, then zero out samples where this survey is
-            # not kept. Both masks are 0/1, so they are combined first and
-            # applied to the spectra in a single pass.
-            survey_mask = survey_kept.to(X_tensor.dtype).unsqueeze(1)  # (batch, 1)
+            # not kept. The masks are combined first and applied to the
+            # spectra in a single pass.
             keep = self._block_keep_mask(
                 X_tensor, n_wavelengths[name], has_any_pixel=has_any_pixel[i]
             )
-            keep = survey_mask if keep is None else keep * survey_mask
-            X_out[name] = (
-                X_tensor.mul_(keep.unsqueeze(1))
-                if inplace
-                else X_tensor * keep.unsqueeze(1)
-            )
+            survey_kept = survey_kept.unsqueeze(1)  # (batch, 1)
+            keep = survey_kept if keep is None else keep & survey_kept
+            X_out[name] = _zero_dropped(X_tensor, keep, inplace)
 
         return X_out
 
@@ -472,7 +471,7 @@ class DynamicInputMasking:
         keep = self._block_keep_mask(X, N)
         if keep is None:
             return X
-        return X.mul_(keep.unsqueeze(1)) if inplace else X * keep.unsqueeze(1)
+        return _zero_dropped(X, keep, inplace)
 
     def _block_keep_mask(
         self, X: torch.Tensor, N: int, has_any_pixel: bool | None = None
@@ -496,8 +495,8 @@ class DynamicInputMasking:
                 (``(X[:, 2] != 0).any()``), if already known on the host.
 
         Returns:
-            Keep mask of shape (batch, N) with values 0/1 in X's dtype, or
-            None if no sample has any valid pixel (X is then left unchanged).
+            Boolean keep mask of shape (batch, N), or None if no sample has
+            any valid pixel (X is then left unchanged).
         """
         if X.dim() != 3 or X.shape[1] != 3:
             raise ValueError(f"Expected shape (batch, 3, N), got {X.shape}")
@@ -571,7 +570,7 @@ class DynamicInputMasking:
         block_of_wavelength = (
             torch.arange(offset, offset + N, device=device) // block_size
         )
-        return keep_block.to(dtype).index_select(1, block_of_wavelength)
+        return keep_block.index_select(1, block_of_wavelength)
 
     def __repr__(self) -> str:
         """Return string representation."""

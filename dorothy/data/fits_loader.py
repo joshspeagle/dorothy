@@ -538,8 +538,8 @@ class FITSLoader:
         spectral_error = None
         if compute_spectral_mask:
             spectral_error, spectral_mask = ivar_to_error_and_mask(ivar_array)
-            # Zero out flux at masked wavelengths for consistency
-            flux_array = flux_array * spectral_mask
+            # Zero the flux at masked pixels, selecting since it may be NaN
+            flux_array = np.where(spectral_mask > 0, flux_array, 0.0)
 
         return SpectralData(
             flux=flux_array,

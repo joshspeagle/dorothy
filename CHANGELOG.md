@@ -80,6 +80,22 @@
 - `load_merged_sparse` read the primary label source in row order without
   checking its Gaia IDs, so labels stored in another order went to the wrong
   stars. It now raises `ValueError` when they differ from `metadata/gaia_id`.
+- `load_merged_sparse` and `load_merged_for_training` gave a second label
+  source without a `gaia_id` dataset a copy of the first source's labels, so
+  its head trained on them. They now raise `ValueError`, naming the label
+  group.
+- Input and label masking, the `mean` combination of `MultiHeadMLP` and FITS
+  prediction with `normalize_spectra: false` multiplied by a mask, so a NaN
+  or infinity in a masked entry stayed NaN. They now select with the mask.
+  Results for finite inputs are unchanged, except for the sign of zero.
+- Gradient saliency used the derivative of the log-scatter ln s for its
+  scatter terms, which ignores the scatter floor and the clamp of ln s. It
+  now uses the exact derivative of the predicted scatter σ:
+  `SaliencyResult.jacobian_sigma_flux` and `jacobian_sigma_error` hold dσ/dx
+  and replace `jacobian_lns_flux` and `jacobian_lns_error`.
+- If every validation loss was NaN, `best_epoch` was 0, but `best_model.pth`
+  and the trained model held the weights from before training. Training now
+  raises `RuntimeError` when no epoch has a finite validation loss.
 
 ### Performance
 
@@ -148,6 +164,10 @@
 - The saliency analyzers compute the predicted scatter with
   `losses.predicted_scatter`. Their uncertainties, scatter changes and
   Fisher weights change where ln s is outside [-10, 5].
+- Gradient saliency differentiates σ = sqrt(exp(2 ln s) + s₀²):
+  dσ/dx = (exp(2 ln s) / σ) d ln s/dx, and 0 where ln s is outside
+  [-10, 5]. Its Fisher importance and the scatter panels of its plots change
+  most where σ is close to the scatter floor s₀ or ln s is clamped.
 - `val_metrics.png`, `zscore_calibration.png`, `per_survey_metrics.png` and
   `per_labelset_metrics.png` in a checkpoint's `plots/` show the best epoch
   instead of the last.
