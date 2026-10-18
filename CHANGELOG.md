@@ -15,9 +15,8 @@
 - `training.label_source_weighting` (`per_label` or `per_source`) and
   `training.label_source_weights` set how the losses of several label
   sources combine.
-- `training.amp_dtype` selects the precision of `training.amp`: `bfloat16`
-  (default) or `float16` with a gradient scaler. The loss and validation run
-  in float32.
+- `training.amp_dtype` (`bfloat16` by default, or `float16`) selects the
+  precision of `training.amp`.
 - `loss: mse` trains with a masked mean squared error.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models

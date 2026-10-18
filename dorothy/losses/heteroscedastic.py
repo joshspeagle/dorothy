@@ -23,7 +23,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-# ln_s is clamped before exponentiating (exp(2 * 5) ~ 22000, safe for float16)
+# ln_s is clamped before exponentiating: s stays in [4.5e-5, 148] (normalized units)
 LN_S_MIN = -10.0
 LN_S_MAX = 5.0
 

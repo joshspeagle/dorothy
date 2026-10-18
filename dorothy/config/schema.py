@@ -571,15 +571,14 @@ class TrainingConfig(_ConfigModel):
     )
     amp: bool = Field(
         default=False,
-        description="Mixed precision on CUDA: the training forward pass runs in "
-        "amp_dtype; the loss and validation run in float32. CPU and MPS train "
-        "in float32.",
+        description="Run the training forward pass in amp_dtype on CUDA. CPU "
+        "and MPS train in float32.",
     )
     amp_dtype: Literal["bfloat16", "float16"] = Field(
         default="bfloat16",
-        description="Reduced precision for amp. bfloat16 has the range of float32 "
-        "and needs a GPU with native bfloat16 (compute capability 8.0 or "
-        "higher); float16 has a smaller range and uses a gradient scaler.",
+        description="Precision of the forward pass with amp. bfloat16 needs a "
+        "GPU with compute capability 8.0 or higher; float16 uses a gradient "
+        "scaler.",
     )
 
     @field_validator("label_source_weights")
