@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 272" width="100%" role="img" aria-labelledby="uncertainty-title" font-family="sans-serif" font-size="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
-  <title id="uncertainty-title">The last layer of a head. The predicted value mu is a linear function of the head's hidden vector h alone, so it never sees the label errors. The log-scatter ln s comes from a small network g that reads h and u, where u is the log of the reported label error, or the learned missing vector m where no error is given. Training gives m to masked labels and to a random fraction of stars; validation, evaluation and prediction always use m.</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 276" width="100%" role="img" aria-labelledby="uncertainty-title" font-family="sans-serif" font-size="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
+  <title id="uncertainty-title">An output head with two parallel decoders. The head input x is the trunk output, or the last hidden layer of the MLP. The label decoder maps x through hidden layers and a linear layer to the predicted value mu, so mu never sees the label errors. The error decoder maps x and u through hidden layers of the same sizes and a linear layer to the log-scatter ln s, where u is the log of the reported label error, or the learned missing vector m where no error is given. In the MLP, the label decoder has no hidden layer and the error decoder has one. Training gives m to masked labels and to a random fraction of stars; validation, evaluation and prediction always use m.</title>
   <defs>
     <marker id="uncertainty-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="currentColor" stroke="none"/>
@@ -8,36 +8,37 @@
       <path d="M0 0 L10 5 L0 10 z" stroke="none" style="fill: var(--color-brand-primary, #2757c4)"/>
     </marker>
   </defs>
-  <g transform="translate(55 0)">
-    <text x="80.0" y="78.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">from the head's hidden layers</text>
-    <rect x="20.0" y="88.0" width="120.0" height="50.0" rx="6" fill="currentColor" fill-opacity="0.06"/>
-    <text x="80.0" y="109.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">hidden vector</text>
-    <text x="80.0" y="127.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">h</text>
-    <line x1="142.0" y1="113.0" x2="180.0" y2="113.0"/>
-    <circle cx="180" cy="113" r="2.5" fill="currentColor" stroke="none"/>
-    <path d="M180 113 L180 50 L238 50" marker-end="url(#uncertainty-arrow)"/>
-    <rect x="240.0" y="25.0" width="150.0" height="50.0" rx="6"/>
-    <text x="315.0" y="46.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">linear</text>
-    <text x="315.0" y="63.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">W h + b</text>
-    <line x1="392.0" y1="50.0" x2="426.0" y2="50.0" marker-end="url(#uncertainty-arrow)"/>
-    <text x="432.0" y="55.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ</text>
-    <text x="452.0" y="55.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">predicted value, never sees σ<tspan baseline-shift="sub" font-size="75%">y</tspan></text>
-    <path d="M180 113 L180 160 L238 160" marker-end="url(#uncertainty-arrow)"/>
-    <rect x="240.0" y="135.0" width="150.0" height="50.0" rx="6"/>
-    <text x="315.0" y="156.0" font-size="13" text-anchor="middle" font-weight="bold" font-style="italic" stroke="none" fill="currentColor">g</text>
-    <text x="315.0" y="173.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">linear, activation, linear</text>
-    <line x1="392.0" y1="160.0" x2="426.0" y2="160.0" marker-end="url(#uncertainty-arrow)"/>
-    <text x="432.0" y="165.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">ln s</text>
-    <text x="466.0" y="165.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">log-scatter, s² = exp(2 ln s) + s₀²</text>
-    <rect x="285.0" y="215.0" width="60.0" height="34.0" rx="6"/>
-    <text x="315.0" y="237.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">u</text>
-    <line x1="315.0" y1="213.0" x2="315.0" y2="188.0" marker-end="url(#uncertainty-arrow)"/>
-    <path d="M209 224 L283 228" marker-end="url(#uncertainty-arrow)"/>
-    <text x="203.0" y="228.0" font-size="11.5" text-anchor="end" stroke="none" fill="currentColor">ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan>, the reported label error</text>
-    <path d="M209 246 L283 240" marker-end="url(#uncertainty-arrow-brand)" style="stroke: var(--color-brand-primary, #2757c4)"/>
-    <text x="203.0" y="250.0" font-size="11.5" text-anchor="end" stroke="none" style="fill: var(--color-brand-primary, #2757c4)">m, the learned missing vector</text>
-    <text x="365.0" y="226.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">training: m for masked labels and for a fraction</text>
-    <text x="365.0" y="241.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">label_error_dropout of stars, ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan> otherwise</text>
-    <text x="365.0" y="258.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-brand-primary, #2757c4)">validation, evaluation, prediction: always m</text>
-  </g>
+  <text x="95.0" y="66.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">trunk output, or the</text>
+  <text x="95.0" y="80.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">MLP's last hidden layer</text>
+  <rect x="35.0" y="90.0" width="120.0" height="50.0" rx="6" fill="currentColor" fill-opacity="0.06"/>
+  <text x="95.0" y="111.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">head input</text>
+  <text x="95.0" y="129.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">x</text>
+  <line x1="157.0" y1="115.0" x2="190.0" y2="115.0"/>
+  <circle cx="190" cy="115" r="2.5" fill="currentColor" stroke="none"/>
+  <path d="M190 115 L190 49 L228 49" marker-end="url(#uncertainty-arrow)"/>
+  <rect x="230.0" y="18.0" width="190.0" height="62.0" rx="6"/>
+  <text x="325.0" y="39.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">label decoder</text>
+  <text x="325.0" y="56.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">hidden layers → linear</text>
+  <text x="325.0" y="71.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">MLP: no hidden layer</text>
+  <line x1="422.0" y1="49.0" x2="456.0" y2="49.0" marker-end="url(#uncertainty-arrow)"/>
+  <text x="462.0" y="54.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ</text>
+  <text x="482.0" y="54.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">predicted value, never sees σ<tspan baseline-shift="sub" font-size="75%">y</tspan></text>
+  <path d="M190 115 L190 161 L228 161" marker-end="url(#uncertainty-arrow)"/>
+  <rect x="230.0" y="130.0" width="190.0" height="62.0" rx="6"/>
+  <text x="325.0" y="151.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">error decoder</text>
+  <text x="325.0" y="168.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">same hidden sizes → linear</text>
+  <text x="325.0" y="183.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">MLP: one hidden layer</text>
+  <line x1="422.0" y1="161.0" x2="456.0" y2="161.0" marker-end="url(#uncertainty-arrow)"/>
+  <text x="462.0" y="166.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">ln s</text>
+  <text x="496.0" y="166.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">log-scatter, s² = exp(2 ln s) + s₀²</text>
+  <rect x="295.0" y="222.0" width="60.0" height="34.0" rx="6"/>
+  <text x="325.0" y="244.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">u</text>
+  <line x1="325.0" y1="220.0" x2="325.0" y2="195.0" marker-end="url(#uncertainty-arrow)"/>
+  <path d="M219 231 L293 235" marker-end="url(#uncertainty-arrow)"/>
+  <text x="213.0" y="235.0" font-size="11.5" text-anchor="end" stroke="none" fill="currentColor">ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan>, the reported label error</text>
+  <path d="M219 253 L293 247" marker-end="url(#uncertainty-arrow-brand)" style="stroke: var(--color-brand-primary, #2757c4)"/>
+  <text x="213.0" y="257.0" font-size="11.5" text-anchor="end" stroke="none" style="fill: var(--color-brand-primary, #2757c4)">m, the learned missing vector</text>
+  <text x="375.0" y="233.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">training: m for masked labels and for a fraction</text>
+  <text x="375.0" y="248.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">label_error_dropout of stars, ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan> otherwise</text>
+  <text x="375.0" y="265.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-brand-primary, #2757c4)">validation, evaluation, prediction: always m</text>
 </svg>

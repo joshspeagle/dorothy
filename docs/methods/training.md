@@ -45,28 +45,53 @@ definition of s, shared by the loss, validation, evaluation and prediction.
 
 ### Scatter and label errors
 
-The last layer of every head,
-{py:class}`~dorothy.models.output.LabelAwareOutput`, has two branches. The
-mean reads only the head's hidden vector h, so it never sees the label errors.
-The log-scatter also reads, for each parameter p, the label source's reported
-error σ_y,p in normalized units:
+Every head is a {py:class}`~dorothy.models.output.LabelAwareOutput` with two
+parallel decoders that read the same head input x. The label decoder D_μ
+predicts μ from x alone. The error decoder D_s predicts ln s from x and, for
+each parameter p, the label source's reported error σ_y,p in normalized units:
 
 $$
-\mu = W h + b, \qquad
-\ln s = g(h, u), \qquad
+\mu = D_\mu(x), \qquad
+\ln s = D_s(x, u), \qquad
 u_p = \begin{cases}
 \ln \sigma_{y,p} & \text{if } \sigma_{y,p} > 0, \\
 m_p & \text{otherwise,}
 \end{cases}
 $$
 
-where g is a small network (linear, activation, linear), ln σ_y,p is clamped
-to [−10, 5] like ln s, and m is the learned {term}`missing vector`. m starts
-at 0, an error of one normalized unit, far above real label errors.
+where ln σ_y,p is clamped to [−10, 5] like ln s, and m is the learned
+{term}`missing vector`. m starts at 0, an error of one normalized unit, far
+above real label errors. No layer that feeds μ reads u: the label errors and
+the missing labels correlate with the label values, and prediction has no
+label errors.
 
 ```{raw} html
 :file: ../figures/uncertainty.svg
 ```
+
+Each decoder is a stack of hidden layers (linear, normalization, activation
+and optional dropout) followed by a linear layer with one output per
+parameter:
+
+Multi-head model
+: x is the trunk output. The label decoder has the `output_hidden` layers,
+  and the error decoder has layers of the same sizes on [x, u].
+
+MLP
+: x is the last hidden layer h. The label decoder is one linear layer,
+  μ = W h + b, and the error decoder has one hidden layer of h's size on
+  [h, u].
+
+The error decoder always has a hidden layer, so that ln s can be a nonlinear
+function of u. If the true label noise is $\sqrt{a}\,\sigma_y$ and adds in
+quadrature to the model error $e$, for example,
+
+$$
+s^2 = a \sigma_y^2 + e^2, \qquad
+\ln s = \tfrac{1}{2} \ln\left(a e^{2u} + e^2\right),
+$$
+
+which tends to ln e for small label errors and to u + ½ ln a for large ones.
 
 In training, masked labels always get m. A fraction
 `training.label_error_dropout` of the stars (0.5 by default), drawn afresh for
