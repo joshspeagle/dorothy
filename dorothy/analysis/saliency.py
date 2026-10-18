@@ -543,15 +543,11 @@ def _pin_output(module: nn.Module, output: torch.Tensor) -> Iterator[None]:
             raise RuntimeError("Pinned output does not match the input batch size")
         return output
 
-    previous = module.__dict__.get("forward")  # instance-level override, if any
-    module.forward = forward  # type: ignore[method-assign]
+    module.__dict__["forward"] = forward  # the instance attribute shadows the method
     try:
         yield
     finally:
-        if previous is None:
-            del module.forward
-        else:
-            module.forward = previous  # type: ignore[method-assign]
+        del module.__dict__["forward"]
 
 
 class _InputLayerShortcut:
