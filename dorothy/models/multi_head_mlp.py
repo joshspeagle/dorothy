@@ -622,7 +622,7 @@ class MultiHeadMLP(nn.Module):
         if unknown:
             raise KeyError(
                 f"label_errors has unknown label sources {sorted(unknown)}. "
-                f"Available: {self.label_sources}"
+                f"Available: {list(self.output_heads)}"
             )
         features = self._trunk_features(x, survey, has_data)
         return {

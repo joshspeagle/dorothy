@@ -241,12 +241,12 @@ def forward_label_sources(
     Returns:
         Label source name -> output (batch, 2, n_params) = [mu, ln_s].
     """
-    if isinstance(model, MultiHeadMLP) and model.is_multi_label:
-        return model.forward_all_label_sources(
-            batch.X, has_data=batch.has_data, label_errors=label_errors
-        )
-    errors = None if label_errors is None else label_errors[label_keys[0]]
+    errors = (label_errors or {}).get(label_keys[0])
     if isinstance(model, MultiHeadMLP):
+        if model.is_multi_label:
+            return model.forward_all_label_sources(
+                batch.X, has_data=batch.has_data, label_errors=label_errors
+            )
         output = model(batch.X, has_data=batch.has_data, label_errors=errors)
     else:
         output = model(batch.X[SINGLE_SURVEY_KEY], label_errors=errors)
