@@ -8,6 +8,7 @@ from dorothy.analysis.knn_anomaly import (
 from dorothy.analysis.label_comparison import (
     LabelComparison,
     compare_label_sources,
+    plot_label_differences,
 )
 from dorothy.analysis.saliency import (
     # Ablation-based saliency
@@ -30,6 +31,7 @@ __all__ = [
     # Comparison of label sources
     "LabelComparison",
     "compare_label_sources",
+    "plot_label_differences",
     # Gradient-based saliency analysis
     "SaliencyAnalyzer",
     "SaliencyResult",

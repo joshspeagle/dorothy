@@ -2,30 +2,37 @@
 
 If APOGEE and GALAH report correct errors, the difference of their labels for
 a star has the spread that the two errors predict. This module compares the
-measured and the predicted spread for each parameter. It reads only the
-catalogue and needs no trained model.
+measured and the predicted spread for each parameter, and plots the
+differences against Teff and [Fe/H]. It reads only the catalogue and needs no
+trained model.
 
 Examples:
-    >>> from dorothy.analysis import compare_label_sources
+    >>> from dorothy.analysis import compare_label_sources, plot_label_differences
     >>> comparison = compare_label_sources("data/super_catalogue.h5")
     >>> print(comparison.summary())
+    >>> fig = plot_label_differences("data/super_catalogue.h5")
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
 from numpy.typing import NDArray
 
+from dorothy.config.schema import parameter_display_name
 from dorothy.data.catalogue_loader import (
     _label_array,
     _label_gaia_ids,
     _match_ids,
     _read_parameter_names,
 )
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 
 @dataclass
@@ -184,3 +191,71 @@ def compare_label_sources(
         predicted_spread=predicted_spread,
         ratio=ratio,
     )
+
+
+def plot_label_differences(
+    catalogue_path: str | Path,
+    source_a: str = "apogee",
+    source_b: str = "galah",
+    max_flag_bits: int = 0,
+) -> Figure:
+    """Plot the label differences of the shared stars against Teff and [Fe/H].
+
+    The figure has one row per parameter and two columns. A panel plots
+    ``d = y_A - y_B`` against the mean of the two sources' Teff (left) or
+    [Fe/H] (right). It shows the stars that have a valid label of the
+    parameter, and of Teff or [Fe/H], in both sources. A trend of d with Teff
+    or [Fe/H] is a systematic difference between the sources, and it raises
+    the ``ratio`` of ``compare_label_sources``.
+
+    Args:
+        catalogue_path: Path to the HDF5 super-catalogue.
+        source_a: Name of label source A.
+        source_b: Name of label source B.
+        max_flag_bits: Largest number of set flag bits that a source may have
+            for a star's labels to count. It has the meaning that it has in
+            ``compare_label_sources``.
+
+    Returns:
+        The Matplotlib figure, with d in the physical units of the catalogue
+        (K for Teff, dex for the others).
+
+    Raises:
+        ValueError: If the catalogue has no parameter ``teff`` or ``fe_h``, or
+            for a reason given at ``compare_label_sources``.
+    """
+    names, a, b, both = _read_shared(catalogue_path, source_a, source_b, max_flag_bits)
+    missing = [name for name in ("teff", "fe_h") if name not in names]
+    if missing:
+        raise ValueError(
+            f"The catalogue has no parameter {', '.join(map(repr, missing))}, "
+            f"which the plot needs for its x axes; it has {names}"
+        )
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(
+        len(names),
+        2,
+        figsize=(9, 1.8 * len(names)),
+        sharex="col",
+        squeeze=False,
+        layout="constrained",
+    )
+    for column, x_name in enumerate(("teff", "fe_h")):
+        x = names.index(x_name)
+        for row in range(len(names)):
+            shared = both[:, row] & both[:, x]
+            ax = axes[row, column]
+            ax.scatter(
+                (a[shared, 0, x] + b[shared, 0, x]) / 2,
+                a[shared, 0, row] - b[shared, 0, row],
+                s=2,
+                alpha=0.3,
+            )
+            ax.axhline(0, color="black", linewidth=0.8)
+        axes[-1, column].set_xlabel(f"mean {parameter_display_name(x_name)}")
+    for row, name in enumerate(names):
+        axes[row, 0].set_ylabel(
+            f"{parameter_display_name(name)}: {source_a} - {source_b}"
+        )
+    return fig

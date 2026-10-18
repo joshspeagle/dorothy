@@ -15,7 +15,11 @@ import h5py
 import numpy as np
 import pytest
 
-from dorothy.analysis import LabelComparison, compare_label_sources
+from dorothy.analysis import (
+    LabelComparison,
+    compare_label_sources,
+    plot_label_differences,
+)
 from dorothy.inference.evaluator import evaluate_predictions
 from tests.synthetic import PARAMS, build_catalogue
 
@@ -265,3 +269,30 @@ def test_invalid_label_sources_are_rejected(tmp_path, kwargs, message):
     path = build_catalogue(tmp_path / "catalogue.h5", n_stars=50)
     with pytest.raises(ValueError, match=message):
         compare_label_sources(path, **kwargs)
+
+
+def test_plot_returns_a_figure_with_a_panel_per_parameter_and_axis(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
+
+    path = build_catalogue(tmp_path / "catalogue.h5", n_stars=300)
+    fig = plot_label_differences(path)
+    try:
+        assert isinstance(fig, Figure)
+        assert len(fig.axes) == 2 * len(PARAMS)
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("missing", ["teff", "fe_h"])
+def test_plot_without_teff_or_fe_h_names_the_missing_parameter(tmp_path, missing):
+    path = build_catalogue(tmp_path / "catalogue.h5", n_stars=50)
+    with h5py.File(path, "r+") as f:
+        f.attrs["parameter_names"] = [
+            name.replace(missing, "renamed") for name in PARAMS
+        ]
+    with pytest.raises(ValueError, match=f"no parameter '{missing}'"):
+        plot_label_differences(path)

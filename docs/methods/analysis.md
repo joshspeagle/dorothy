@@ -159,11 +159,18 @@ Teff, dex for the others) except `n_shared` and `ratio`. A parameter without
 shared stars has `n_shared` 0 and NaN in the other fields.
 
 ```python
-from dorothy.analysis import compare_label_sources
+from dorothy.analysis import compare_label_sources, plot_label_differences
 
 comparison = compare_label_sources("data/super_catalogue.h5", max_flag_bits=0)
 print(comparison.summary())
+fig = plot_label_differences("data/super_catalogue.h5", max_flag_bits=0)
+fig.savefig("label_differences.png", dpi=150)
 ```
+
+{py:func}`~dorothy.analysis.label_comparison.plot_label_differences` plots d
+against the mean Teff and the mean [Fe/H] of the two sources, with one row per
+parameter. A panel shows the stars that have a valid label of its parameter,
+and of Teff or [Fe/H], in both sources.
 
 ### Reading the ratio
 
@@ -176,7 +183,9 @@ print(comparison.summary())
   underestimates its uncertainties, or the sources differ systematically.
 
 The ratio does not say which source is at fault. `median_offset` shows a
-constant offset between the sources.
+constant offset between the sources. A difference that changes with Teff or
+[Fe/H] widens the spread of d and raises the ratio. The plot shows it as a
+trend.
 
 `ratio` divides each star's difference by its own σ_d. When the uncertainties
 vary from star to star, the spread of d mixes the stars' spreads, so
