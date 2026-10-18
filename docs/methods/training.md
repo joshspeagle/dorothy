@@ -95,14 +95,13 @@ $$
 \bar{w} \leftarrow d\,\bar{w} + (1 - d)\,w .
 $$
 
-The first update copies the weights. The average includes the buffers, such
-as the running statistics of batch normalization. Validation, the choice of
-the best epoch, `best_model.pth`, `final_model.pth` and the weights saved
-every `training.save_every` epochs use the averaged weights, and after
-training the model holds the averaged weights of the best epoch. The training
-steps, and the weight norms and updates in the history, use the trained
-weights. For validation, the average is loaded into the model; the trained
-weights wait in CPU memory and return afterwards.
+The average starts from the weights before the first step. It includes the
+buffers, such as the running statistics of batch normalization; integer
+buffers are copied, not averaged. Validation, the choice of the best epoch,
+`best_model.pth`, `final_model.pth` and the weights saved every
+`training.save_every` epochs use the averaged weights, and after training the
+model holds the averaged weights of the best epoch. The training steps, and
+the weight norms and updates in the history, use the trained weights.
 
 The average is one more copy of the weights on the training device, 4 bytes
 per parameter. Training with AdamW already holds four such copies (the

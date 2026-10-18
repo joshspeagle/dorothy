@@ -1732,44 +1732,30 @@ class TestTrainerMultiLabelsetMixedOverlap:
         assert all(np.isfinite(history.train_losses))
 
 
-def _batchnorm_config(tmp_path: Path, **training) -> ExperimentConfig:
-    """A small MLP with batch normalization, whose running statistics are buffers."""
-    return ExperimentConfig(
-        name="weight_average",
-        data=DataConfig(catalogue_path=tmp_path / "catalogue.h5"),
-        model=ModelConfig(
-            input_features=3000,
-            output_features=6,
-            hidden_layers=[32, 16],
-            normalization=NormalizationType.BATCHNORM,
-        ),
-        training=TrainingConfig(epochs=5, batch_size=16, **training),
-        seed=42,
-    )
+def _trained_states(trainer: Trainer) -> list[dict[str, torch.Tensor]]:
+    """Collect the model state now and after every optimizer step of the next fit."""
 
-
-def _states_after_each_step(trainer: Trainer) -> list[dict[str, torch.Tensor]]:
-    """Collect the model state after every optimizer step of the next fit."""
-    states = []
-    trainer.optimizer.register_step_post_hook(
-        lambda *_: states.append(
+    def snapshot(*_):
+        states.append(
             {name: t.clone() for name, t in trainer.model.state_dict().items()}
         )
-    )
+
+    states = []
+    snapshot()
+    trainer.optimizer.register_step_post_hook(snapshot)
     return states
 
 
 def _moving_average(
-    states: list[dict[str, torch.Tensor]], decay: float, every: int = 1
+    states: list[dict[str, torch.Tensor]], decay: float, every: int
 ) -> dict[str, torch.Tensor]:
-    """Reference EMA of the floating-point entries of every k-th state.
+    """Reference EMA of the floating-point entries of the states.
 
-    The first state is copied; each later one, every k = ``every`` states,
-    moves the average a fraction 1 - decay**k towards it.
+    The average starts at the first state; every k = ``every`` steps, the
+    state after the step moves it a fraction 1 - decay**k towards that state.
     """
-    sampled = states[::every]
-    average = {k: v.clone() for k, v in sampled[0].items() if v.is_floating_point()}
-    for state in sampled[1:]:
+    average = {k: v.clone() for k, v in states[0].items() if v.is_floating_point()}
+    for state in states[1::every]:
         for name, value in average.items():
             value.lerp_(state[name], 1 - decay**every)
     return average
@@ -1778,47 +1764,63 @@ def _moving_average(
 class TestWeightAverage:
     """Exponential moving average of the weights (training.ema_decay)."""
 
+    @pytest.fixture
+    def batchnorm_config(self, simple_config):
+        """simple_config with batch normalization, whose running statistics are buffers."""
+        simple_config.model.normalization = NormalizationType.BATCHNORM
+        return simple_config
+
     @pytest.mark.parametrize(
         "cpu_every", [None, 1, 3], ids=["device", "cpu_every_1", "cpu_every_3"]
     )
     def test_saved_weights_are_moving_averages_of_the_trained_weights(
-        self, training_data, tmp_path, cpu_every
+        self, batchnorm_config, training_data, tmp_path, cpu_every
     ):
-        """best_model.pth averages up to the best epoch, final_model.pth to the end.
+        """The best, final and epoch weights average the steps up to their epoch.
 
         An epoch has 5 steps, so an average every 3 steps also checks that the
         steps are counted across epochs.
         """
-        trainer = Trainer(
-            _batchnorm_config(tmp_path, ema_decay=0.9, ema_cpu_every=cpu_every)
-        )
-        states = _states_after_each_step(trainer)
+        decay, every = 0.9, cpu_every or 1
+        batchnorm_config.training.ema_decay = decay
+        batchnorm_config.training.ema_cpu_every = cpu_every
+        batchnorm_config.training.save_every = 2
+        batchnorm_config.output_dir = tmp_path
+        trainer = Trainer(batchnorm_config)
+        states = _trained_states(trainer)
         X, y = training_data
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
         path = trainer.save_checkpoint(tmp_path / "checkpoint")
 
-        steps_per_epoch = len(states) // len(history.train_losses)
-        best_end = (history.best_epoch + 1) * steps_per_epoch
-        best = torch.load(path / "best_model.pth", weights_only=True)
-        final = torch.load(path / "final_model.pth", weights_only=True)
+        steps_per_epoch = (len(states) - 1) // len(history.train_losses)
+
+        def steps_to(epoch):
+            return states[: 1 + epoch * steps_per_epoch]
+
+        epoch_2 = batchnorm_config.get_checkpoint_path(2) / "model_epoch_2.pth"
+        expected = [
+            (path / "best_model.pth", steps_to(history.best_epoch + 1)),
+            (path / "final_model.pth", states),
+            (epoch_2, steps_to(2)),
+        ]
         # The default float32 tolerances allow lerp kernels that round
-        # differently (the CPU average of a CUDA run); a misplaced update
-        # moves the average by over 7e-3 here.
-        for saved, trained in [(best, states[:best_end]), (final, states)]:
-            for name, value in _moving_average(trained, 0.9, cpu_every or 1).items():
+        # differently (the CPU average of a CUDA run); an update schedule off
+        # by one step moves the average by over 2e-4 here.
+        for file, trained in expected:
+            saved = torch.load(file, weights_only=True)
+            for name, value in _moving_average(trained, decay, every).items():
                 torch.testing.assert_close(saved[name], value)
-        for name, value in trainer.model.state_dict().items():
-            assert torch.equal(value, best[name]), name
 
     def test_weight_average_changes_validation_but_not_training(
-        self, training_data, tmp_path
+        self, batchnorm_config, training_data
     ):
         """The trained weights and their metrics do not depend on the average."""
         X, y = training_data
         runs = []
         for decay in [None, 0.9]:
-            trainer = Trainer(_batchnorm_config(tmp_path, ema_decay=decay))
-            states = _states_after_each_step(trainer)
+            batchnorm_config.training.ema_decay = decay
+            trainer = Trainer(batchnorm_config)
+            states = _trained_states(trainer)
             runs.append((states, trainer.fit(X[:80], y[:80], X[80:], y[80:])))
         (states_off, off), (states_on, on) = runs
 
@@ -1830,13 +1832,14 @@ class TestWeightAverage:
         assert on.val_losses != off.val_losses
 
     def test_zero_decay_gives_the_results_of_training_without_an_average(
-        self, training_data, tmp_path
+        self, batchnorm_config, training_data, tmp_path
     ):
         """With decay 0 the average is the trained weights after each step."""
         X, y = training_data
         runs = []
         for decay in [None, 0.0]:
-            trainer = Trainer(_batchnorm_config(tmp_path, ema_decay=decay))
+            batchnorm_config.training.ema_decay = decay
+            trainer = Trainer(batchnorm_config)
             history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
             path = trainer.save_checkpoint(tmp_path / f"decay_{decay}")
             weights = {

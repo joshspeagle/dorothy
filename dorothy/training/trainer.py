@@ -40,7 +40,6 @@ from torch.optim.lr_scheduler import (
     OneCycleLR,
     ReduceLROnPlateau,
 )
-from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 
 from dorothy.config.schema import (
     LossType,
@@ -382,8 +381,10 @@ class Trainer:
         # Best model weights, and the weights after the last epoch
         self._best_weights: dict | None = None
         self._final_weights: dict | None = None
-        # Moving average of the weights during training (training.ema_decay)
-        self._ema: AveragedModel | None = None
+        # Moving average of the weights and buffers during training
+        # (training.ema_decay), updated every _ema_every optimizer steps
+        self._ema: dict[str, torch.Tensor] | None = None
+        self._ema_every = config.training.ema_cpu_every or 1
 
         # Set up parameter names for normalization
         n_params = self.n_parameters
@@ -554,28 +555,42 @@ class Trainer:
                 f"Scheduler {scheduler_config.type} not yet implemented"
             )
 
-    def _create_weight_average(self) -> AveragedModel | None:
-        """Create the moving average of the weights and buffers (None if off).
-
-        Updated every k = ``ema_cpu_every`` steps, the average decays by d**k
-        per update, so it forgets at the same rate per step as with k = 1.
-        """
+    def _create_weight_average(self) -> dict[str, torch.Tensor] | None:
+        """Copy the weights and buffers to start their moving average (None if off)."""
         decay = self.config.training.ema_decay
         if decay is None:
             return None
-        cpu_every = self.config.training.ema_cpu_every
-        device = self.device if cpu_every is None else torch.device("cpu")
-        every = cpu_every or 1
+        device = (
+            self.device
+            if self.config.training.ema_cpu_every is None
+            else torch.device("cpu")
+        )
         logger.info(
             f"Averaging the weights: decay {decay} per optimizer step, average "
-            f"on {device}, updated every {every} step(s)"
+            f"on {device}, updated every {self._ema_every} step(s)"
         )
-        return AveragedModel(
-            self.model,
-            device=device,
-            multi_avg_fn=get_ema_multi_avg_fn(decay**every),
-            use_buffers=True,
-        )
+        return {
+            name: tensor.to(device, copy=True)
+            for name, tensor in self.model.state_dict().items()
+        }
+
+    def _update_weight_average(self) -> None:
+        """Move the average a fraction 1 - d**k towards the current weights.
+
+        k is the number of steps between updates, so the average forgets at
+        the same rate per step for every k. Integer buffers are copied.
+        """
+        state = self.model.state_dict()
+        averages, currents = [], []
+        for name, average in self._ema.items():
+            current = state[name].to(average.device)
+            if average.is_floating_point():
+                averages.append(average)
+                currents.append(current)
+            else:
+                average.copy_(current)
+        decay = self.config.training.ema_decay
+        torch._foreach_lerp_(averages, currents, 1 - decay**self._ema_every)
 
     # ------------------------------------------------------------------
     # Public training API: thin adapters onto the shared pipeline
@@ -1190,7 +1205,6 @@ class Trainer:
         step_scheduler = self.scheduler is not None and not isinstance(
             self.scheduler, ReduceLROnPlateau
         )
-        ema_every = self.config.training.ema_cpu_every or 1
         # Summed on the device in float64 (as the Python floats were) and read
         # once per epoch, so steps do not wait for the GPU. MPS has no float64.
         acc_device = self.device if self.device.type != "mps" else torch.device("cpu")
@@ -1212,8 +1226,8 @@ class Trainer:
                 loss = self._combine_losses(self._forward(batch), batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
-            if self._ema is not None and step % ema_every == 0:
-                self._ema.update_parameters(self.model)
+            if self._ema is not None and step % self._ema_every == 0:
+                self._update_weight_average()
             total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
                 self.scheduler.step()
@@ -1353,8 +1367,9 @@ class Trainer:
                 "epoch. Check the validation data for NaN or infinite values "
                 "and the training losses for divergence."
             )
-        with self._averaged_weights():
-            self._final_weights = copy.deepcopy(self.model.state_dict())
+        self._final_weights = (
+            copy.deepcopy(self.model.state_dict()) if self._ema is None else self._ema
+        )
         self.model.load_state_dict(self._best_weights)
         logger.info(
             f"Training complete in {self.history.total_time:.1f}s. Best val loss: "
@@ -1444,22 +1459,27 @@ class Trainer:
     def _averaged_weights(self) -> Iterator[None]:
         """Hold the averaged weights in the model, then restore the trained ones.
 
-        Without a weight average the model keeps its weights. The trained
-        weights wait in CPU memory, so this needs no memory on the training
-        device.
+        Without a weight average the model keeps its weights.
         """
         if self._ema is None:
             yield
             return
-        trained = {
-            name: tensor.to("cpu", copy=True)
-            for name, tensor in self.model.state_dict().items()
-        }
-        self.model.load_state_dict(self._ema.module.state_dict())
+        self._swap_weight_average()
         try:
             yield
         finally:
-            self.model.load_state_dict(trained)
+            self._swap_weight_average()
+
+    def _swap_weight_average(self) -> None:
+        """Exchange the values of the model's weights and buffers with the average.
+
+        One tensor at a time, so the swap needs memory for one tensor only.
+        """
+        for name, tensor in self.model.state_dict().items():
+            average = self._ema[name]
+            trained = tensor.to(average.device, copy=True)
+            tensor.copy_(average)
+            average.copy_(trained)
 
     def _store_best_weights(self) -> None:
         """Copy the current weights into the best-weights state dict.
