@@ -1143,6 +1143,8 @@ class CatalogueLoader:
            c. Try 'galah' directly (v2 schema)
            d. Try 'apogee_{survey}' pattern (v1 fallback)
         """
+        if "labels" not in f:
+            raise ValueError(f"Catalogue {self.path} has no 'labels' group")
         labels = f["labels"]
         if label_source is None:
             survey = surveys[0]
@@ -1926,17 +1928,20 @@ class CatalogueLoader:
             group have mask 0.
 
         Raises:
-            ValueError: If the label source is not in the catalogue, or the
-                catalogue or its label group has no Gaia IDs.
+            ValueError: If the catalogue has no labels, the label source is not
+                in the catalogue, or the catalogue or its label group has no
+                Gaia IDs.
         """
         with h5py.File(self.path, "r") as f:
-            label_grp = f["labels"][self._resolve_label_source([], label_source, f)]
+            source = self._resolve_label_source([], label_source, f)
             if "gaia_id" not in f.get("metadata", {}):
                 raise ValueError(
                     f"Catalogue {self.path} has no metadata/gaia_id, which "
                     "load_labels needs to match labels to stars"
                 )
-            return _align_labels(label_grp, f["metadata"]["gaia_id"][:], max_flag_bits)
+            return _align_labels(
+                f["labels"][source], f["metadata"]["gaia_id"][:], max_flag_bits
+            )
 
     def get_parameter_names(self) -> list[str]:
         """Get the label parameter names, in catalogue column order."""

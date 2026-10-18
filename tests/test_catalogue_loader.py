@@ -2061,6 +2061,13 @@ class TestLoadLabels:
         with pytest.raises(ValueError, match="Label source 'lamost' not in"):
             loader.load_labels("lamost")
 
+    def test_catalogue_without_labels_raises_value_error(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            del f["labels"]
+        with pytest.raises(ValueError, match="has no 'labels' group"):
+            CatalogueLoader(path).load_labels("galah")
+
 
 class TestGaiaIds:
     def test_dense_loading_without_gaia_ids_raises(self, tmp_path):

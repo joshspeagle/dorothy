@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- The catalogue loaders raised h5py's `KeyError`, not `ValueError`, for a
+  catalogue without a `labels` group.
 - `ReduceLROnPlateau` crashed in every multi-survey training mode.
 - Masked labels could produce NaN losses (for example log10(0) for a masked
   Teff with `max_flag_bits: -1`).
