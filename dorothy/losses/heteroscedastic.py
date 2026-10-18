@@ -331,9 +331,13 @@ class MaskedMSELoss(nn.Module):
         self.reduction = reduction
 
     def element_losses(
-        self, output: torch.Tensor, target: torch.Tensor
+        self, output: torch.Tensor, target: torch.Tensor, beta: float = 0.0
     ) -> torch.Tensor:
-        """Squared error per (sample, parameter), zero where masked."""
+        """Squared error per (sample, parameter), zero where masked.
+
+        ``beta`` has no effect: the squared error is the negative
+        log-likelihood with unit variance, whose β-NLL weight is 1.
+        """
         if output.shape[1:] != (2, self.n_parameters) or target.shape[1:] != (
             3,
             self.n_parameters,

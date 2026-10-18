@@ -6,6 +6,7 @@ including:
 - Model and optimizer setup from configuration
 - Batch-wise training with gradient clipping
 - Learning rate scheduling (CyclicLR, ReduceOnPlateau, etc.)
+- A β-NLL warm-up of the loss
 - An optional exponential moving average of the weights
 - Validation evaluation and best model tracking
 - Checkpointing and training history
@@ -309,6 +310,14 @@ def _autocast_dtype(
             "training.amp_dtype to 'float16'"
         )
     return torch.bfloat16
+
+
+def _nll_warmup_beta(step: int, warmup_steps: int) -> float:
+    """β of the loss at optimizer step t of the run, counted from 0.
+
+    β = max(0, 1 - t / W) over W warm-up steps, and 0 without them.
+    """
+    return max(0.0, 1.0 - step / warmup_steps) if warmup_steps > 0 else 0.0
 
 
 class Trainer:
@@ -1071,6 +1080,7 @@ class Trainer:
         self,
         outputs: dict[str, torch.Tensor],
         targets: dict[str, torch.Tensor],
+        beta: float = 0.0,
     ) -> torch.Tensor:
         """Combine per-label-source losses into one scalar.
 
@@ -1079,11 +1089,14 @@ class Trainer:
         mean loss over the sources with any valid label. Both apply the
         optional ``training.label_source_weights``; with a single source they
         reduce to the loss function's masked mean.
+
+        ``beta`` is the β of the β-NLL loss: training passes the warm-up's β,
+        and validation the default 0, the plain loss.
         """
         training = self.config.training
         sums, counts, weights = [], [], []
         for key, target in targets.items():
-            sums.append(self.loss_fn.element_losses(outputs[key], target).sum())
+            sums.append(self.loss_fn.element_losses(outputs[key], target, beta).sum())
             counts.append(target[:, 2, :].sum())
             weights.append(training.label_source_weights.get(key, 1.0))
 
@@ -1252,6 +1265,7 @@ class Trainer:
         rng: np.random.Generator,
         gradient_clip: float,
         first_step: int,
+        warmup_steps: int,
     ) -> tuple[float, float]:
         """Run one training epoch.
 
@@ -1261,7 +1275,10 @@ class Trainer:
             rng: Random number generator for shuffling.
             gradient_clip: Maximum gradient norm for clipping.
             first_step: Number of optimizer steps before this epoch, which
-                sets the steps that update the weight average.
+                numbers this epoch's steps for the weight average and the
+                warm-up.
+            warmup_steps: Optimizer steps over which β of the loss falls
+                from 1 to 0.
 
         Returns:
             Tuple of (average_loss, average_gradient_norm).
@@ -1297,7 +1314,9 @@ class Trainer:
                 outputs = self._forward(batch, label_errors)
             # exp(2 ln s) in the loss would otherwise run in 16 bits
             outputs = {k: v.float() for k, v in outputs.items()}
-            loss = self._combine_losses(outputs, batch.y)
+            loss = self._combine_losses(
+                outputs, batch.y, _nll_warmup_beta(step, warmup_steps)
+            )
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
             if self._ema is not None and step % self._ema.every == 0:
@@ -1325,6 +1344,9 @@ class Trainer:
         n_epochs = training_config.epochs
         steps_per_epoch = (train_source.n_samples + batch_size - 1) // batch_size
         self.scheduler = self._create_scheduler(steps_per_epoch)
+        warmup_steps = round(
+            training_config.nll_warmup_fraction * n_epochs * steps_per_epoch
+        )
 
         # Train/validate the label sources the data provides (a multi-head
         # model fit on one label set trains only that head)
@@ -1383,6 +1405,7 @@ class Trainer:
                 rng,
                 training_config.gradient_clip,
                 epoch * steps_per_epoch,
+                warmup_steps,
             )
             self.history.train_losses.append(train_loss)
             self.history.grad_norms.append(grad_norm)

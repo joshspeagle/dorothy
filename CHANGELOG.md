@@ -32,6 +32,11 @@
   during training. Validation, the best epoch and the saved weights use the
   average. It is off by default. `training.ema_cpu_every` keeps the average
   in CPU memory, updated every N optimizer steps.
+- `training.nll_warmup_fraction` (default 0.1) warms up the Gaussian
+  negative log-likelihood (NLL) with the β-NLL loss: β falls linearly from 1
+  to 0 over that fraction of the optimizer steps, so the means start with
+  mean-squared-error gradients. Validation always uses the plain NLL.
+  `HeteroscedasticLoss.element_losses` and `forward` take `beta`.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
   (`--survey`, `--label-source`).
@@ -265,3 +270,6 @@
   configuration now raises `ValueError` and needs `training.amp_dtype:
   float16`. Validation runs in float32 instead of under autocast, which can
   change the best epoch.
+- Training starts with a β-NLL warm-up over the first 10% of the optimizer
+  steps, so training results change for the same configuration and seed.
+  `training.nll_warmup_fraction: 0` restores the previous training exactly.

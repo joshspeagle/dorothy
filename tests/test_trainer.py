@@ -760,7 +760,7 @@ class TestTrainerMixedPrecision:
 
         # One batch, in the same order: the epoch loss is its loss before the step
         loss, _ = trainer._train_epoch(
-            source, n, np.random.default_rng(0), 10.0, first_step=0
+            source, n, np.random.default_rng(0), 10.0, first_step=0, warmup_steps=0
         )
         # Without the cast, exp runs in bf16 and this loss changes by 7e-4
         assert loss == pytest.approx(expected, rel=1e-6)
@@ -2160,3 +2160,52 @@ class TestWeightAverage:
         for file, state in weights_off.items():
             for name, value in state.items():
                 assert torch.equal(weights_zero[file][name], value), (file, name)
+
+
+def _warmup_betas(
+    config: ExperimentConfig, training_data, fraction: float
+) -> tuple[list[float], list[float]]:
+    """Train with a warm-up fraction; return the β of each step and validation."""
+    config.training.nll_warmup_fraction = fraction
+    trainer = Trainer(config)
+    betas = {True: [], False: []}
+    element_losses = trainer.loss_fn.element_losses
+
+    def record(output, target, beta=0.0):
+        # Validation outputs come from a forward pass without gradients
+        betas[output.requires_grad].append(beta)
+        return element_losses(output, target, beta)
+
+    trainer.loss_fn.element_losses = record
+    X, y = training_data
+    trainer.fit(X[:80], y[:80], X[80:], y[80:])
+    return betas[True], betas[False]
+
+
+class TestNllWarmup:
+    """The β-NLL warm-up (training.nll_warmup_fraction).
+
+    simple_config trains 5 epochs of 5 optimizer steps each.
+    """
+
+    def test_zero_warmup_fraction_trains_with_the_plain_nll(
+        self, simple_config, training_data
+    ):
+        """Every step passes β = 0, for which the loss skips the weight entirely."""
+        steps, _ = _warmup_betas(simple_config, training_data, 0.0)
+        assert steps == [0.0] * 25
+
+    def test_beta_falls_linearly_to_zero_over_the_warmup_and_stays_zero(
+        self, simple_config, training_data
+    ):
+        """A fraction 0.4 of the 25 steps is a warm-up of 10, over two epochs."""
+        steps, _ = _warmup_betas(simple_config, training_data, 0.4)
+        assert steps == pytest.approx([1 - t / 10 for t in range(10)] + [0.0] * 15)
+        assert steps[10:] == [0.0] * 15  # exactly 0: the plain loss
+
+    def test_validation_uses_the_plain_nll_during_the_warmup(
+        self, simple_config, training_data
+    ):
+        steps, validation = _warmup_betas(simple_config, training_data, 1.0)
+        assert min(steps) > 0  # every epoch is in the warm-up
+        assert validation == [0.0] * 5
