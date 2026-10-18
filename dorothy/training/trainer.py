@@ -445,9 +445,17 @@ class Trainer:
         # Check if fused optimizers are available (CUDA only, faster by 10-20%)
         use_fused = torch.cuda.is_available() and self.device.type == "cuda"
 
+        # Decay only weight matrices: biases and normalization weights (1-D)
+        # set offsets and scales, which decay does not regularize
+        params = list(self.model.parameters())
+        groups = [
+            {"params": [p for p in params if p.ndim > 1]},
+            {"params": [p for p in params if p.ndim <= 1], "weight_decay": 0.0},
+        ]
+
         if optimizer_config.type == OptimizerType.ADAMW:
             return torch.optim.AdamW(
-                self.model.parameters(),
+                groups,
                 lr=training_config.learning_rate,
                 betas=optimizer_config.betas,
                 weight_decay=optimizer_config.weight_decay,
@@ -456,7 +464,7 @@ class Trainer:
 
         elif optimizer_config.type == OptimizerType.ADAM:
             return torch.optim.Adam(
-                self.model.parameters(),
+                groups,
                 lr=training_config.learning_rate,
                 betas=optimizer_config.betas,
                 weight_decay=optimizer_config.weight_decay,
@@ -465,7 +473,7 @@ class Trainer:
 
         elif optimizer_config.type == OptimizerType.SGD:
             return torch.optim.SGD(
-                self.model.parameters(),
+                groups,
                 lr=training_config.learning_rate,
                 momentum=optimizer_config.momentum,
                 weight_decay=optimizer_config.weight_decay,

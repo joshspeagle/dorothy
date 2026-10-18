@@ -488,7 +488,7 @@ class OptimizerConfig(_ConfigModel):
 
     Attributes:
         type: The optimizer type to use.
-        weight_decay: L2 regularization coefficient.
+        weight_decay: Weight decay of the weight matrices.
         betas: Coefficients for computing running averages (Adam/AdamW).
         momentum: Momentum factor (SGD only).
         nesterov: Whether to use Nesterov momentum (SGD only).
@@ -498,7 +498,12 @@ class OptimizerConfig(_ConfigModel):
         default=OptimizerType.ADAMW, description="Optimizer type"
     )
     weight_decay: float = Field(
-        default=0.01, ge=0, description="Weight decay (L2 regularization)"
+        default=0.01,
+        ge=0,
+        description=(
+            "Weight decay of the weight matrices. Biases and normalization "
+            "weights are not decayed."
+        ),
     )
     betas: tuple[float, float] = Field(
         default=(0.9, 0.999),

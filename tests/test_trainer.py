@@ -23,6 +23,9 @@ from dorothy.config.schema import (
     InputMaskingConfig,
     LossType,
     ModelConfig,
+    MultiHeadModelConfig,
+    OptimizerConfig,
+    OptimizerType,
     SchedulerConfig,
     SchedulerType,
     TrainingConfig,
@@ -106,6 +109,44 @@ class TestTrainerInit:
         assert trainer.optimizer is not None
         assert trainer.loss_fn is not None
         assert trainer.device is not None
+
+    @pytest.mark.parametrize("multi_head", [False, True])
+    @pytest.mark.parametrize("optimizer", list(OptimizerType))
+    def test_weight_decay_applies_only_to_weight_matrices(
+        self, simple_config, optimizer, multi_head
+    ):
+        """Weight matrices are decayed; biases and normalization weights are not."""
+        update = {
+            "training": simple_config.training.model_copy(
+                update={"optimizer": OptimizerConfig(type=optimizer, weight_decay=0.05)}
+            )
+        }
+        if multi_head:
+            update["multi_head_model"] = MultiHeadModelConfig(
+                survey_wavelengths={"boss": 100, "lamost": 80},
+                n_parameters=3,
+                latent_dim=16,
+                encoder_hidden=[32],
+                trunk_hidden=[16],
+                output_hidden=[8],
+            )
+        trainer = Trainer(simple_config.model_copy(update=update))
+
+        decay = {g["weight_decay"]: g["params"] for g in trainer.optimizer.param_groups}
+        model_params = list(trainer.model.parameters())
+        assert {id(p) for p in decay[0.05]} == {
+            id(p) for p in model_params if p.ndim > 1
+        }
+        assert {id(p) for p in decay[0.0]} == {
+            id(p) for p in model_params if p.ndim <= 1
+        }
+        norm_weights = [
+            m.weight
+            for m in trainer.model.modules()
+            if isinstance(m, torch.nn.LayerNorm)
+        ]
+        assert norm_weights
+        assert all(any(w is p for p in decay[0.0]) for w in norm_weights)
 
     def test_model_has_correct_architecture(self, simple_config):
         """Test that model matches config."""
