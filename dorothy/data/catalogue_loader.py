@@ -773,9 +773,6 @@ class CatalogueLoader:
                     f"Available surveys (all empty): {info.survey_names}"
                 )
 
-        # Store original request for fallback logic
-        original_label_source = label_source
-
         with h5py.File(self.path, "r") as f:
             # Validate inputs
             if survey not in f["surveys"]:
@@ -783,38 +780,7 @@ class CatalogueLoader:
                     f"Survey '{survey}' not in catalogue. "
                     f"Available: {list(f['surveys'].keys())}"
                 )
-
-            available_labels = list(f["labels"].keys())
-
-            # Resolve label source with fallback logic
-            # Supports v1 schema (apogee_boss, etc.) and v2 schema (apogee, galah)
-            if label_source is None:
-                # Auto-derive: try SURVEY_LABEL_MAP first (v1), then unified sources (v2)
-                mapped_source = SURVEY_LABEL_MAP.get(survey)
-                if mapped_source and mapped_source in f["labels"]:
-                    label_source = mapped_source
-                else:
-                    # Try v2 unified sources first, then v1 fallback pattern
-                    candidates = ["apogee", "galah", f"apogee_{survey}"]
-                    for candidate in candidates:
-                        if candidate in f["labels"]:
-                            label_source = candidate
-                            break
-                    if label_source is None:
-                        raise ValueError(
-                            f"No label source found for survey '{survey}'. "
-                            f"Available: {available_labels}"
-                        )
-            elif label_source not in f["labels"]:
-                # User-specified source not found - try {label_source}_{survey} pattern (v1)
-                survey_specific = f"{label_source}_{survey}"
-                if survey_specific in f["labels"]:
-                    label_source = survey_specific
-                else:
-                    raise ValueError(
-                        f"Label source '{original_label_source}' not in catalogue. "
-                        f"Available: {available_labels}"
-                    )
+            label_source = self._resolve_label_source([survey], label_source, f)
 
             # Load survey data
             survey_grp = f["surveys"][survey]
@@ -1104,7 +1070,7 @@ class CatalogueLoader:
         return result
 
     def _resolve_label_source(
-        self, survey: str, label_source: str | None, f: h5py.File
+        self, surveys: list[str], label_source: str | None, f: h5py.File
     ) -> str:
         """
         Resolve label source name with fallback logic.
@@ -1114,39 +1080,33 @@ class CatalogueLoader:
 
         Resolution order:
         1. If label_source specified and exists -> use it directly
-        2. If label_source specified, try {label_source}_{survey} pattern (v1)
-        3. If label_source is None:
+        2. If label_source specified, try {label_source}_{survey} (v1) for
+           each survey in order
+        3. If label_source is None, for the first survey:
            a. Try SURVEY_LABEL_MAP (v1 schema)
            b. Try 'apogee' directly (v2 schema)
            c. Try 'galah' directly (v2 schema)
            d. Try 'apogee_{survey}' pattern (v1 fallback)
         """
-        available_labels = list(f["labels"].keys())
-
+        labels = f["labels"]
         if label_source is None:
-            # Auto-derive: try multiple patterns
-            # First try v1 SURVEY_LABEL_MAP
-            mapped_source = SURVEY_LABEL_MAP.get(survey)
-            if mapped_source and mapped_source in f["labels"]:
-                return mapped_source
-            # Then try v2 unified sources and v1 fallbacks
-            for candidate in ["apogee", "galah", f"apogee_{survey}"]:
-                if candidate in f["labels"]:
-                    return candidate
-            raise ValueError(
-                f"No label source found for survey '{survey}'. "
-                f"Available: {available_labels}"
-            )
-        elif label_source not in f["labels"]:
-            # Try {label_source}_{survey} pattern (v1 schema)
-            survey_specific = f"{label_source}_{survey}"
-            if survey_specific in f["labels"]:
-                return survey_specific
-            raise ValueError(
-                f"Label source '{label_source}' not in catalogue. "
-                f"Available: {available_labels}"
-            )
-        return label_source
+            survey = surveys[0]
+            candidates = [
+                SURVEY_LABEL_MAP.get(survey),
+                "apogee",
+                "galah",
+                f"apogee_{survey}",
+            ]
+            error = f"No label source found for survey '{survey}'"
+        elif label_source in labels:
+            return label_source
+        else:
+            candidates = [f"{label_source}_{survey}" for survey in surveys]
+            error = f"Label source '{label_source}' not in catalogue"
+        for candidate in candidates:
+            if candidate is not None and candidate in labels:
+                return candidate
+        raise ValueError(f"{error}. Available: {list(labels)}")
 
     def _load_survey_metadata(
         self, survey: str, label_source: str, f: h5py.File
@@ -1280,7 +1240,7 @@ class CatalogueLoader:
 
         for survey in surveys:
             print(f"Loading {survey}...")
-            resolved_label = self._resolve_label_source(survey, label_source, f)
+            resolved_label = self._resolve_label_source([survey], label_source, f)
             survey_resolved_labels[survey] = resolved_label
 
             meta = self._load_survey_metadata(survey, resolved_label, f)
@@ -1598,7 +1558,7 @@ class CatalogueLoader:
             # PASS 1: Fast scan - read only SNR arrays and gaia_ids
             # =========================================================
             # Load master gaia_ids (from metadata or first label source)
-            resolved_label = self._resolve_label_source(surveys[0], label_source, f)
+            resolved_label = self._resolve_label_source(surveys[:1], label_source, f)
             label_grp = f["labels"][resolved_label]
             if "metadata" in f and "gaia_id" in f["metadata"]:
                 all_gaia_ids = f["metadata"]["gaia_id"][:]
@@ -1738,8 +1698,6 @@ class CatalogueLoader:
                 if "labels" not in f:
                     raise ValueError("Catalogue has no 'labels' group")
 
-                available_labels = list(f["labels"].keys())
-
                 for source in label_sources:
                     # Check if this is the primary source (already loaded)
                     if source == label_source:
@@ -1747,24 +1705,9 @@ class CatalogueLoader:
                         labels_dict_out[source] = labels_3ch.copy()
                         continue
 
-                    # Resolve source name with fallback logic
-                    resolved_source = source
-                    if source not in f["labels"]:
-                        # Try {source}_{survey} patterns
-                        found = False
-                        for survey in surveys:
-                            survey_specific = f"{source}_{survey}"
-                            if survey_specific in f["labels"]:
-                                resolved_source = survey_specific
-                                found = True
-                                break
-                        if not found:
-                            raise ValueError(
-                                f"Label source '{source}' not in catalogue. "
-                                f"Available: {available_labels}"
-                            )
-
-                    label_grp = f["labels"][resolved_source]
+                    label_grp = f["labels"][
+                        self._resolve_label_source(surveys, source, f)
+                    ]
 
                     if "gaia_id" not in label_grp:
                         # Can't properly align from file; duplicate primary labels
@@ -1962,7 +1905,7 @@ class CatalogueLoader:
             if "labels" not in f:
                 return None
             try:
-                resolved = self._resolve_label_source(survey or "", label_source, f)
+                resolved = self._resolve_label_source([survey or ""], label_source, f)
             except ValueError:
                 return None
             grp = f["labels"][resolved]
@@ -2107,30 +2050,11 @@ class CatalogueLoader:
             if "labels" not in f:
                 raise ValueError("Catalogue has no 'labels' group")
 
-            available_labels = list(f["labels"].keys())
-
             for source in label_sources:
-                # Resolve source name with fallback logic (same as single-source mode)
-                resolved_source = source
-                if source not in f["labels"]:
-                    # Try {source}_{survey} patterns for each survey being loaded
-                    found = False
-                    for survey in surveys:
-                        survey_specific = f"{source}_{survey}"
-                        if survey_specific in f["labels"]:
-                            resolved_source = survey_specific
-                            found = True
-                            break
-                    if not found:
-                        raise ValueError(
-                            f"Label source '{source}' not in catalogue. "
-                            f"Available: {available_labels}"
-                        )
-
                 # Check if this source matches the primary label source used in merged
                 # If so, use the already-aligned primary_labels from merged structure
                 # This is more reliable than re-loading and re-aligning from the file
-                label_grp = f["labels"][resolved_source]
+                label_grp = f["labels"][self._resolve_label_source(surveys, source, f)]
                 use_merged_primary = False
 
                 if "gaia_id" not in label_grp:

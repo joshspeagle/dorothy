@@ -2034,3 +2034,35 @@ class TestModelInputs:
         got = _spectra_to_model_inputs(flux, ivar, block_rows=3)
         assert got.dtype == expected.dtype and got.shape == expected.shape
         assert got.tobytes() == expected.tobytes()
+
+
+class TestLabelSourceNames:
+    def test_v1_group_names_give_the_same_labels_in_every_loader(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        loader = CatalogueLoader(path)
+        surveys, sources = ["boss", "desi"], ["apogee", "galah"]
+
+        def load_all():
+            sparse = loader.load_merged_sparse(surveys, label_sources=sources)
+            _, dense, _, _ = loader.load_merged_for_training(
+                surveys, label_sources=sources
+            )
+            single = [
+                loader.load(s, label_source=src).labels
+                for s, src in [("boss", None), ("desi", "galah")]
+            ]
+            return sparse.labels, sparse.labels_dict, dense, single
+
+        v2 = load_all()
+        # v1 catalogues have one label group per survey: {source}_{survey}
+        with h5py.File(path, "r+") as f:
+            f.move("labels/apogee", "labels/apogee_boss")
+            f.copy("labels/apogee_boss", "labels/apogee_desi")
+            f.move("labels/galah", "labels/galah_desi")
+        v1 = load_all()
+        np.testing.assert_array_equal(v1[0], v2[0])
+        for source in sources:
+            np.testing.assert_array_equal(v1[1][source], v2[1][source])
+            np.testing.assert_array_equal(v1[2][source], v2[2][source])
+        for labels_v1, labels_v2 in zip(v1[3], v2[3], strict=True):
+            np.testing.assert_array_equal(labels_v1, labels_v2)
