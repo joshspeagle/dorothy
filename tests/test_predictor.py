@@ -557,20 +557,27 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     )
 
 
-def test_each_head_scales_its_scatter_by_its_own_calibration_factors(tmp_path):
-    """calibrate=False gives the raw scatter, and other weights files load
-    without the factors, which describe best_model.pth."""
+CALIBRATION = {
+    "apogee": {"teff": 1.5, "logg": 0.5, "fe_h": 2.0},
+    "galah": {"teff": 3.0, "logg": 1.25, "fe_h": 0.75},
+}
+
+
+def _calibrated_checkpoint(tmp_path: Path, label_sources: list[str]) -> Path:
+    """A multi-head checkpoint with best and final weights and the factors of
+    CALIBRATION for label_sources. As in dorothy train, a single label source
+    leaves multi_head_model.label_sources unset, so the model calls its head
+    "default"."""
     import json
 
-    names = ["teff", "logg", "fe_h"]
     config = ExperimentConfig(
         name="calibrated",
         device="cpu",
         data=DataConfig(
             catalogue_path=tmp_path / "c.h5",
             surveys=["boss"],
-            label_sources=["apogee", "galah"],
-            parameter_names=names,
+            label_sources=label_sources,
+            parameter_names=list(CALIBRATION["apogee"]),
         ),
         multi_head_model={
             "survey_wavelengths": {"boss": 20},
@@ -578,31 +585,42 @@ def test_each_head_scales_its_scatter_by_its_own_calibration_factors(tmp_path):
             "encoder_hidden": [24],
             "trunk_hidden": [16],
             "output_hidden": [8],
-            "label_sources": ["apogee", "galah"],
+            "label_sources": label_sources if len(label_sources) > 1 else None,
         },
     )
     torch.manual_seed(0)
-    model = build_model(config).eval()
+    model = build_model(config)
     path = tmp_path / "ckpt"
     path.mkdir()
     for name in ["best_model.pth", "final_model.pth"]:
         torch.save(model.state_dict(), path / name)
     config.save_yaml(path / "config.yaml")
-    calibration = {
-        "apogee": {"teff": 1.5, "logg": 0.5, "fe_h": 2.0},
-        "galah": {"teff": 3.0, "logg": 1.25, "fe_h": 0.75},
-    }
-    (path / "calibration.json").write_text(json.dumps(calibration))
+    factors = {source: CALIBRATION[source] for source in label_sources}
+    (path / "calibration.json").write_text(json.dumps(factors))
+    return path
 
+
+def test_each_head_scales_its_scatter_by_its_own_calibration_factors(tmp_path):
+    """calibrate=False gives the raw scatter, and other weights files load
+    without the factors, which describe best_model.pth."""
+    path = _calibrated_checkpoint(tmp_path, ["apogee", "galah"])
     X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
-    for source, factors in calibration.items():
+    for source, factors in CALIBRATION.items():
         kwargs = {"device": "cpu", "survey": "boss", "label_source": source}
         raw = Predictor.load(path, calibrate=False, **kwargs).predict(X)
         result = Predictor.load(path, **kwargs).predict(X)
-        expected = raw.uncertainties * np.array([factors[p] for p in names], "f4")
+        expected = raw.uncertainties * np.array(list(factors.values()), "f4")
         np.testing.assert_array_equal(result.uncertainties, expected)
         np.testing.assert_array_equal(result.predictions, raw.predictions)
         assert result.calibrated and not raw.calibrated
-    assert Predictor.load(path, device="cpu").calibration == calibration["apogee"]
+    assert Predictor.load(path, device="cpu").calibration == CALIBRATION["apogee"]
     final = Predictor.load(path, model_file="final_model.pth", device="cpu")
     assert final.calibration is None
+
+
+def test_single_head_gets_its_factors_when_named_default(tmp_path):
+    """The factors of a single head are filed under its configured label
+    source, which the model calls "default"."""
+    path = _calibrated_checkpoint(tmp_path, ["apogee"])
+    predictor = Predictor.load(path, device="cpu", label_source="default")
+    assert predictor.calibration == CALIBRATION["apogee"]

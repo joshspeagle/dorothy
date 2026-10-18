@@ -223,7 +223,10 @@ class Predictor:
         ckpt = load_checkpoint(checkpoint_path, model_file, normalizer_file, device)
         calibration = None
         if calibrate and ckpt.calibration is not None:
-            head = label_source or head_label_sources(ckpt.model, ckpt.config)[0]
+            # A single head is filed under the configured label source, while
+            # the model may call it "default"
+            heads = head_label_sources(ckpt.model, ckpt.config)
+            head = label_source if label_source in heads else heads[0]
             calibration = ckpt.calibration.get(head)
         predictor = cls(
             model=ckpt.model,
