@@ -6,6 +6,7 @@ including:
 - Model and optimizer setup from configuration
 - Batch-wise training with gradient clipping
 - Learning rate scheduling (CyclicLR, ReduceOnPlateau, etc.)
+- An optional exponential moving average of the weights
 - Validation evaluation and best model tracking
 - Checkpointing and training history
 - Early stopping support
@@ -23,7 +24,8 @@ import copy
 import logging
 import pickle
 import time
-from contextlib import nullcontext
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -101,6 +103,23 @@ EVALUATOR_METRIC_NAMES = [
     "pred_unc_p50",
     "pred_unc_p84",
 ]
+
+
+@dataclass
+class _WeightAverage:
+    """The moving average of a model's weights and buffers (training.ema_decay).
+
+    Attributes:
+        tensors: State-dict name -> average. Names that share a tensor, such
+            as an output head registered under two names, share one average.
+        every: Optimizer steps k between updates.
+        fraction: 1 - d**k, how far an update moves the average towards the
+            weights, so that it forgets at the same rate per step for every k.
+    """
+
+    tensors: dict[str, torch.Tensor]
+    every: int
+    fraction: float
 
 
 @dataclass
@@ -414,6 +433,8 @@ class Trainer:
         # Best model weights, and the weights after the last epoch
         self._best_weights: dict | None = None
         self._final_weights: dict | None = None
+        # Moving average of the weights during training (training.ema_decay)
+        self._ema: _WeightAverage | None = None
 
         # Set up parameter names for normalization
         n_params = self.n_parameters
@@ -583,6 +604,46 @@ class Trainer:
             raise NotImplementedError(
                 f"Scheduler {scheduler_config.type} not yet implemented"
             )
+
+    def _create_weight_average(self) -> _WeightAverage | None:
+        """Copy the weights and buffers to start their moving average (None if off)."""
+        training = self.config.training
+        if training.ema_decay is None:
+            return None
+        every = training.ema_cpu_every or 1
+        device = self.device if training.ema_cpu_every is None else torch.device("cpu")
+        logger.info(
+            f"Averaging the weights: decay {training.ema_decay} per optimizer "
+            f"step, average on {device}, updated every {every} step(s)"
+        )
+        copies: dict[int, torch.Tensor] = {}
+        tensors = {}
+        for name, tensor in self.model.state_dict(keep_vars=True).items():
+            if id(tensor) not in copies:
+                copies[id(tensor)] = tensor.detach().to(device, copy=True)
+            tensors[name] = copies[id(tensor)]
+        return _WeightAverage(tensors, every, 1 - training.ema_decay**every)
+
+    def _weight_average_pairs(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """Each weight and buffer of the model with its average, once each."""
+        state = self.model.state_dict()
+        pairs = {id(avg): (state[name], avg) for name, avg in self._ema.tensors.items()}
+        return list(pairs.values())
+
+    def _update_weight_average(self) -> None:
+        """Move the average a fraction 1 - d**k towards the weights.
+
+        Integer buffers are copied.
+        """
+        averages, currents = [], []
+        for current, average in self._weight_average_pairs():
+            current = current.to(average.device)
+            if average.is_floating_point():
+                averages.append(average)
+                currents.append(current)
+            else:
+                average.copy_(current)
+        torch._foreach_lerp_(averages, currents, self._ema.fraction)
 
     # ------------------------------------------------------------------
     # Public training API: thin adapters onto the shared pipeline
@@ -1190,6 +1251,7 @@ class Trainer:
         batch_size: int,
         rng: np.random.Generator,
         gradient_clip: float,
+        first_step: int,
     ) -> tuple[float, float]:
         """Run one training epoch.
 
@@ -1198,6 +1260,8 @@ class Trainer:
             batch_size: Batch size for training.
             rng: Random number generator for shuffling.
             gradient_clip: Maximum gradient norm for clipping.
+            first_step: Number of optimizer steps before this epoch, which
+                sets the steps that update the weight average.
 
         Returns:
             Tuple of (average_loss, average_gradient_norm).
@@ -1213,7 +1277,7 @@ class Trainer:
         total_grad_norm = torch.zeros((), dtype=torch.float64, device=acc_device)
         n_batches = 0
 
-        for batch in source.batches(batch_size, rng):
+        for step, batch in enumerate(source.batches(batch_size, rng), first_step):
             # Augmentations (training only)
             if self._input_masking is not None:
                 batch.X, batch.has_data = self._apply_input_masking(
@@ -1236,6 +1300,8 @@ class Trainer:
             loss = self._combine_losses(outputs, batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
+            if self._ema is not None and step % self._ema.every == 0:
+                self._update_weight_average()
             total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
                 self.scheduler.step()
@@ -1286,6 +1352,7 @@ class Trainer:
             scatter_floor=training_config.scatter_floor,
         )
         self._best_weights = copy.deepcopy(self.model.state_dict())
+        self._ema = self._create_weight_average()
         patience_counter = 0
         rng = np.random.default_rng(self.config.seed)
 
@@ -1311,7 +1378,11 @@ class Trainer:
             prev_weights = self._get_weight_snapshot()
 
             train_loss, grad_norm = self._train_epoch(
-                train_source, batch_size, rng, training_config.gradient_clip
+                train_source,
+                batch_size,
+                rng,
+                training_config.gradient_clip,
+                epoch * steps_per_epoch,
             )
             self.history.train_losses.append(train_loss)
             self.history.grad_norms.append(grad_norm)
@@ -1322,17 +1393,24 @@ class Trainer:
                     weight_updates[layer_name]
                 )
 
-            val = self._evaluate(val_source)
-            val_loss = val["loss"]
-            self._record_validation(epoch, val)
+            with self._averaged_weights():
+                val = self._evaluate(val_source)
+                val_loss = val["loss"]
+                self._record_validation(epoch, val)
 
-            if val_loss < self.history.best_val_loss:
-                self.history.best_val_loss = val_loss
-                self.history.best_epoch = epoch
-                self._store_best_weights()
-                patience_counter = 0
-            else:
-                patience_counter += 1
+                if val_loss < self.history.best_val_loss:
+                    self.history.best_val_loss = val_loss
+                    self.history.best_epoch = epoch
+                    self._store_best_weights()
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+
+                if (
+                    training_config.save_every > 0
+                    and (epoch + 1) % training_config.save_every == 0
+                ):
+                    self._save_epoch_checkpoint(epoch + 1)
 
             if isinstance(self.scheduler, ReduceLROnPlateau):
                 self.scheduler.step(val_loss)
@@ -1351,12 +1429,6 @@ class Trainer:
                     f"Val: {val_loss:.6f}, LR: {current_lr:.2e}"
                 )
 
-            if (
-                training_config.save_every > 0
-                and (epoch + 1) % training_config.save_every == 0
-            ):
-                self._save_epoch_checkpoint(epoch + 1)
-
             patience = training_config.early_stopping_patience
             if patience > 0 and patience_counter >= patience:
                 logger.info(f"Early stopping at epoch {epoch + 1}")
@@ -1369,7 +1441,11 @@ class Trainer:
                 "epoch. Check the validation data for NaN or infinite values "
                 "and the training losses for divergence."
             )
-        self._final_weights = copy.deepcopy(self.model.state_dict())
+        self._final_weights = (
+            copy.deepcopy(self.model.state_dict())
+            if self._ema is None
+            else self._ema.tensors
+        )
         self.model.load_state_dict(self._best_weights)
         logger.info(
             f"Training complete in {self.history.total_time:.1f}s. Best val loss: "
@@ -1443,6 +1519,31 @@ class Trainer:
         self.scaler.update()
 
         return grad_norm
+
+    @contextmanager
+    def _averaged_weights(self) -> Iterator[None]:
+        """Hold the averaged weights in the model, then restore the trained ones.
+
+        Without a weight average the model keeps its weights.
+        """
+        if self._ema is None:
+            yield
+            return
+        self._swap_weight_average()
+        try:
+            yield
+        finally:
+            self._swap_weight_average()
+
+    def _swap_weight_average(self) -> None:
+        """Exchange the values of the model's weights and buffers with the average.
+
+        One tensor at a time, so the swap needs memory for one tensor only.
+        """
+        for tensor, average in self._weight_average_pairs():
+            trained = tensor.to(average.device, copy=True)
+            tensor.copy_(average)
+            average.copy_(trained)
 
     def _store_best_weights(self) -> None:
         """Copy the current weights into the best-weights state dict.
@@ -1570,6 +1671,8 @@ class Trainer:
             - history_train_val.pkl: Training/validation losses
             - learning_rates.pkl: Learning rate history
             - config.yaml: Experiment configuration
+
+        With ``training.ema_decay``, both weight files hold averaged weights.
 
         Args:
             path: Directory to save to. If None, uses config output path.

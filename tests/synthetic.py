@@ -112,6 +112,7 @@ def write_config(
     name: str = "e2e",
     epochs: int = 3,
     extra_data: str = "",
+    extra_training: str = "",
 ) -> Path:
     """Write a small training config YAML for the synthetic catalogue."""
     model_block = (
@@ -138,5 +139,6 @@ def write_config(
         f"  epochs: {epochs}\n"
         "  batch_size: 32\n"
         "  learning_rate: 0.003\n"
+        f"{extra_training}"
     )
     return path

@@ -223,6 +223,7 @@ class TestTrainingConfig:
         assert config.loss == LossType.HETEROSCEDASTIC
         assert config.gradient_clip == 10.0
         assert config.scatter_floor == 0.01
+        assert config.ema_decay is None
 
     def test_scatter_floor_for_heteroscedastic_loss(self):
         """Test that scatter_floor (s_0) is validated correctly."""
@@ -237,6 +238,10 @@ class TestTrainingConfig:
         # Too large rejected
         with pytest.raises(ValidationError):
             TrainingConfig(scatter_floor=2.0)
+
+    def test_ema_cpu_every_requires_ema_decay(self):
+        with pytest.raises(ValidationError, match="ema_cpu_every requires ema_decay"):
+            TrainingConfig(ema_cpu_every=10)
 
 
 class TestExperimentConfig:

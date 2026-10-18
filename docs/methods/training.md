@@ -155,6 +155,42 @@ also records each head's own best epoch. Training stops early after
 epoch has a finite validation loss, there is no best epoch, and training
 raises `RuntimeError`.
 
+## Weight averaging
+
+`training.ema_decay: d` keeps an exponential moving average (EMA) of the
+weights during training. After each optimizer step, the trained weights $w$
+update the average $\bar{w}$:
+
+$$
+\bar{w} \leftarrow d\,\bar{w} + (1 - d)\,w .
+$$
+
+The average starts from the weights before the first step. It includes the
+buffers, such as the running statistics of batch normalization; integer
+buffers are copied, not averaged. Validation, and so the choice of the best
+epoch, early stopping and the `reduce_on_plateau` schedule, use the averaged
+weights, as do `best_model.pth`, `final_model.pth` and the weights saved
+every `training.save_every` epochs. After training the model holds the
+averaged weights of the best epoch. The training steps, and the weight norms
+and updates in the history, use the trained weights.
+
+The average is one more copy of the weights on the training device, 4 bytes
+per parameter. Training with AdamW already holds five such copies: the
+weights, their gradients, the two moment estimates and the weights of the
+best epoch. If memory on the training device is short,
+`training.ema_cpu_every: k` keeps the average in CPU memory. Each update then
+copies the weights to CPU memory, so it runs after the first optimizer step
+and every k steps after that, with the decay $d^k$: over k steps, an average
+updated at every step also keeps the fraction $d^k$ of its old value, so both
+forget at the same rate.
+
+Averaging the weights along the training trajectory can improve
+generalization {cite:p}`izmailov2018swa`, and it makes the result depend less
+on the exact stopping epoch. The average lags the trained weights: the weights
+from n steps before have the share $(1 - d)\,d^n$, a mean age of $d/(1 - d)$
+steps (999 for d = 0.999). It is off by default (`ema_decay: null`) because
+it also lags a head that starts to overfit.
+
 ## Augmentation
 
 Two optional augmentations hide parts of each batch, with probabilities drawn

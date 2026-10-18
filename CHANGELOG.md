@@ -28,6 +28,10 @@
   of training stars that get the missing vector.
   `HeadEvaluation.z_label_errors` holds the label errors that the z-scores
   add to the predicted scatter, which only old checkpoints have.
+- `training.ema_decay` keeps an exponential moving average of the weights
+  during training. Validation, the best epoch and the saved weights use the
+  average. It is off by default. `training.ema_cpu_every` keeps the average
+  in CPU memory, updated every N optimizer steps.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
   (`--survey`, `--label-source`).
