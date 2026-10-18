@@ -16,6 +16,11 @@
   `training.label_source_weights` set how the losses of several label
   sources combine.
 - `loss: mse` trains with a masked mean squared error.
+- Label-aware uncertainty: the last layer of every head predicts the
+  log-scatter from the head's features and the reported label errors, or a
+  learned missing vector where an error is missing. The mean does not read
+  the label errors. `training.label_error_dropout` (default 0.5) sets the
+  fraction of training stars that get the missing vector.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
   (`--survey`, `--label-source`).
@@ -176,3 +181,18 @@
 - `SparseMergedData.has_labels_dict` marks a star only if it has a label
   that survives the flag filter, as its label mask does.
 - Dense loading skips spectra with a NaN S/N, as sparse loading does.
+- The loss variance is s² instead of σ_y² + s², and new models have
+  label-aware uncertainty. The predicted scatter s is the expected scatter
+  between the prediction and the label source's measurement, label noise
+  included; before, it was the scatter beyond the reported label error.
+  Validation, evaluation and prediction use the missing vector.
+- The z-scores of label-aware models are (μ − y) / s in training validation,
+  `evaluate_model` and the `dorothy evaluate` plots. Checkpoints saved before
+  label-aware uncertainty keep (μ − y) / sqrt(σ_y² + s²).
+- Checkpoint configurations store `label_aware_uncertainty` in the model
+  section. A checkpoint without it loads with the additive output layer and
+  predicts and evaluates exactly as before. Training rejects
+  `label_aware_uncertainty: false`, so `--resume` from such a checkpoint
+  fails. `load_checkpoint` without a `config.yaml` builds only the additive
+  layer and raises `ValueError` for label-aware weights, such as the epoch
+  checkpoints of `training.save_every`.

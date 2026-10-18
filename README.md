@@ -11,8 +11,9 @@ from spectra with neural networks.
   combined.
 - **Labels:** APOGEE and GALAH parameters, with one output head per label
   source.
-- **Uncertainties:** each prediction comes with a predicted scatter, trained
-  with a heteroscedastic loss that accounts for the label errors.
+- **Uncertainties:** each prediction comes with a predicted scatter, the
+  expected difference from the label source's measurement, learned with the
+  reported label errors as an input.
 
 **Documentation: <https://joshspeagle.com/dorothy/>**
 

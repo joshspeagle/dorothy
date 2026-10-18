@@ -40,6 +40,12 @@ mask
   pixels in a spectrum ({term}`ivar` > 0), valid labels in a label array.
   Masked entries can hold any value and are never used.
 
+missing vector
+  The learned input of a head's log-scatter that stands in for a missing
+  label error. Masked labels and a random fraction of stars get it in
+  training; validation, evaluation and prediction always use it. See
+  [Training](../methods/training.md#scatter-and-label-errors).
+
 ivar
   The inverse variance of a flux measurement, 1/σ². A pixel with ivar = 0
   carries no information.
@@ -50,9 +56,9 @@ normalized units
   [Preprocessing](../methods/preprocessing.md#labels).
 
 predicted scatter
-  The model's estimate s of the spread of the true labels around its
-  prediction, beyond the label uncertainty: s = sqrt(exp(2 ln s) + s₀²),
-  where ln s is the model output and s₀ the {term}`scatter floor`.
+  The model's estimate s of the spread of the measured labels around its
+  prediction, label noise included: s = sqrt(exp(2 ln s) + s₀²), where ln s
+  is the model output and s₀ the {term}`scatter floor`.
 
 scatter floor
   The smallest predicted scatter, s₀ (`training.scatter_floor`, in normalized
@@ -75,6 +81,6 @@ trunk
   passes its output to every head.
 
 z-score
-  The residual of a prediction divided by its total uncertainty:
-  z = (μ − y) / sqrt(σ_y² + s²). See [Calibration](../methods/evaluation.md#calibration).
+  The residual of a prediction divided by its predicted scatter:
+  z = (μ − y) / s. See [Calibration](../methods/evaluation.md#calibration).
 ```
