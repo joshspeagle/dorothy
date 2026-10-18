@@ -27,7 +27,6 @@ import numpy as np
 
 from dorothy.config.schema import STELLAR_PARAMETERS
 from dorothy.data.fits_loader import normalize_spectra as _normalize_spectra
-from dorothy.data.fits_loader import zero_invalid_pixels
 
 # Default (v1/v2 [X/Fe]) parameter names; catalogues may define their own
 PARAMETER_NAMES = list(STELLAR_PARAMETERS)
@@ -193,20 +192,6 @@ def _read_dual_arm_rows(
     return flux, ivar
 
 
-def _preprocess_spectra(
-    flux: np.ndarray, ivar: np.ndarray, normalize: bool
-) -> tuple[np.ndarray, np.ndarray]:
-    """Float32 spectra with invalid pixels zeroed, normalized if ``normalize``.
-
-    Works in place: float32 inputs are modified.
-    """
-    flux = np.asarray(flux, dtype=np.float32)
-    ivar = np.asarray(ivar, dtype=np.float32)
-    if normalize:
-        return _normalize_spectra(flux, ivar, inplace=True)
-    return zero_invalid_pixels(flux, ivar, inplace=True)
-
-
 def _spectra_to_model_inputs(
     flux: np.ndarray, ivar: np.ndarray, block_rows: int = 256
 ) -> np.ndarray:
@@ -291,26 +276,6 @@ def _label_array(
     if max_flag_bits >= 0:
         valid &= (_flag_bit_count(flags) <= max_flag_bits)[:, None]
     return np.stack([values, errors, valid.astype(np.float32)], axis=1)
-
-
-def _align_labels(
-    label_grp: h5py.Group, gaia_ids: np.ndarray, max_flag_bits: int
-) -> np.ndarray:
-    """A label group's labels for the stars ``gaia_ids``, matched by Gaia ID.
-
-    Returns the ``_label_array`` format (len(gaia_ids), 3, n_params); stars
-    without a row in the group get zeros, so their mask is 0.
-    """
-    found, idx = _match_ids(gaia_ids, _label_gaia_ids(label_grp))
-    rows = np.flatnonzero(found)
-    shape = (len(gaia_ids), label_grp["values"].shape[1])
-    values = np.zeros(shape, dtype=np.float32)
-    errors = np.zeros(shape, dtype=np.float32)
-    flags = np.zeros(shape, dtype=np.uint8)
-    values[idx] = label_grp["values"][:][rows]
-    errors[idx] = label_grp["errors"][:][rows]
-    flags[idx] = label_grp["flags"][:][rows]
-    return _label_array(values, errors, flags, max_flag_bits)
 
 
 @dataclass
@@ -548,10 +513,7 @@ class SparseMergedData:
     Attributes:
         flux: Per-survey sparse spectra. Maps survey name to array of shape
             (n_with_data[survey], n_wavelengths) containing only stars with data.
-            Normalized if requested, and 0 at invalid pixels
-            (:func:`~dorothy.data.fits_loader.zero_invalid_pixels`).
-        ivar: Per-survey inverse variance arrays with same structure as flux,
-            0 at invalid pixels.
+        ivar: Per-survey inverse variance arrays with same structure as flux.
         wavelengths: Per-survey wavelength grids (n_wavelengths,).
         snr: Per-survey SNR values for stars with data.
         global_to_local: Maps survey name to index array (n_total,) where
@@ -972,7 +934,10 @@ class CatalogueLoader:
         if max_flag_bits >= 0:
             data = data.filter_by_flags(max_flag_bits)
 
-        flux, ivar = _preprocess_spectra(data.flux, data.ivar, normalize_spectra)
+        flux = data.flux
+        ivar = data.ivar
+        if normalize_spectra:
+            flux, ivar = _normalize_spectra(flux, ivar)
         X = _spectra_to_model_inputs(flux, ivar)
         # filter_by_flags removed the stars with too many set flag bits
         y = _label_array(data.labels, data.label_errors, data.label_flags, -1)
@@ -1711,7 +1676,10 @@ class CatalogueLoader:
                 global_to_local[survey] = g2l
                 local_to_global[survey] = valid_indices.astype(np.int32)
 
-                flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
+                if normalize_spectra:
+                    flux = np.ascontiguousarray(flux, dtype=np.float32)
+                    ivar = np.ascontiguousarray(ivar, dtype=np.float32)
+                    flux, ivar = _normalize_spectra(flux, ivar, inplace=True)
 
                 # Store sparse arrays
                 sparse_flux[survey] = flux
@@ -1749,8 +1717,32 @@ class CatalogueLoader:
                     label_grp = f["labels"][
                         self._resolve_label_source(surveys, source, f)
                     ]
-                    labels_dict_out[source] = _align_labels(
-                        label_grp, all_gaia_ids, max_flag_bits
+                    source_gaia_ids = _label_gaia_ids(label_grp)
+
+                    # Load label data from file
+                    source_values = label_grp["values"][:]
+                    source_errors = label_grp["errors"][:]
+                    source_flags = label_grp["flags"][:]
+
+                    # Initialize arrays aligned to merged gaia_ids
+                    values = np.zeros((n_total, n_params), dtype=np.float32)
+                    errors = np.zeros((n_total, n_params), dtype=np.float32)
+                    flags = np.zeros((n_total, n_params), dtype=np.uint8)
+
+                    # Map label source data to merged structure (vectorized):
+                    # merged rows of the source IDs that exist in the merged set
+                    valid_source_mask, merged_idx = _match_ids(
+                        all_gaia_ids, source_gaia_ids.astype(np.int64)
+                    )
+                    valid_source_idx = np.where(valid_source_mask)[0]
+
+                    # Bulk copy
+                    values[merged_idx] = source_values[valid_source_idx]
+                    errors[merged_idx] = source_errors[valid_source_idx]
+                    flags[merged_idx] = source_flags[valid_source_idx]
+
+                    labels_dict_out[source] = _label_array(
+                        values, errors, flags, max_flag_bits
                     )
 
             has_labels_dict_out = {
@@ -1872,7 +1864,10 @@ class CatalogueLoader:
             has_ids = "metadata" in f and "gaia_id" in f["metadata"]
             gaia_id = int(f["metadata"]["gaia_id"][index]) if has_ids else -1
 
-        flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
+        flux = flux.astype(np.float32)
+        ivar = ivar.astype(np.float32)
+        if normalize_spectra:
+            flux, ivar = _normalize_spectra(flux, ivar)
         X = _spectra_to_model_inputs(flux, ivar)[0]
         return X, wavelength.astype(np.float32), gaia_id
 
@@ -1967,9 +1962,8 @@ class CatalogueLoader:
                 - has_data_dict: Dict mapping survey name to boolean mask
                     indicating which stars have data from that survey.
                 - has_labels_dict: Dict mapping label source to boolean mask
-                    of the stars with at least one valid label (mask 1)
-                    from that source, after the flag filter. Only present in
-                    multi-source mode; None in single-source mode.
+                    indicating which stars have labels from that source.
+                    Only present in multi-source mode; None in single-source mode.
 
         Raises:
             ValueError: If duplicate observations are found in the catalogue,
@@ -2004,9 +1998,10 @@ class CatalogueLoader:
 
         for survey in surveys:
             survey_data = merged.surveys[survey]
-            flux, ivar = _preprocess_spectra(
-                survey_data["flux"], survey_data["ivar"], normalize_spectra
-            )
+            flux = survey_data["flux"]
+            ivar = survey_data["ivar"]
+            if normalize_spectra:
+                flux, ivar = _normalize_spectra(flux, ivar)
 
             # 3-channel format: [flux, sigma = 1/sqrt(ivar), mask = ivar > 0]
             X_dict[survey] = _spectra_to_model_inputs(flux, ivar)
@@ -2026,7 +2021,10 @@ class CatalogueLoader:
         y_dict: dict[str, np.ndarray] = {}
         has_labels_dict: dict[str, np.ndarray] = {}
 
+        n_stars = merged.n_stars
+
         with h5py.File(self.path, "r") as f:
+            n_params = len(_read_parameter_names(f))
             if "labels" not in f:
                 raise ValueError("Catalogue has no 'labels' group")
 
@@ -2035,18 +2033,42 @@ class CatalogueLoader:
                 if source == label_source and "gaia_id" not in label_grp:
                     # load_merged matched the primary labels to stars by
                     # catalogue row
-                    y_dict[source] = _label_array(
-                        merged.primary_labels,
-                        merged.primary_errors,
-                        merged.primary_flags,
-                        max_flag_bits,
-                    )
+                    values = merged.primary_labels
+                    errors = merged.primary_errors
+                    flags = merged.primary_flags
+                    # Star has labels if at least one error is positive
+                    has_labels = np.any(errors > 0, axis=1)
                 else:
-                    y_dict[source] = _align_labels(
-                        label_grp, merged.gaia_ids, max_flag_bits
+                    source_gaia_ids = _label_gaia_ids(label_grp)
+
+                    # Load label data from file and remap by gaia_id
+                    source_values = label_grp["values"][:]
+                    source_errors = label_grp["errors"][:]
+                    source_flags = label_grp["flags"][:]
+
+                    # Initialize arrays aligned to merged gaia_ids
+                    values = np.zeros((n_stars, n_params), dtype=np.float32)
+                    errors = np.zeros((n_stars, n_params), dtype=np.float32)
+                    flags = np.zeros((n_stars, n_params), dtype=np.uint8)
+                    has_labels = np.zeros(n_stars, dtype=bool)
+
+                    # Map label source data to merged structure (vectorized):
+                    # merged rows of the source IDs that exist in the merged set
+                    valid_source_mask, merged_idx = _match_ids(
+                        merged.gaia_ids, source_gaia_ids.astype(np.int64)
                     )
-                # A star has labels if one survives the flag filter
-                has_labels_dict[source] = (y_dict[source][:, 2, :] > 0).any(axis=1)
+                    valid_source_idx = np.where(valid_source_mask)[0]
+
+                    # Bulk copy
+                    values[merged_idx] = source_values[valid_source_idx]
+                    errors[merged_idx] = source_errors[valid_source_idx]
+                    flags[merged_idx] = source_flags[valid_source_idx]
+                    has_labels[merged_idx] = np.any(
+                        source_errors[valid_source_idx] > 0, axis=1
+                    )
+
+                y_dict[source] = _label_array(values, errors, flags, max_flag_bits)
+                has_labels_dict[source] = has_labels
 
         return X_dict, y_dict, has_data_dict, has_labels_dict
 

@@ -493,43 +493,6 @@ class TestFITSLoader:
             np.testing.assert_array_equal(data.flux[i], row_flux)
             np.testing.assert_array_equal(data.ivar[i], row_ivar)
 
-    @pytest.mark.parametrize("normalize", [False, True])
-    def test_variable_length_columns_load_like_fixed_length_columns(
-        self, tmp_path, normalize
-    ):
-        from astropy.io import fits
-
-        rng = np.random.default_rng(0)
-        flux = rng.normal(1000, 50, (5, 12)).astype(np.float32)
-        ivar = rng.uniform(0.01, 0.02, (5, 12)).astype(np.float32)
-        flux[0, 3], ivar[1, 4], ivar[2, 5] = np.nan, np.nan, -1.0
-        loaded = []
-        for name, fmt in [("fixed", "12E"), ("variable", "PE()")]:
-            path = tmp_path / f"{name}.fits"
-            fits.HDUList(
-                [fits.PrimaryHDU()]
-                + [
-                    fits.BinTableHDU.from_columns(
-                        [fits.Column(column, fmt, array=array)], name=ext
-                    )
-                    for column, ext, array in [
-                        ("FLUX", "SPECTRA", flux),
-                        ("IVAR", "SPEC_IVAR", ivar),
-                    ]
-                ]
-            ).writeto(path)
-            loaded.append(
-                FITSLoader(path).load(
-                    apply_normalization=normalize,
-                    apply_quality_filter=False,
-                    require_labels=False,
-                )
-            )
-        fixed, variable = loaded
-        np.testing.assert_array_equal(variable.flux, fixed.flux)
-        np.testing.assert_array_equal(variable.ivar, fixed.ivar)
-        assert fixed.flux[0, 3] == fixed.ivar[1, 4] == fixed.ivar[2, 5] == 0
-
 
 class TestSplitData:
     """Tests for the data splitting function."""
@@ -892,6 +855,39 @@ class TestFITSLoaderSpectralMask:
 
         # Flux should be zero where mask is zero
         assert np.all(data.flux[:, :20] == 0.0)
+
+    @pytest.mark.parametrize("value", [np.nan, np.inf])
+    def test_nan_or_inf_flux_at_a_masked_pixel_gives_the_same_input_as_zero(
+        self, tmp_path, value
+    ):
+        """Without normalization, the mask alone zeroes the masked flux."""
+        from astropy.io import fits
+        from astropy.table import Table
+
+        rng = np.random.default_rng(0)
+        flux = rng.normal(1000, 50, (6, 30)).astype(np.float32)
+        ivar = rng.uniform(0.01, 0.02, (6, 30)).astype(np.float32)
+        ivar[:, :5] = 0.0
+
+        def model_input(masked_flux: float) -> np.ndarray:
+            flux[:, :5] = masked_flux
+            path = tmp_path / f"{masked_flux}.fits"
+            fits.HDUList(
+                [
+                    fits.PrimaryHDU(),
+                    fits.BinTableHDU(Table({"FLUX": flux}), name="SPECTRA"),
+                    fits.BinTableHDU(Table({"IVAR": ivar}), name="SPEC_IVAR"),
+                ]
+            ).writeto(path)
+            data = FITSLoader(path).load(
+                apply_normalization=False,
+                apply_quality_filter=False,
+                compute_spectral_mask=True,
+                require_labels=False,
+            )
+            return data.get_model_input_3channel(apply_quality_mask=False)
+
+        np.testing.assert_array_equal(model_input(value), model_input(0.0))
 
     def test_3channel_output_from_loader(self, mock_fits_path_with_masked_ivar):
         """Test getting 3-channel output from loaded data."""

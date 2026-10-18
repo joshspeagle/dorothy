@@ -23,7 +23,6 @@ from dorothy.data.fits_loader import (
     normalize_spectra,
     normalize_spectrum,
     split_data,
-    zero_invalid_pixels,
 )
 from dorothy.data.normalizer import LabelNormalizer, ParameterStats
 
@@ -33,7 +32,6 @@ __all__ = [
     "SpectralData",
     "normalize_spectra",
     "normalize_spectrum",
-    "zero_invalid_pixels",
     "apply_quality_filter",
     "split_data",
     "ivar_to_error_and_mask",

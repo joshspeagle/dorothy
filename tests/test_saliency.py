@@ -919,44 +919,6 @@ class TestAblationSaliencyAnalyzer:
         assert np.all(result[:, ~mask] == 0)
         np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-7)
 
-    def test_fisher_weighted_change_uses_the_change_of_the_predicted_scatter(self):
-        """F = ((μ - μ₀)² + 2 (σ - σ₀)²) / σ₀² per window, with σ from
-        predicted_scatter, averaged over the windows covering each pixel."""
-        n_wave, n_params, block, floor = 20, 4, 3, 0.05
-        torch.manual_seed(0)
-        model = SimpleLinearModel(n_wavelengths=n_wave, n_params=n_params)
-        with torch.no_grad():
-            # ln s below the clamp, at the floor, free, above the clamp
-            model.linear.bias[n_params:] = torch.tensor(
-                [-20.0, np.log(floor), 0.0, 7.0]
-            )
-        X = torch.randn(3, n_wave, generator=torch.Generator().manual_seed(1))
-        X[2] = 1.0
-        analyzer = AblationSaliencyAnalyzer(model, device="cpu", scatter_floor=floor)
-        result = analyzer.compute_saliency(
-            X, np.arange(n_wave, dtype=np.float32), block_size=block
-        )
-
-        n_pos = n_wave - block + 1
-        inputs = X.repeat(n_pos + 1, 1, 1)  # row 0 stays unablated
-        for p in range(n_pos):
-            inputs[p + 1, :, p : p + block] = 0.0
-        with torch.no_grad():
-            out = model(inputs).double()
-        mu, sigma = out[:, 0], predicted_scatter(out[:, 1], floor)
-        d_mu, d_sigma = mu[1:] - mu[0], sigma[1:] - sigma[0]
-        fisher = (d_mu**2 + 2 * d_sigma**2) / sigma[0] ** 2  # (n_pos, n_params)
-        expected = np.stack(
-            [
-                fisher[max(0, i - block + 1) : min(i + 1, n_pos)].mean(dim=0)
-                for i in range(n_wave)
-            ],
-            axis=1,
-        )
-        # The analyzer sums the input layer in float64, this pass in float32:
-        # 6e-6 relative here; the old (Δ ln s)² term differs by over 10%
-        np.testing.assert_allclose(result.fisher_weighted, expected, rtol=1e-4)
-
 
 class TestAblationWithMultiHeadMLP:
     """Tests with the actual MultiHeadMLP model."""
@@ -1121,7 +1083,7 @@ class TestAblationInputLayerShortcut:
         mu_0, ln_s_0, shortcut = analyzer._baseline_forward(X_masked, "desi")
         mu_0, ln_s_0 = mu_0[0], ln_s_0[0]
         sigma_0 = predicted_scatter(ln_s_0, analyzer.scatter_floor)
-        args = (X_masked, "desi", block_size, mu_0, sigma_0, X[2].numpy() > 0)
+        args = (X_masked, "desi", block_size, mu_0, ln_s_0, sigma_0, X[2].numpy() > 0)
 
         fast = analyzer._compute_ablation_importance(*args, shortcut=shortcut)
         direct = analyzer._compute_ablation_importance(*args)

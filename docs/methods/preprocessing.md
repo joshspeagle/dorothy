@@ -7,14 +7,8 @@ A spectrum enters the model as an array of shape `(3, n_wavelengths)`:
 | Channel | Content |
 |---------|---------|
 | 0 | flux |
-| 1 | σ = 1/sqrt(ivar) |
-| 2 | mask: 1 at valid pixels |
-
-A pixel is valid when its flux is finite and its ivar is finite and positive.
-Every loading path and prediction set the flux and ivar of invalid pixels to
-0 ({py:func}`~dorothy.data.fits_loader.zero_invalid_pixels`), so an invalid
-pixel enters the model as 0 in all three channels, whatever the catalogue or
-the FITS file stores there.
+| 1 | σ = 1/sqrt(ivar), 0 where ivar ≤ 0 |
+| 2 | mask: 1 where ivar > 0, 0 elsewhere |
 
 ```{raw} html
 :file: ../figures/spectrum-input.svg
@@ -30,8 +24,9 @@ $$
 f \rightarrow \frac{f - m}{q}, \qquad \mathrm{ivar} \rightarrow q^2\,\mathrm{ivar},
 $$
 
-so that σ scales with the flux. A spectrum without valid pixels, or with
-q = 0, is left unscaled (m = 0, q = 1).
+so that σ scales with the flux. A pixel is valid when its flux and ivar are
+finite and ivar > 0; invalid pixels get flux = ivar = 0. A spectrum without
+valid pixels, or with q = 0, is left unscaled (m = 0, q = 1).
 {py:func}`~dorothy.data.fits_loader.normalize_spectra` implements this for
 every loading path and for prediction, so a model always sees spectra
 preprocessed the same way. The setting is stored in the checkpoint.
