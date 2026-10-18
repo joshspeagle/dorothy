@@ -3,6 +3,12 @@
 ```{glossary}
 :sorted:
 
+calibration factor
+  The factor c that scales the {term}`predicted scatter` of one head and
+  parameter, fit after training so that the z-scores of the validation stars
+  have unit spread. See
+  [Calibration factors](../methods/evaluation.md#calibration-factors).
+
 checkpoint
   The directory a training run writes: the best and final weights, the
   calibration factors, the configuration, the label normalization and the

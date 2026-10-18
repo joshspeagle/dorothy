@@ -39,6 +39,17 @@
   early stopping and `reduce_on_plateau` count only the epochs after the
   warm-up.
   `HeteroscedasticLoss.element_losses` takes `beta`.
+- Calibrated uncertainties: after training, the trainer fits one factor per
+  head and parameter, the robust spread of the best epoch's validation
+  z-scores, and saves the factors in the checkpoint as `calibration.json`.
+  Prediction and evaluation multiply the predicted scatter by them
+  (`dorothy.inference.calibrate_scatter`).
+  `training.calibrate_uncertainties: false` skips the fit, and
+  `dorothy predict --no-calibration`, `dorothy evaluate --no-calibration` and
+  `calibrate=False` in `Predictor.load` use the raw scatter. `dorothy info`
+  shows the factors, `dorothy evaluate` the raw and calibrated
+  `z_robust_scatter`, and the `dorothy predict` CSV has a `calibrated`
+  column.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
   (`--survey`, `--label-source`).
@@ -247,6 +258,16 @@
 - The z-scores of label-aware models are (μ − y) / s in training validation,
   `evaluate_model` and the `dorothy evaluate` plots. Checkpoints saved before
   label-aware uncertainty keep (μ − y) / sqrt(σ_y² + s²).
+- Checkpoints from `dorothy train` report calibrated uncertainties:
+  `Predictor.load`, `dorothy predict` and `dorothy evaluate` multiply each
+  head's predicted scatter by its factor in `calibration.json`, so their
+  uncertainties, z-scores and plots change. `evaluate_model` applies factors
+  only when given `calibration`, so it still reproduces the training
+  validation metrics. Checkpoints without `calibration.json`,
+  `final_model.pth` and the epoch checkpoints report the raw scatter, as
+  before. To turn calibration off, set
+  `training.calibrate_uncertainties: false`, or use `--no-calibration` or
+  `calibrate=False`.
 - Checkpoint configurations store `label_aware_uncertainty` in the model
   section. A checkpoint without it loads with the additive output layer and
   predicts and evaluates exactly as before. Training rejects

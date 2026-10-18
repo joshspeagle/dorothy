@@ -30,7 +30,7 @@ r = μ − y:
 | `robust_scatter` | (P84 − P16) / 2 of r | no |
 | `z_median` | median of z | no |
 | `z_robust_scatter` | (P84 − P16) / 2 of z | no |
-| `pred_unc_p16`, `_p50`, `_p84` | percentiles of the predicted scatter s | no |
+| `pred_unc_p16`, `_p50`, `_p84` | percentiles of the predicted scatter s, or of c s with [calibration factors](#calibration-factors) | no |
 
 P16 and P84 are the 16th and 84th percentiles; for a normal distribution,
 (P84 − P16) / 2 equals the standard deviation.

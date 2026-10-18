@@ -101,7 +101,7 @@ every batch and head, also get m for all their parameters, so the model learns
 to predict without the errors. Validation, evaluation and prediction always
 use m, so the best epoch is the best one for the reported uncertainties.
 
-The reported uncertainty s is therefore the expected scatter between the
+The predicted scatter s is therefore the expected scatter between the
 prediction and the label source's measurement of the star, the source's label
 noise included. The variance s² has no term fixed by the reported errors, so s
 follows the scatter that the labels show: for a label source that

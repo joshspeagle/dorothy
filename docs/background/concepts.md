@@ -67,7 +67,10 @@ is heteroscedastic regression {cite:p}`nix1994mean,kendall2017uncertainties`.
 
 The predictions are calibrated when the {term}`z-scores <z-score>`
 z = (μ − y) / s of held-out stars have unit scatter
-([Calibration](../methods/evaluation.md#calibration)).
+([Calibration](../methods/evaluation.md#calibration)). After training, one
+{term}`calibration factor` per head and parameter rescales s so that the
+z-scores of the validation stars have unit scatter, and prediction reports
+the rescaled uncertainty.
 
 ## Normalized units
 

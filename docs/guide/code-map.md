@@ -54,7 +54,8 @@ a batch for training and evaluation alike.
 `dorothy evaluate` loads the checkpoint with
 {py:func}`~dorothy.inference.checkpoint.load_checkpoint`, reloads the data
 with the same `load_training_data`, and scores the test rows with
-{py:func}`~dorothy.inference.evaluation_utils.evaluate_model`.
+{py:func}`~dorothy.inference.evaluation_utils.evaluate_model`, with the
+checkpoint's calibration factors.
 
 ## Shared definitions
 
@@ -67,6 +68,7 @@ in a caller:
 | Spectrum preprocessing | {py:func}`~dorothy.data.fits_loader.zero_invalid_pixels`, {py:func}`~dorothy.data.fits_loader.normalize_spectra` |
 | Label normalization | {py:meth}`~dorothy.data.normalizer.LabelNormalizer.transform_labels` |
 | Predicted scatter | {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` |
+| Calibration of the predicted scatter | {py:func}`~dorothy.inference.calibration.calibrate_scatter` |
 | Model forward pass per label source | {py:func}`~dorothy.training.batches.forward_label_sources` |
 
 `tests/test_end_to_end.py` checks that evaluation reproduces the training
