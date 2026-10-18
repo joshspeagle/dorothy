@@ -86,6 +86,20 @@ def _split_dual_arm_spectra(
     return flux, ivar
 
 
+def _survey_wavelength(survey_grp: h5py.Group) -> np.ndarray:
+    """A survey's wavelength grid, one value per model input pixel.
+
+    Dual-arm spectra (LAMOST MRS) have no ``wavelength`` dataset: their grid
+    is ``wavelength_b`` then ``wavelength_r``, as ``_split_dual_arm_spectra``
+    orders the pixels.
+    """
+    if "spectra" in survey_grp:
+        return np.concatenate(
+            [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
+        )
+    return survey_grp["wavelength"][:]
+
+
 # Target size of one HDF5 read when selecting rows of a spectra dataset. Bounds
 # the temporary buffers (chunked datasets are read in whole chunk-row bands).
 _ROW_READ_BYTES = 64 * 1024**2
@@ -649,15 +663,15 @@ class CatalogueLoader:
             if "surveys" in f:
                 for name in f["surveys"]:
                     grp = f["surveys"][name]
-                    n_wave = grp["wavelength"].shape[0]
+                    wavelength = _survey_wavelength(grp)
                     snr = grp["snr"][:]
                     n_with_data = int((snr > 0).sum())
                     surveys[name] = {
-                        "wavelength_bins": n_wave,
+                        "wavelength_bins": len(wavelength),
                         "n_with_data": n_with_data,
                         "wavelength_range": (
-                            float(grp["wavelength"][0]),
-                            float(grp["wavelength"][-1]),
+                            float(wavelength[0]),
+                            float(wavelength[-1]),
                         ),
                     }
 
@@ -799,7 +813,6 @@ class CatalogueLoader:
 
             # Load survey data
             survey_grp = f["surveys"][survey]
-            wavelength = survey_grp["wavelength"][:]
             snr = survey_grp["snr"][:]
 
             # Handle different flux storage formats
@@ -807,19 +820,12 @@ class CatalogueLoader:
                 flux = survey_grp["flux"][:]
                 ivar = survey_grp["ivar"][:]
             elif "spectra" in survey_grp:
-                # LAMOST MRS stores as (N, 4, wavelengths) - [flux_B, ivar_B, flux_R, ivar_R]
-                spectra = survey_grp["spectra"][:]
-                # Concatenate the two arms along wavelength dimension (preserves all info)
-                flux_b = spectra[:, 0, :]
-                flux_r = spectra[:, 2, :]
-                ivar_b = spectra[:, 1, :]
-                ivar_r = spectra[:, 3, :]
-                flux = np.concatenate([flux_b, flux_r], axis=1)
-                ivar = np.concatenate([ivar_b, ivar_r], axis=1)
-                # Tile wavelength to match concatenated flux shape
-                wavelength = np.tile(wavelength, 2)
+                flux, ivar = _split_dual_arm_spectra(
+                    survey_grp["spectra"][:], survey_grp
+                )
             else:
                 raise ValueError(f"Survey '{survey}' has no flux or spectra data")
+            wavelength = _survey_wavelength(survey_grp)
 
             n_stars = flux.shape[0]
 
@@ -958,17 +964,22 @@ class CatalogueLoader:
         survey: str,
     ) -> dict[str, np.ndarray]:
         """
-        Load raw spectral data without processing.
+        Load a survey's datasets exactly as stored in the HDF5 file.
 
-        This method loads the spectra exactly as stored in the HDF5 file,
-        which may have different formats for different surveys (e.g.,
-        LAMOST MRS has 4 channels for 2 arms).
+        LAMOST MRS stores padded ``spectra`` of shape (N, 4, max_wave) =
+        [flux_b, ivar_b, flux_r, ivar_r] with ``wavelength_b`` and
+        ``wavelength_r``; the other surveys store ``flux``, ``ivar`` and
+        ``wavelength``.
 
         Args:
             survey: Survey to load from.
 
         Returns:
-            Dictionary with survey-specific spectral arrays and wavelength grid.
+            Dictionary of the survey group's datasets, plus ``channel_names``
+            when the group has that attribute.
+
+        Raises:
+            ValueError: If the survey is not in the catalogue.
         """
         with h5py.File(self.path, "r") as f:
             if survey not in f["surveys"]:
@@ -978,18 +989,9 @@ class CatalogueLoader:
                 )
 
             survey_grp = f["surveys"][survey]
-            result = {"wavelength": survey_grp["wavelength"][:]}
-
-            if "flux" in survey_grp:
-                result["flux"] = survey_grp["flux"][:]
-                result["ivar"] = survey_grp["ivar"][:]
-            if "spectra" in survey_grp:
-                result["spectra"] = survey_grp["spectra"][:]
-                # Include channel names if available
-                if "channel_names" in survey_grp.attrs:
-                    result["channel_names"] = list(survey_grp.attrs["channel_names"])
-            if "snr" in survey_grp:
-                result["snr"] = survey_grp["snr"][:]
+            result = {name: survey_grp[name][:] for name in survey_grp}
+            if "channel_names" in survey_grp.attrs:
+                result["channel_names"] = list(survey_grp.attrs["channel_names"])
 
         return result
 
@@ -1177,33 +1179,18 @@ class CatalogueLoader:
         Load only metadata for a survey (no spectra).
 
         Returns dict with gaia_ids, snr, ra, dec, labels, label_errors, label_flags,
-        wavelength shape info, and storage format.
+        wavelength grid, and storage format.
         """
         survey_grp = f["surveys"][survey]
         label_grp = f["labels"][label_source]
 
-        # Determine storage format and get wavelength info
         if "flux" in survey_grp:
             storage_format = "flux"
-            n_wavelengths = survey_grp["flux"].shape[1]
         elif "spectra" in survey_grp:
             storage_format = "spectra"
-            # LAMOST MRS: padded (N, 4, max_wave) arms, trimmed and concatenated
-            n_wavelengths = (
-                survey_grp["wavelength_b"].shape[0]
-                + survey_grp["wavelength_r"].shape[0]
-            )
         else:
             raise ValueError(f"Survey '{survey}' has no flux or spectra data")
-
-        # Load wavelength array(s)
-        if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
-            # LAMOST MRS has separate blue/red wavelength arrays
-            wavelength = np.concatenate(
-                [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
-            )
-        else:
-            wavelength = survey_grp["wavelength"][:]
+        wavelength = _survey_wavelength(survey_grp)
 
         # Load metadata arrays (small compared to spectra)
         snr = survey_grp["snr"][:]
@@ -1247,7 +1234,6 @@ class CatalogueLoader:
             "label_errors": label_errors,
             "label_flags": label_flags,
             "wavelength": wavelength,
-            "n_wavelengths": n_wavelengths,
             "n_stars": n_stars,
             "storage_format": storage_format,
         }
@@ -1481,7 +1467,7 @@ class CatalogueLoader:
 
             for survey in surveys:
                 meta = survey_meta[survey]
-                n_wave = meta["n_wavelengths"]
+                n_wave = len(meta["wavelength"])
                 storage_format = meta["storage_format"]
 
                 # Initialize arrays for this survey
@@ -1707,14 +1693,7 @@ class CatalogueLoader:
                 valid_indices = survey_valid_indices[survey]
                 n_with_data = len(valid_indices)
 
-                # Get wavelength info
-                if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
-                    wavelength = np.concatenate(
-                        [survey_grp["wavelength_b"][:], survey_grp["wavelength_r"][:]]
-                    )
-                else:
-                    wavelength = survey_grp["wavelength"][:]
-                wavelengths[survey] = wavelength
+                wavelengths[survey] = _survey_wavelength(survey_grp)
 
                 # Read only the rows with data (no full-dataset temporaries)
                 if "flux" in survey_grp:
@@ -1934,11 +1913,11 @@ class CatalogueLoader:
         )
 
     def get_survey_wavelengths(self, survey: str) -> np.ndarray:
-        """Get the wavelength grid for a survey."""
+        """Get the wavelength grid for a survey (LAMOST MRS: blue then red arm)."""
         with h5py.File(self.path, "r") as f:
             if survey not in f["surveys"]:
                 raise ValueError(f"Survey '{survey}' not in catalogue")
-            return f["surveys"][survey]["wavelength"][:]
+            return _survey_wavelength(f["surveys"][survey])
 
     def load_spectrum(
         self,
@@ -1967,14 +1946,11 @@ class CatalogueLoader:
             if "flux" in grp:
                 flux = grp["flux"][index : index + 1]
                 ivar = grp["ivar"][index : index + 1]
-                wavelength = grp["wavelength"][:]
             else:
                 flux, ivar = _split_dual_arm_spectra(
                     grp["spectra"][index : index + 1], grp
                 )
-                wavelength = np.concatenate(
-                    [grp["wavelength_b"][:], grp["wavelength_r"][:]]
-                )
+            wavelength = _survey_wavelength(grp)
             has_ids = "metadata" in f and "gaia_id" in f["metadata"]
             gaia_id = int(f["metadata"]["gaia_id"][index]) if has_ids else -1
 
@@ -2266,14 +2242,5 @@ class CatalogueLoader:
             for survey in surveys:
                 if survey not in f["surveys"]:
                     raise ValueError(f"Survey '{survey}' not in catalogue")
-                survey_grp = f["surveys"][survey]
-                # LAMOST MRS has separate blue/red wavelength arrays
-                if "wavelength_b" in survey_grp and "wavelength_r" in survey_grp:
-                    n_wavelengths = (
-                        survey_grp["wavelength_b"].shape[0]
-                        + survey_grp["wavelength_r"].shape[0]
-                    )
-                else:
-                    n_wavelengths = survey_grp["wavelength"].shape[0]
-                result[survey] = n_wavelengths
+                result[survey] = len(_survey_wavelength(f["surveys"][survey]))
         return result

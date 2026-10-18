@@ -45,6 +45,11 @@
   labels or no valid pixels.
 - `load_merged_sparse` did not detect duplicate stars.
 - `loss: penalty` passed configuration checks but failed when training started; the configuration now rejects it.
+- LAMOST MRS has no `wavelength` dataset, so `CatalogueLoader.info`,
+  `get_info` and `load(survey=None)` raised `KeyError` for any catalogue with
+  MRS, and `load`, `load_raw_spectra` and `get_survey_wavelengths` raised it
+  for MRS. `load` now trims each MRS arm to its own grid, like the other
+  loaders.
 
 ### Performance
 

@@ -14,6 +14,7 @@ from dorothy.data.catalogue_loader import (
     MergedCatalogueData,
     SparseMergedData,
 )
+from tests.synthetic import build_catalogue
 
 
 class TestParameterNames:
@@ -1132,16 +1133,18 @@ class TestMergedCatalogueDataMethods:
 class TestLamostMRSDualArm:
     """Tests for LAMOST MRS dual-arm spectral loading."""
 
+    N_RED = 3248
+
     @pytest.fixture
     def lamost_mrs_catalogue(self, tmp_path):
         """Create a mock HDF5 catalogue with LAMOST MRS dual-arm spectra.
 
-        LAMOST MRS stores spectra as (N, 4, wavelengths) with channels:
-        [flux_B, ivar_B, flux_R, ivar_R] for blue and red arms.
+        LAMOST MRS stores spectra as (N, 4, max(n_b, n_r)) with channels:
+        [flux_B, ivar_B, flux_R, ivar_R], padded to the longer (blue) arm.
         """
         path = tmp_path / "lamost_mrs_catalogue.h5"
         n_stars = 30
-        n_wave = 3375  # Typical LAMOST MRS wavelength bins per arm
+        n_wave = 3375  # Blue arm; the red arm has N_RED bins
         n_params = 11
 
         with h5py.File(path, "w") as f:
@@ -1181,7 +1184,11 @@ class TestLamostMRSDualArm:
 
             lamost_mrs.create_dataset("spectra", data=spectra)
             lamost_mrs.create_dataset(
-                "wavelength", data=np.linspace(4000, 6800, n_wave).astype(np.float32)
+                "wavelength_b", data=np.linspace(4950, 5350, n_wave).astype(np.float32)
+            )
+            lamost_mrs.create_dataset(
+                "wavelength_r",
+                data=np.linspace(6300, 6800, self.N_RED).astype(np.float32),
             )
             lamost_mrs.create_dataset(
                 "snr", data=np.random.uniform(20, 100, n_stars).astype(np.float32)
@@ -1217,9 +1224,9 @@ class TestLamostMRSDualArm:
         data = loader.load(survey="lamost_mrs", label_source="apogee")
 
         assert data.n_stars == 30
-        # Arms are concatenated: 3375 * 2 = 6750 wavelength bins
-        assert data.flux.shape == (30, 6750)
-        assert data.ivar.shape == (30, 6750)
+        # Arms are trimmed to their grids and concatenated: 3375 + 3248 bins
+        assert data.flux.shape == (30, 3375 + self.N_RED)
+        assert data.ivar.shape == (30, 3375 + self.N_RED)
         assert data.survey_name == "lamost_mrs"
 
     def test_lamost_mrs_both_arms_valid(self, lamost_mrs_catalogue):
@@ -1268,8 +1275,8 @@ class TestLamostMRSDualArm:
         X, y = loader.load_for_training(survey="lamost_mrs", label_source="apogee")
 
         # X: 3-channel spectral data [flux, sigma, mask]
-        # Arms are concatenated: 3375 * 2 = 6750 wavelength bins
-        assert X.shape == (30, 3, 6750)
+        # Arms are trimmed to their grids and concatenated: 3375 + 3248 bins
+        assert X.shape == (30, 3, 3375 + self.N_RED)
         # y: 3-channel labels [values, errors, mask]
         assert y.shape == (30, 3, 11)
 
@@ -1900,3 +1907,33 @@ class TestSelectiveRowReads:
             mrs = np.concatenate([spectra[rows, 0, :8], spectra[rows, 2, :6]], axis=1)
             np.testing.assert_array_equal(data.flux["lamost_mrs"], mrs)
             np.testing.assert_array_equal(data.local_to_global["boss"], rows)
+
+
+class TestSurveyWavelengthGrid:
+    """Every loader path must give a survey the same grid and spectra."""
+
+    @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
+    def test_every_loader_path_gives_the_same_grid_and_spectra(self, tmp_path, survey):
+        loader = CatalogueLoader(build_catalogue(tmp_path / "cat.h5"))
+        sparse = loader.load_merged_sparse([survey])
+        grid = sparse.wavelengths[survey]
+        info = loader.get_info().surveys[survey]
+        assert info["wavelength_bins"] == len(grid)
+        assert info["wavelength_range"] == (grid[0], grid[-1])
+        np.testing.assert_array_equal(loader.get_survey_wavelengths(survey), grid)
+        assert loader.get_survey_wavelength_counts([survey]) == {survey: len(grid)}
+        data = loader.load(survey)
+        np.testing.assert_array_equal(data.wavelength, grid)
+        rows = sparse.local_to_global[survey]
+        np.testing.assert_array_equal(data.flux[rows], sparse.flux[survey])
+        np.testing.assert_array_equal(data.ivar[rows], sparse.ivar[survey])
+
+    @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
+    def test_raw_spectra_are_returned_as_stored(self, tmp_path, survey):
+        path = build_catalogue(tmp_path / "cat.h5")
+        raw = CatalogueLoader(path).load_raw_spectra(survey)
+        with h5py.File(path, "r") as f:
+            grp = f["surveys"][survey]
+            assert set(raw) == set(grp)
+            for name in grp:
+                np.testing.assert_array_equal(raw[name], grp[name][:])
