@@ -500,21 +500,18 @@ class SchedulerConfig(_ConfigModel):
 
 
 class OptimizerConfig(_ConfigModel):
-    """Configuration for optimizers.
-
-    Attributes:
-        type: The optimizer type to use.
-        weight_decay: L2 regularization coefficient.
-        betas: Coefficients for computing running averages (Adam/AdamW).
-        momentum: Momentum factor (SGD only).
-        nesterov: Whether to use Nesterov momentum (SGD only).
-    """
+    """Configuration for optimizers."""
 
     type: OptimizerType = Field(
         default=OptimizerType.ADAMW, description="Optimizer type"
     )
     weight_decay: float = Field(
-        default=0.01, ge=0, description="Weight decay (L2 regularization)"
+        default=0.01,
+        ge=0,
+        description=(
+            "Weight decay of the weight matrices. Biases and normalization "
+            "weights are not decayed."
+        ),
     )
     betas: tuple[float, float] = Field(
         default=(0.9, 0.999),

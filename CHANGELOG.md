@@ -181,6 +181,8 @@
 - `SparseMergedData.has_labels_dict` marks a star only if it has a label
   that survives the flag filter, as its label mask does.
 - Dense loading skips spectra with a NaN S/N, as sparse loading does.
+- `training.optimizer.weight_decay` applies only to weight matrices; biases
+  and normalization weights are no longer decayed.
 - The loss variance is s² instead of σ_y² + s², and new models have
   label-aware uncertainty. The predicted scatter s is the expected scatter
   between the prediction and the label source's measurement, label noise
