@@ -190,7 +190,7 @@ class SparseBatchSource:
                 ivar = self._gather(self.data.ivar[survey], local_idx[rows])
                 valid = ivar > 0
                 # rsqrt is an exact square root and division on the CPU, as in
-                # numpy; torch.sqrt can use MKL, which is not exactly rounded
+                # numpy; torch.sqrt is not exactly rounded there
                 sigma = torch.where(valid, torch.rsqrt(ivar), 0.0)
                 if len(rows) == n:
                     x[:, 0], x[:, 1], x[:, 2] = flux, sigma, valid
