@@ -64,3 +64,39 @@ def get_normalization(normalization: str) -> type[nn.Module]:
             f"Supported: {list(normalizations.keys())}"
         )
     return normalizations[normalization.lower()]
+
+
+def hidden_blocks(
+    input_dim: int,
+    hidden_layers: list[int],
+    normalization: str,
+    activation: str,
+    dropout: float,
+) -> list[nn.Module]:
+    """Build the hidden layers of a network, one block per layer.
+
+    Each block is Linear, normalization, activation and, when dropout > 0,
+    Dropout.
+
+    Args:
+        input_dim: Size of the input.
+        hidden_layers: Size of each hidden layer, in order.
+        normalization: Normalization type ("batchnorm" or "layernorm").
+        activation: Activation function ("gelu", "relu" or "silu").
+        dropout: Dropout probability.
+
+    Returns:
+        The modules of all blocks, in order.
+
+    Raises:
+        ValueError: If the normalization or activation is not recognized.
+    """
+    activation_fn = get_activation(activation)
+    norm_class = get_normalization(normalization)
+    modules: list[nn.Module] = []
+    for size in hidden_layers:
+        modules += [nn.Linear(input_dim, size), norm_class(size), activation_fn()]
+        if dropout > 0:
+            modules.append(nn.Dropout(p=dropout))
+        input_dim = size
+    return modules

@@ -14,8 +14,11 @@ Architecture:
         Input: (batch, latent_dim) or (batch, n_surveys * latent_dim) for combined
         Hidden layers -> (batch, trunk_output_dim)
 
-    Output Head:
-        Input: (batch, trunk_output_dim) -> (batch, 2, n_params)
+    Output Head (a LabelAwareOutput per label source):
+        Label decoder: (batch, trunk_output_dim) -> Hidden layers -> mu
+        Error decoder: (batch, trunk_output_dim + n_params), the trunk output
+        and the log label errors -> Hidden layers of the same sizes -> ln s
+        Output: (batch, 2, n_params) = [mu, ln s]
 
 For multi-survey training:
     - Each sample may have data from one or more surveys
@@ -30,6 +33,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
+from dorothy.models.output import output_modules
 from dorothy.models.utils import get_activation, get_normalization
 
 if TYPE_CHECKING:
@@ -203,8 +207,11 @@ class SharedTrunk(nn.Module):
 class OutputHead(nn.Module):
     """Output head that produces stellar parameter predictions.
 
-    Takes features from the shared trunk and produces predictions
-    in the standard (batch, 2, n_params) format.
+    Takes features from the shared trunk and produces predictions in the
+    standard (batch, 2, n_params) format. The head is a LabelAwareOutput:
+    its label decoder maps the features through hidden_layers to mu, and its
+    error decoder maps the features and the label errors through layers of
+    the same sizes to ln s.
 
     Attributes:
         n_parameters: Number of stellar parameters to predict.
@@ -218,16 +225,24 @@ class OutputHead(nn.Module):
         normalization: str = "layernorm",
         activation: str = "gelu",
         dropout: float = 0.0,
+        label_aware_uncertainty: bool = True,
     ) -> None:
         """Initialize the output head.
 
         Args:
             input_dim: Input dimension from shared trunk.
             n_parameters: Number of stellar parameters to predict.
-            hidden_layers: Hidden layer sizes. Default: [64].
+            hidden_layers: Hidden layer sizes of each decoder. Default: [64].
             normalization: Normalization type.
             activation: Activation function.
             dropout: Dropout probability.
+            label_aware_uncertainty: Make the head a LabelAwareOutput
+                (default); False builds the hidden layers and the
+                AdditiveOutput of old checkpoints.
+
+        Raises:
+            ValueError: If label_aware_uncertainty is True and hidden_layers
+                is empty.
         """
         super().__init__()
 
@@ -238,39 +253,40 @@ class OutputHead(nn.Module):
         if hidden_layers is None:
             hidden_layers = [64]
 
-        activation_fn = get_activation(activation)
-        norm_class = get_normalization(normalization)
+        self.head = nn.Sequential(
+            *output_modules(
+                input_dim,
+                n_parameters,
+                hidden_layers,
+                normalization,
+                activation,
+                dropout,
+                label_aware_uncertainty,
+            )
+        )
 
-        layers: list[nn.Module] = []
-        prev_size = input_dim
-
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(prev_size, hidden_size))
-            layers.append(norm_class(hidden_size))
-            layers.append(activation_fn())
-            if dropout > 0:
-                layers.append(nn.Dropout(p=dropout))
-            prev_size = hidden_size
-
-        # Final output layer (no norm or activation)
-        layers.append(nn.Linear(prev_size, self.output_features))
-
-        self.head = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, label_errors: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Produce parameter predictions.
 
         Args:
             x: Features tensor of shape (batch, input_dim).
+            label_errors: Reported label errors of shape (batch, n_parameters),
+                in normalized units, for the log-scatter (see
+                LabelAwareOutput). None uses the learned missing vector for
+                every entry.
 
         Returns:
             Predictions of shape (batch, 2, n_parameters) where:
                 - output[:, 0, :] contains predicted means
                 - output[:, 1, :] contains predicted log-scatter
+
+        Raises:
+            ValueError: If label_errors is given to a head built with
+                label_aware_uncertainty=False, or has the wrong shape.
         """
-        flat_output = self.head(x)  # (batch, 2 * n_params)
-        batch_size = flat_output.shape[0]
-        return flat_output.view(batch_size, 2, self.n_parameters)
+        return self.head[-1](self.head[:-1](x), label_errors)
 
 
 class MultiHeadMLP(nn.Module):
@@ -291,6 +307,8 @@ class MultiHeadMLP(nn.Module):
         encoders: ModuleDict of survey encoders.
         trunk: Shared trunk network.
         output_head: Output prediction head.
+        label_aware_uncertainty: Whether the heads are LabelAwareOutputs
+            (True) or end in an AdditiveOutput.
         encode_present_rows_only: With multi-survey input, run each encoder
             only on the rows that have that survey's data (default True).
             The rows without data are discarded either way, so this changes
@@ -329,6 +347,7 @@ class MultiHeadMLP(nn.Module):
         dropout: float = 0.0,
         label_sources: list[str] | None = None,
         head_dropout: dict[str, float] | None = None,
+        label_aware_uncertainty: bool = True,
     ) -> None:
         """Initialize the multi-head MLP.
 
@@ -339,7 +358,8 @@ class MultiHeadMLP(nn.Module):
             latent_dim: Output dimension of each survey encoder.
             encoder_hidden: Hidden layers for encoders. Default: [1024, 512].
             trunk_hidden: Hidden layers for shared trunk. Default: [512, 256].
-            output_hidden: Hidden layers for output head. Default: [64].
+            output_hidden: Hidden layers of each output head's decoders.
+                Default: [64].
             combination_mode: How to combine multi-survey embeddings. Default: "concat".
                 - "concat": Concatenate embeddings (trunk input = n_surveys * latent_dim).
                     Missing surveys are zero-padded.
@@ -352,6 +372,9 @@ class MultiHeadMLP(nn.Module):
                 output head per source (e.g., ["apogee", "galah"]).
             head_dropout: Optional per-label-source dropout for the output heads,
                 e.g. {"galah": 0.2}. Sources not listed use ``dropout``.
+            label_aware_uncertainty: Make every head a LabelAwareOutput
+                (default); False builds the heads of old checkpoints, which
+                end in an AdditiveOutput.
 
         Raises:
             ValueError: If survey_configs is empty.
@@ -371,6 +394,7 @@ class MultiHeadMLP(nn.Module):
         self.n_parameters = n_parameters
         self.latent_dim = latent_dim
         self.combination_mode = combination_mode
+        self.label_aware_uncertainty = label_aware_uncertainty
 
         # Label sources for multi-output heads
         self.label_sources = label_sources if label_sources else ["default"]
@@ -419,6 +443,7 @@ class MultiHeadMLP(nn.Module):
                     normalization=normalization,
                     activation=activation,
                     dropout=head_dropout.get(source, dropout),
+                    label_aware_uncertainty=label_aware_uncertainty,
                 )
             # Backward compatibility: also set output_head to first source
             self.output_head = self.output_heads[self.label_sources[0]]
@@ -430,6 +455,7 @@ class MultiHeadMLP(nn.Module):
                 normalization=normalization,
                 activation=activation,
                 dropout=head_dropout.get(self.label_sources[0], dropout),
+                label_aware_uncertainty=label_aware_uncertainty,
             )
             # For consistency
             self.output_heads = nn.ModuleDict({"default": self.output_head})
@@ -457,6 +483,7 @@ class MultiHeadMLP(nn.Module):
             dropout=config.dropout,
             label_sources=config.label_sources,
             head_dropout=config.head_dropout,
+            label_aware_uncertainty=config.label_aware_uncertainty,
         )
 
     def forward_single(
@@ -510,6 +537,7 @@ class MultiHeadMLP(nn.Module):
         x: torch.Tensor | dict[str, torch.Tensor],
         survey: str | None = None,
         has_data: dict[str, torch.Tensor] | None = None,
+        label_errors: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Unified forward pass.
 
@@ -519,11 +547,21 @@ class MultiHeadMLP(nn.Module):
             x: Either a single tensor (with survey name) or dict of tensors.
             survey: Survey name if x is a single tensor.
             has_data: Data availability masks if x is a dict.
+            label_errors: Reported label errors (batch, n_parameters) for the
+                first head's log-scatter (see LabelAwareOutput). None uses
+                the learned missing vector.
 
         Returns:
             Predictions of shape (batch, 2, n_parameters).
+
+        Raises:
+            KeyError: If survey is not in the model's encoders.
+            ValueError: If x is a single tensor without survey on a
+                multi-survey model, or a dict without any of the model's
+                surveys; or if label_errors is given to a model built with
+                label_aware_uncertainty=False, or has the wrong shape.
         """
-        return self.output_head(self._trunk_features(x, survey, has_data))
+        return self.output_head(self._trunk_features(x, survey, has_data), label_errors)
 
     def forward_for_label_source(
         self,
@@ -564,6 +602,7 @@ class MultiHeadMLP(nn.Module):
         x: torch.Tensor | dict[str, torch.Tensor],
         survey: str | None = None,
         has_data: dict[str, torch.Tensor] | None = None,
+        label_errors: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass through all label source output heads.
 
@@ -573,13 +612,35 @@ class MultiHeadMLP(nn.Module):
             x: Input tensor or dict of tensors.
             survey: Survey name if x is single tensor.
             has_data: Data availability masks if x is dict.
+            label_errors: Label source name -> reported label errors
+                (batch, n_parameters) for that head's log-scatter (see
+                LabelAwareOutput). Heads without an entry, and all heads when
+                None, use their learned missing vector.
 
         Returns:
             Dict mapping label source names to predictions.
             Each prediction has shape (batch, 2, n_parameters).
+
+        Raises:
+            KeyError: If label_errors names a label source the model has no
+                head for, or survey is not in the model's encoders.
+            ValueError: If x is a single tensor without survey on a
+                multi-survey model, or a dict without any of the model's
+                surveys; or if label_errors is given to a model built with
+                label_aware_uncertainty=False, or has the wrong shape.
         """
+        label_errors = label_errors or {}
+        unknown = set(label_errors) - set(self.output_heads)
+        if unknown:
+            raise KeyError(
+                f"label_errors has unknown label sources {sorted(unknown)}. "
+                f"Available: {list(self.output_heads)}"
+            )
         features = self._trunk_features(x, survey, has_data)
-        return {source: head(features) for source, head in self.output_heads.items()}
+        return {
+            source: head(features, label_errors.get(source))
+            for source, head in self.output_heads.items()
+        }
 
     def _trunk_features(
         self,

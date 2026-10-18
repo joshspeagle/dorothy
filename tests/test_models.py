@@ -130,6 +130,49 @@ class TestMLPForward:
         assert output_f64.dtype == torch.float64
 
 
+class TestLabelErrors:
+    """The log-scatter reads the reported label errors; the mean does not."""
+
+    @pytest.fixture
+    def model(self):
+        torch.manual_seed(0)
+        return MLP(input_features=30, output_features=8, hidden_layers=[16])
+
+    def test_mean_does_not_change_when_label_errors_change(self, model):
+        x = torch.randn(6, 30)
+        missing = model(x)
+        reported = model(x, label_errors=torch.rand(6, 4) + 0.01)
+
+        assert torch.equal(reported[:, 0], missing[:, 0])
+        assert not torch.allclose(reported[:, 1], missing[:, 1])
+
+    def test_label_errors_that_are_not_positive_use_the_missing_vector(self, model):
+        """0, negative, -inf and NaN errors all mean missing, entry by entry."""
+        x = torch.randn(3, 30)
+        nan, inf = float("nan"), float("inf")
+        bad = torch.tensor(
+            [[0.0, -1.0, nan, -inf], [0.2, nan, 0.05, -0.3], [nan, nan, nan, nan]]
+        )
+        zeros = torch.tensor([[0.0] * 4, [0.2, 0.0, 0.05, 0.0], [0.0] * 4])
+
+        assert torch.equal(model(x, label_errors=bad), model(x, label_errors=zeros))
+        assert torch.equal(model(x, label_errors=zeros)[[0, 2]], model(x)[[0, 2]])
+
+    def test_label_errors_of_the_wrong_shape_are_rejected(self, model):
+        with pytest.raises(ValueError, match="label_errors must have shape"):
+            model(torch.randn(6, 30), label_errors=torch.ones(4))
+
+    def test_additive_output_layer_rejects_label_errors(self):
+        model = MLP(
+            input_features=30,
+            output_features=8,
+            hidden_layers=[16],
+            label_aware_uncertainty=False,
+        )
+        with pytest.raises(ValueError, match="label_aware_uncertainty"):
+            model(torch.randn(2, 30), label_errors=torch.ones(2, 4))
+
+
 class TestMLPWithDropout:
     """Tests for MLP with dropout."""
 
@@ -263,18 +306,16 @@ class TestMLPEmbeddings:
         x = torch.randn(16, 100)
         embeddings = model.get_embeddings(x)
 
-        # Default layer_index=-2 should give us the output of the last hidden layer
-        # Before the final Linear(10, 22), after activation
-        # The embedding should have shape (16, 10)
-        assert embeddings.shape[0] == 16
-        # The exact size depends on which layer is extracted
+        # The default, -2, gives the input of the decoders, which take over
+        # the last hidden layer (10): the layer of 25
+        assert embeddings.shape == (16, 25)
 
     def test_get_embeddings_different_layers(self):
         """Test extracting embeddings from different layers."""
         model = MLP(
             input_features=100,
             output_features=22,
-            hidden_layers=[50, 25],
+            hidden_layers=[50, 25, 10],
         )
 
         x = torch.randn(8, 100)
@@ -288,6 +329,21 @@ class TestMLPEmbeddings:
             emb_early, emb_late
         )
 
+    @pytest.mark.parametrize("label_aware", [True, False])
+    def test_output_layer_embeddings_are_the_flat_output(self, label_aware):
+        """layer_index=-1 gives (batch, 2 * n_params), as before label-aware heads."""
+        model = MLP(
+            input_features=30,
+            output_features=6,
+            hidden_layers=[8, 4],
+            label_aware_uncertainty=label_aware,
+        ).eval()
+        x = torch.randn(5, 3, 10)
+
+        with torch.no_grad():
+            embeddings = model.get_embeddings(x, layer_index=-1)
+            assert torch.equal(embeddings, model(x).flatten(1))
+
 
 class TestMLPParameters:
     """Tests for parameter counting."""
@@ -297,15 +353,22 @@ class TestMLPParameters:
         model = MLP(
             input_features=100,
             output_features=10,
-            hidden_layers=[50],
+            hidden_layers=[50, 20],
         )
 
         # Expected parameters:
         # Linear(100, 50): 100*50 + 50 = 5050
-        # BatchNorm(50): 50 + 50 = 100 (gamma + beta)
-        # Linear(50, 10): 50*10 + 10 = 510
-        # Total: 5050 + 100 + 510 = 5660
-        expected = (100 * 50 + 50) + (50 * 2) + (50 * 10 + 10)
+        # LayerNorm(50): 50 + 50 = 100 (gamma + beta)
+        # LabelAwareOutput for 5 parameters, taking over the layer of 20:
+        #   mean Linear(50, 20): 50*20 + 20 = 1020
+        #   mean LayerNorm(20): 40
+        #   mean Linear(20, 5): 20*5 + 5 = 105
+        #   missing vector: 5
+        #   scatter Linear(50 + 5, 20): 55*20 + 20 = 1120
+        #   scatter LayerNorm(20): 40
+        #   scatter Linear(20, 5): 105
+        # Total: 5050 + 100 + 1020 + 40 + 105 + 5 + 1120 + 40 + 105 = 7585
+        expected = 5050 + 100 + (1020 + 40 + 105) + 5 + (1120 + 40 + 105)
 
         assert model.count_parameters() == expected
 

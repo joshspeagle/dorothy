@@ -143,6 +143,16 @@ class TestOutputHead:
         output = head(x)
         assert output.shape == (16, 2, 5)
 
+    def test_error_decoder_has_the_label_decoder_hidden_sizes(self):
+        """The error decoder reads [x, u], with u of n_parameters entries."""
+        output = OutputHead(input_dim=10, n_parameters=3, hidden_layers=[8, 6]).head[0]
+
+        def linear_shapes(decoder):
+            return [m.weight.shape for m in decoder if isinstance(m, torch.nn.Linear)]
+
+        assert linear_shapes(output.mean) == [(8, 10), (6, 8), (3, 6)]
+        assert linear_shapes(output.scatter) == [(8, 13), (6, 8), (3, 6)]
+
 
 class TestMultiHeadMLP:
     """Tests for the full multi-head MLP architecture."""
@@ -591,6 +601,22 @@ class TestMultiLabelsetOutputs:
 
         assert x.grad is not None
         assert not torch.all(x.grad == 0)
+
+    def test_each_head_reads_only_its_own_label_errors(self, multi_label_model):
+        x = torch.randn(8, 3, 100)
+        errors = {"galah": torch.rand(8, 11) + 0.01}
+        plain = multi_label_model.forward_all_label_sources(x, survey="boss")
+        out = multi_label_model.forward_all_label_sources(
+            x, survey="boss", label_errors=errors
+        )
+
+        assert torch.equal(out["apogee"], plain["apogee"])
+        assert torch.equal(out["galah"][:, 0], plain["galah"][:, 0])
+        assert not torch.allclose(out["galah"][:, 1], plain["galah"][:, 1])
+        with pytest.raises(KeyError, match="unknown label sources"):
+            multi_label_model.forward_all_label_sources(
+                x, survey="boss", label_errors={"gaia": errors["galah"]}
+            )
 
     def test_output_heads_independent(self, multi_label_model):
         """Test output heads produce different outputs (not shared weights)."""
