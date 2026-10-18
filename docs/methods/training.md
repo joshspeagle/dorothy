@@ -137,7 +137,9 @@ example `{apogee: 1.0, galah: 0.5}`.
 The default optimizer is AdamW {cite:p}`loshchilov2019adamw` (`adam` and
 `sgd` are also available) with a one-cycle learning-rate schedule
 {cite:p}`smith2019superconvergence` (also `cyclic`, `reduce_on_plateau`,
-`cosine_annealing` or `none`). Gradients are clipped to a norm of
+`cosine_annealing` or `none`). The one-cycle schedule also cycles the
+momentum (the β₁ of Adam and AdamW, or SGD's momentum) between 0.85 and 0.95,
+opposite to the learning rate. Gradients are clipped to a norm of
 `training.gradient_clip` (10 by default).
 
 With mixed precision (`training.amp`, CUDA only), the training forward pass
