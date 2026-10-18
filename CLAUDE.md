@@ -68,7 +68,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 
 ## Numerics and data
 
-- Each of these has one implementation, which training, evaluation and prediction share: data selection and splits (`load_training_data`), spectral preprocessing (`zero_invalid_pixels`, `normalize_spectra`), label normalization (`LabelNormalizer.transform_labels`), the predicted scatter (`losses.predicted_scatter`) and the model forward pass per label source (`forward_label_sources`). Never reimplement one of them in a caller.
+- Each of these has one implementation, which training, evaluation and prediction share: data selection and splits (`load_training_data`), spectral preprocessing (`normalize_spectra`), label normalization (`LabelNormalizer.transform_labels`), the predicted scatter (`losses.predicted_scatter`) and the model forward pass per label source (`forward_label_sources`). Never reimplement one of them in a caller.
 - Formats: spectra `(N, 3, n_wavelengths)` = [flux, sigma, mask]; labels `(N, 3, n_parameters)` = [values, errors, mask]; model outputs `(N, 2, n_parameters)` = [mu, ln_s] in normalized units. `docs/methods/preprocessing.md` defines them.
 - Masked entries can hold any value, including NaN and infinity. Select with the mask (`torch.where`, boolean indexing) before arithmetic; never multiply by the mask.
 - Parameter names and their number come from the catalogue's `parameter_names` attribute. Never hard-code 11 parameters.
