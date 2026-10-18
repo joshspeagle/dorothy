@@ -581,11 +581,12 @@ class TrainingConfig(_ConfigModel):
     )
     label_error_dropout: float = Field(
         default=0.5,
-        ge=0.0,
+        gt=0.0,
         le=1.0,
         description="Fraction of training stars whose label errors are replaced "
         "by the learned missing vector, drawn per batch and output head. "
-        "Validation, evaluation and prediction always use the missing vector.",
+        "Validation, evaluation and prediction always use the missing vector, "
+        "so the fraction must be above 0.",
     )
     label_source_weighting: Literal["per_label", "per_source"] = Field(
         default="per_label",
