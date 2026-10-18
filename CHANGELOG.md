@@ -223,5 +223,8 @@
   the floor or ln s is clamped.
 - With `training.amp: true`, the training forward pass on CUDA runs in
   bfloat16 without a gradient scaler, instead of float16 with one;
-  `training.amp_dtype: float16` keeps float16. Validation runs in float32
-  instead of under autocast, which can change the best epoch.
+  `training.amp_dtype: float16` keeps float16. On a GPU without native
+  bfloat16 (compute capability below 8.0, such as a V100 or T4), such a
+  configuration now raises `ValueError` and needs `training.amp_dtype:
+  float16`. Validation runs in float32 instead of under autocast, which can
+  change the best epoch.

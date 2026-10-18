@@ -368,6 +368,11 @@ class Trainer:
             parameter_names: Names of stellar parameters being predicted.
                 If None, uses ``config.parameter_names`` (``data.parameter_names``
                 when set, otherwise the first n STELLAR_PARAMETERS).
+
+        Raises:
+            ValueError: If ``parameter_names`` does not have one name per
+                predicted parameter, or if ``training.amp_dtype`` is bfloat16
+                and the GPU has no native bfloat16.
         """
         self.config = config
         self.history = TrainingHistory()
