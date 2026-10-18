@@ -23,6 +23,7 @@ import copy
 import logging
 import pickle
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1195,13 +1196,14 @@ class Trainer:
                 batch.y = self._label_masking(batch.y)
 
             self.optimizer.zero_grad()
-            with autocast(
-                self.device.type,
-                dtype=self.autocast_dtype,
-                enabled=self.autocast_dtype is not None,
+            # torch < 2.5 rejects autocast on MPS even when it is disabled
+            with (
+                autocast(self.device.type, dtype=self.autocast_dtype)
+                if self.autocast_dtype is not None
+                else nullcontext()
             ):
                 outputs = self._forward(batch)
-            # exp, log and the division of the loss run in float32
+            # exp(2 ln s) in the loss would otherwise run in 16 bits
             outputs = {k: v.float() for k, v in outputs.items()}
             loss = self._combine_losses(outputs, batch.y)
 

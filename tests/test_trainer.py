@@ -755,6 +755,20 @@ class TestTrainerMixedPrecision:
         # Validation under bf16 autocast changes this loss by 3e-5
         assert history.val_losses[0] == pytest.approx(expected, rel=1e-6)
 
+    def test_training_without_mixed_precision_opens_no_autocast_region(
+        self, simple_config, training_data, monkeypatch
+    ):
+        """torch < 2.5 rejects autocast on MPS even when it is disabled."""
+
+        def unsupported(*args, **kwargs):
+            raise RuntimeError("User specified an unsupported autocast device_type")
+
+        monkeypatch.setattr("dorothy.training.trainer.autocast", unsupported)
+        simple_config.device = "cpu"
+        simple_config.training.epochs = 1
+        X, y = training_data
+        Trainer(simple_config).fit(X[:80], y[:80], X[80:], y[80:])
+
 
 class TestTrainerMasking:
     """Tests for Trainer with label masking (embedded in y tensor channel 2)."""
