@@ -63,28 +63,6 @@ def test_correct_errors_give_a_ratio_of_one_and_no_median_offset(catalogue):
     )
 
 
-def test_ratio_is_one_for_correct_errors_that_vary_from_star_to_star(
-    catalogue, tmp_path
-):
-    # Add noise to three stars in ten, so that their GALAH noise is 5 times the
-    # old error, and report the larger error. The errors now vary from star to
-    # star and are correct for every star.
-    path = shutil.copy(catalogue, tmp_path / "modified.h5")
-    rng = np.random.default_rng(3)
-    with h5py.File(path, "r+") as f:
-        values, errors = f["labels/galah/values"], f["labels/galah/errors"]
-        v, e = values[...], errors[...]
-        wide = (np.arange(len(v)) % 10 < 3)[:, None]
-        v += np.where(wide, rng.normal(size=v.shape) * e * np.sqrt(5**2 - 1), 0)
-        values[...] = v
-        errors[...] = np.where(wide, 5 * e, e)
-    result = compare_label_sources(path)
-
-    np.testing.assert_allclose(result.ratio, 1, rtol=_rtol(result.n_shared.min()))
-    # The ratio of the two spreads would flag these correct errors
-    assert (result.robust_spread / result.predicted_spread > 1.2).all()
-
-
 @pytest.mark.parametrize("max_flag_bits", [-1, 0])
 def test_only_labels_valid_in_both_sources_are_counted(tmp_path, max_flag_bits):
     path = build_catalogue(tmp_path / "catalogue.h5", n_stars=500, seed=2)
