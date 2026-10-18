@@ -84,14 +84,14 @@ MLP
 
 The error decoder always has a hidden layer, so that ln s can be a nonlinear
 function of u. If the true label noise is $\sqrt{a}\,\sigma_y$ and adds in
-quadrature to the model error $e$, for example,
+quadrature to the model error $\varepsilon$, for example,
 
 $$
-s^2 = a \sigma_y^2 + e^2, \qquad
-\ln s = \tfrac{1}{2} \ln\left(a e^{2u} + e^2\right),
+s^2 = a \sigma_y^2 + \varepsilon^2, \qquad
+\ln s = \tfrac{1}{2} \ln\left(a\, e^{2u} + \varepsilon^2\right),
 $$
 
-which tends to ln e for small label errors and to u + ½ ln a for large ones.
+which tends to ln ε for small label errors and to u + ½ ln a for large ones.
 
 In training, masked labels always get m. A fraction
 `training.label_error_dropout` of the stars (0.5 by default), drawn afresh for
