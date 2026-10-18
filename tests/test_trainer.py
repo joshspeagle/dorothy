@@ -437,6 +437,25 @@ class TestCalibrationFactors:
         assert trainer.calibration is None
         assert not (tmp_path / "calibration.json").exists()
 
+    def test_failed_fit_drops_the_factors_of_an_earlier_fit(
+        self, simple_config, training_data
+    ):
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        trainer.fit(X[:80], y[:80], X[80:], y[80:])
+        assert trainer.calibration is not None
+        evaluate = trainer._evaluate
+
+        def nan_loss(source):
+            val = evaluate(source)
+            val["loss"] = float("nan")
+            return val
+
+        trainer._evaluate = nan_loss
+        with pytest.raises(RuntimeError, match="finite validation loss"):
+            trainer.fit(X[:80], y[:80], X[80:], y[80:])
+        assert trainer.calibration is None
+
 
 class TestTrainerPredictions:
     """Tests for prediction functionality."""

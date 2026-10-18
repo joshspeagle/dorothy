@@ -202,6 +202,8 @@ def load_checkpoint(
         path=path,
         device=device,
         calibration=(
-            load_calibration(path) if model_file == "best_model.pth" else None
+            load_calibration(path)
+            if config is not None and Path(model_file).name == "best_model.pth"
+            else None
         ),
     )

@@ -1353,6 +1353,7 @@ class Trainer:
         keys = train_source.label_keys
         multi_label = len(keys) > 1
         labelsets = keys if multi_label else []
+        self.calibration = None
         self.history = TrainingHistory(
             parameter_names=self.parameter_names,
             val_loss_breakdown={"mean_component": [], "scatter_component": []},

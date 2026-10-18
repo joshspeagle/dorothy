@@ -614,6 +614,10 @@ def test_each_head_scales_its_scatter_by_its_own_calibration_factors(tmp_path):
         np.testing.assert_array_equal(result.predictions, raw.predictions)
         assert result.calibrated and not raw.calibrated
     assert Predictor.load(path, device="cpu").calibration == CALIBRATION["apogee"]
+    by_path = Predictor.load(
+        path, model_file=str(path / "best_model.pth"), device="cpu"
+    )
+    assert by_path.calibration == CALIBRATION["apogee"]
     final = Predictor.load(path, model_file="final_model.pth", device="cpu")
     assert final.calibration is None
 

@@ -641,7 +641,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     print(f"  Test samples: {len(split.test):,}")
 
     print("\nMaking predictions on test set...")
-    print("  Using shared evaluation pipeline (matches training validation)")
+    print("  Using shared evaluation pipeline (as in training validation)")
     results = evaluate_model(
         ckpt.model,
         ckpt.normalizer,

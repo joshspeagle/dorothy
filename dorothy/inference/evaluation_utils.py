@@ -4,8 +4,9 @@ Test-set evaluation that matches training validation exactly.
 :func:`evaluate_model` runs a trained model over a set of rows using the same
 batch construction, label normalization and predicted-scatter definition as
 the trainer, and scores every output head (label source) in both normalized
-space (directly comparable to the training validation metrics) and physical
-units. It also returns the physical-unit predictions for plotting.
+space (directly comparable to the training validation metrics, unless
+calibration factors are given) and physical units. It also returns the
+physical-unit predictions for plotting.
 
 The older per-layout helpers (``evaluate_on_test_set``,
 ``evaluate_on_dense_data``, ``evaluate_on_single_survey_data`` and the
