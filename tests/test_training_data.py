@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pickle
 
+import h5py
 import numpy as np
 import pytest
 
@@ -133,6 +134,31 @@ class TestSplits:
             )
         loaded = DataSplit.load(tmp_path, data)
         np.testing.assert_array_equal(loaded.test, filtered[old_test])
+
+    def test_legacy_dense_rows_count_stars_with_any_positive_label_error(
+        self, tmp_path
+    ):
+        """Old dense files indexed the stars with a survey and a positive
+        label error, whether or not the flag filter kept a label."""
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            has_survey = (f["surveys/boss/snr"][:] > 0) | (f["surveys/desi/snr"][:] > 0)
+            has_error = np.zeros(len(has_survey), dtype=bool)
+            for source in ("apogee", "galah"):
+                f["labels"][source]["flags"][:20] = 1
+                has_error |= (f["labels"][source]["errors"][:] > 0).any(axis=1)
+        config = _config(
+            path,
+            ["boss", "desi"],
+            ["apogee", "galah"],
+            max_flag_bits=0,
+            use_dense_loading=True,
+        )
+        data = load_training_data(config, verbose=False)
+        # The loaded rows are the stars with a survey, in catalogue order
+        legacy = data.legacy_filtered_rows()
+        np.testing.assert_array_equal(legacy, np.flatnonzero(has_error[has_survey]))
+        assert len(data.valid_indices) < len(legacy)
 
     def test_legacy_sparse_split_file_is_already_rows(self, tmp_path):
         data = TrainingData("sparse_multi_survey", ["apogee"], np.arange(10))

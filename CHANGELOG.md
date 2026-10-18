@@ -72,8 +72,9 @@
   loaders.
 - `CatalogueLoader.load_multi(mode="intersection")` returned every star of a
   v2 catalogue, because each survey has a row for every star.
-- `load_merged_sparse` counted a star as labelled by a source
-  (`has_labels_dict`) even when `max_flag_bits` removed all its labels.
+- `load_merged_sparse` and `load_merged_for_training` counted a star as
+  labelled by a source (`has_labels_dict`) even when `max_flag_bits` removed
+  all its labels.
 - The duplicate-star error told users to run a deduplication script that
   moved to `scripts/legacy/` and handles only v1 catalogues. It now tells
   them to rebuild the catalogue with `scripts/build_catalogue_v2.py`.
@@ -104,6 +105,12 @@
 - The epoch checkpoints of `training.save_every` include `config.yaml` and
   `normalizer.pkl`, so `load_checkpoint` rebuilds their model, multi-head
   models included.
+- When `MultiHeadMLP` encoded every row of a batch (an encoder with batch
+  normalization or dropout in training mode, or
+  `encode_present_rows_only = False`), a NaN in a row without that survey's
+  data made the weight gradients NaN, and with batch normalization every
+  output. These rows now enter the encoder as zeros, as in the trainer's
+  batches.
 
 ### Performance
 
@@ -200,3 +207,15 @@
   `label_aware_uncertainty: false`, so `--resume` from such a checkpoint
   fails. `load_checkpoint` without a `config.yaml` builds only the additive
   layer and raises `ValueError` for label-aware weights.
+- With `data.normalize_spectra: false`, every loading path and prediction set
+  the flux and ivar of invalid pixels to 0, as normalization does. A pixel is
+  invalid when its flux is not finite, or its ivar is not finite and
+  positive. Before, training passed the stored flux of masked pixels to the
+  model, and a NaN flux with a positive ivar reached the model.
+  `dorothy.data.zero_invalid_pixels` applies the rule.
+- The Fisher-weighted change of ablation saliency is
+  ((Δμ)² + 2 (Δσ)²) / σ₀², the quadratic form of gradient saliency for
+  finite changes, with σ from `losses.predicted_scatter`. Its scatter term
+  was 2 (Δ ln s)², which ignores the scatter floor and the clamp of ln s.
+  `AblationSaliencyResult.fisher_weighted` changes most where σ is close to
+  the floor or ln s is clamped.

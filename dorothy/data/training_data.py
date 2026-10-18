@@ -235,8 +235,10 @@ class TrainingData:
             return np.where(self.y[:, 2, :].any(axis=1))[0]
         if self.kind == "dense_multi_label":
             has_survey = np.any(list(self.has_data.values()), axis=0)
-            has_labels = np.any(list(self.has_labels.values()), axis=0)
-            return np.where(has_survey & has_labels)[0]
+            # That filter counted a star as labelled when a label error was
+            # positive, whether or not the flag filter kept the label
+            has_error = [(y[:, 1, :] > 0).any(axis=1) for y in self.y_dict.values()]
+            return np.where(has_survey & np.any(has_error, axis=0))[0]
         return self.valid_indices
 
 
@@ -395,9 +397,6 @@ def load_training_data(
                 )
             y_dict[target] = y_dict[source].copy()
             has_labels[target] = has_labels[source].copy()
-        # A source's mask must also reflect which stars it has labels for
-        for source in y_dict:
-            y_dict[source][:, 2, :] *= has_labels[source][:, None]
         has_survey = np.any(list(has_data.values()), axis=0)
         valid = _valid_rows(has_survey, [y_dict[s] for s in sources])
         result = TrainingData(

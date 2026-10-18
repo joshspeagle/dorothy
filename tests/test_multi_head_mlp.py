@@ -740,6 +740,28 @@ class TestPresentRowsOnlyEncoding:
         for name in grads_all:
             assert torch.equal(grads_sub[name], grads_all[name]), name
 
+    @pytest.mark.parametrize(
+        "kwargs", [{"normalization": "batchnorm"}, {"dropout": 0.2}]
+    )
+    def test_nan_in_rows_without_data_acts_as_zero_when_every_row_is_encoded(
+        self, kwargs
+    ):
+        """Batch-dependent encoders encode every row; a NaN in a row without
+        data gives the same outputs and gradients as a zero."""
+        model = self._model(**kwargs)
+        model.train()
+        X, has = self._inputs()
+        X_nan = {s: x.clone() for s, x in X.items()}
+        for s in X_nan:
+            X_nan[s][~has[s]] = float("nan")
+        torch.manual_seed(3)
+        out, grads = self._outputs_and_grads(model, X, has, True)
+        torch.manual_seed(3)
+        out_nan, grads_nan = self._outputs_and_grads(model, X_nan, has, True)
+        assert torch.equal(out_nan, out)
+        for name in grads:
+            assert torch.equal(grads_nan[name], grads[name]), name
+
     def test_rows_without_data_are_not_encoded(self):
         """Values in rows without a survey's data cannot affect the output."""
         model = self._model(combination_mode="mean")

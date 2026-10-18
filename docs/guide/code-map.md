@@ -64,7 +64,7 @@ in a caller:
 | Definition | Implementation |
 |------------|----------------|
 | Which stars are used, and the split | {py:mod}`dorothy.data.training_data` |
-| Spectrum preprocessing | {py:func}`~dorothy.data.fits_loader.normalize_spectra` |
+| Spectrum preprocessing | {py:func}`~dorothy.data.fits_loader.zero_invalid_pixels`, {py:func}`~dorothy.data.fits_loader.normalize_spectra` |
 | Label normalization | {py:meth}`~dorothy.data.normalizer.LabelNormalizer.transform_labels` |
 | Predicted scatter | {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` |
 | Model forward pass per label source | {py:func}`~dorothy.training.batches.forward_label_sources` |

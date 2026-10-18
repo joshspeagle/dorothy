@@ -752,6 +752,8 @@ class MultiHeadMLP(nn.Module):
         independently, only the rows that have data are encoded, which skips
         most of the encoder work for low-coverage surveys; the result is the
         same as encoding every row and discarding the rows without data.
+        When every row is encoded, the rows without data enter the encoder
+        as zeros.
         """
         first = next(iter(inputs.values()))
         batch_size, device, dtype = first.shape[0], first.device, first.dtype
@@ -786,6 +788,12 @@ class MultiHeadMLP(nn.Module):
                 or mask.dtype != torch.bool
                 or not self._rows_are_independent(encoder)
             ):
+                if n < batch_size:
+                    # Zero the rows without data, as in the trainer's batches:
+                    # a NaN there would reach BatchNorm's batch statistics and,
+                    # through the discarded latents, the weight gradients
+                    present = (mask != 0).view(-1, *[1] * (x.dim() - 1))
+                    x = torch.where(present, x, 0.0)
                 encoded.append((i, encoder(x), None, mask))
             else:
                 # Indices of the rows with data, in order (a stable sort puts
@@ -815,7 +823,6 @@ class MultiHeadMLP(nn.Module):
             if rows is not None:
                 combined = combined.index_add(0, rows, latent.to(dtype))
             else:
-                # Rows without data may encode to NaN: select, don't multiply
                 combined = combined + torch.where(mask_float > 0, latent, 0.0)
             count = count + mask_float
 
