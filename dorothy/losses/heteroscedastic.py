@@ -177,8 +177,8 @@ class HeteroscedasticLoss(nn.Module):
         variance = self.get_predicted_scatter(output) ** 2
 
         nll = (mu - y) ** 2 / variance + torch.log(variance)
-        loss = nll * variance.detach() ** beta
-        return torch.where(mask > 0, loss * mask, torch.zeros_like(loss))
+        weight = mask * variance.detach() ** beta
+        return torch.where(mask > 0, nll * weight, torch.zeros_like(nll))
 
     def forward(
         self,
