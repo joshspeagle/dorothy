@@ -319,6 +319,59 @@ def normalize_spectra(
     return flux, ivar
 
 
+def _encode_sigma(sigma: NDArray, valid: NDArray) -> None:
+    """Replace ``sigma`` in place with log(1 + 1/sigma) where ``valid``, else 0.
+
+    Shared by :func:`encode_precision` and the sparse loader, which stores
+    sigma without a mask channel.
+    """
+    # 1/inf = 0, so a masked pixel becomes log1p(0) = 0 whatever it held
+    np.copyto(sigma, np.inf, where=~valid)
+    np.reciprocal(sigma, out=sigma)
+    np.log1p(sigma, out=sigma)
+
+
+def encode_precision(spectra: NDArray, inplace: bool = False) -> NDArray[np.float32]:
+    """Replace the sigma channel of model inputs with the precision encoding.
+
+    For each pixel with uncertainty sigma and mask m::
+
+        rho = log(1 + 1/sigma) if m > 0, else 0
+
+    Flux and mask are unchanged. rho falls to 0 as sigma grows, so a pixel
+    without information reads like a masked one. Apply it after
+    :func:`zero_invalid_pixels` and :func:`normalize_spectra`, which rescales
+    sigma. A valid pixel needs sigma > 0, as every loading path gives it; a
+    masked pixel may hold any value, including NaN.
+
+    Args:
+        spectra: Model inputs of shape (N, 3, n_wavelengths) = [flux, sigma,
+            mask].
+        inplace: Write the result into ``spectra`` (must be float32) instead
+            of a new array.
+
+    Returns:
+        Float32 array of shape (N, 3, n_wavelengths) = [flux, rho, mask].
+
+    Raises:
+        ValueError: If ``spectra`` does not have shape (N, 3, n_wavelengths),
+            or ``inplace`` is set and it is not float32.
+    """
+    spectra = np.asarray(spectra)
+    if spectra.ndim != 3 or spectra.shape[1] != 3:
+        raise ValueError(
+            f"spectra must have shape (N, 3, n_wavelengths), got {spectra.shape}"
+        )
+    if not inplace:
+        spectra = spectra.astype(np.float32)
+    elif spectra.dtype != np.float32:
+        raise ValueError("inplace requires a float32 spectra array")
+    for start in range(0, len(spectra), _BLOCK_ROWS):
+        block = spectra[start : start + _BLOCK_ROWS]
+        _encode_sigma(block[:, 1], block[:, 2] > 0)
+    return spectra
+
+
 def normalize_spectrum(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
     """
     Normalize a single spectrum using median/IQR scaling.
