@@ -22,7 +22,6 @@ model:
 training:
   epochs: 10  # Short test run
   batch_size: 512
-  learning_rate: 0.001
   loss: heteroscedastic
   gradient_clip: 10.0
   scatter_floor: 0.01
