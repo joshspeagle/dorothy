@@ -143,7 +143,9 @@ class AblationSaliencyResult:
         spectrum: Flux values of shape (N,).
         spectrum_error: Flux error values of shape (N,).
         mask: Boolean mask of shape (N,) where True = valid, False = masked.
-        block_size: Block size(s) used for ablation.
+        block_size: Block size used for ablation, or with the training
+            distribution one size per grid point (repeats included); the maps
+            are then the mean over these sizes.
         delta_mu: Per-parameter signed change in mean (μ_ablated - μ₀), shape (n_params, N).
             Positive = region suppressed prediction; negative = region boosted it.
         delta_mu_total: Sum of signed changes across parameters, shape (N,).
@@ -169,11 +171,11 @@ class AblationSaliencyResult:
     # Block size used
     block_size: int | list[int]
 
-    # Delta-mu metrics: mu_baseline - mu_ablated (signed)
+    # Delta-mu metrics: mu_ablated - mu_baseline (signed)
     delta_mu: NDArray[np.float32]
     delta_mu_total: NDArray[np.float32]
 
-    # Delta-sigma metrics: sigma_baseline - sigma_ablated (signed)
+    # Delta-sigma metrics: sigma_ablated - sigma_baseline (signed)
     delta_sigma: NDArray[np.float32]
     delta_sigma_total: NDArray[np.float32]
 
@@ -674,9 +676,10 @@ class AblationSaliencyAnalyzer:
     This analyzer uses sliding window ablation - masking a contiguous block
     and shifting one pixel at a time to compute per-pixel importance scores.
 
-    Two metrics are computed:
-    1. Delta-mu: Absolute change in predicted parameters when region is ablated
-    2. Fisher-weighted: (delta_mu)^2/sigma^2 + 2*(delta_ln_s)^2
+    Three metrics are computed:
+    1. Delta-mu: Signed change in predicted parameters when region is ablated
+    2. Delta-sigma: Signed change in predicted scatter
+    3. Fisher-weighted: (delta_mu)^2/sigma^2 + 2*(delta_ln_s)^2
 
     When the spectrum reaches the output only through the model's first
     nn.Linear layer, the analyzer temporarily replaces that layer's forward
@@ -747,9 +750,11 @@ class AblationSaliencyAnalyzer:
             X: Input spectrum of shape (3, N_wavelengths) - [flux, error, mask].
             wavelength: Wavelength array of shape (N,).
             survey: Survey name (required for MultiHeadMLP).
-            block_size: Fixed block size for ablation. If None, uses 50 pixels.
-            use_training_distribution: If True, average over block sizes sampled
-                from the log-uniform distribution used during training.
+            block_size: Fixed block size for ablation. If None, uses 5 pixels.
+            use_training_distribution: If True, ignore block_size and average
+                the maps of n_block_sizes block sizes ceil(N * f), with f
+                evenly spaced in log f from f_min to f_max (the log-uniform
+                sizes of training's input masking), each with equal weight.
             n_block_sizes: Number of block sizes when using training distribution.
             f_min: Minimum block fraction (default: 1/N_wavelengths).
             f_max: Maximum block fraction when using training distribution.
@@ -783,31 +788,21 @@ class AblationSaliencyAnalyzer:
         sigma_0 = torch.sqrt(torch.exp(2 * ln_s_0) + self.scatter_floor**2)
 
         if use_training_distribution:
-            # Compute block sizes evenly spaced in log-space
+            # Fractions evenly spaced in log f sample the log-uniform block
+            # sizes of training's input masking, so every grid point has equal
+            # weight; a size that several fractions round to counts once each
             f_min_actual = f_min if f_min is not None else (1.0 / N)
             log_f = np.linspace(np.log(f_min_actual), np.log(f_max), n_block_sizes)
-            fractions = np.exp(log_f)
-            block_sizes_list = np.unique(
-                [max(1, int(np.ceil(f * N))) for f in fractions]
-            )
+            block_sizes = [max(1, int(np.ceil(f * N))) for f in np.exp(log_f)]
+            sizes, counts = np.unique(block_sizes, return_counts=True)
 
-            # Weights: log-uniform means P(b) ∝ 1/b
-            weights = 1.0 / block_sizes_list.astype(np.float32)
-            weights /= weights.sum()
-
-            # Compute importance for each block size and accumulate weighted average
-            delta_mu_accum = np.zeros((len(self.parameter_names), N), dtype=np.float32)
-            delta_sigma_accum = np.zeros(
-                (len(self.parameter_names), N), dtype=np.float32
-            )
-            fisher_accum = np.zeros((len(self.parameter_names), N), dtype=np.float32)
-
-            for block_sz, weight in zip(block_sizes_list, weights, strict=False):
-                delta_mu_single, delta_sigma_single, fisher_single = (
+            maps = np.zeros((3, len(self.parameter_names), N))
+            for size, count in zip(sizes, counts, strict=True):
+                maps += count * np.stack(
                     self._compute_ablation_importance(
                         X_masked,
                         survey,
-                        int(block_sz),
+                        int(size),
                         mu_0,
                         ln_s_0,
                         sigma_0,
@@ -815,14 +810,10 @@ class AblationSaliencyAnalyzer:
                         shortcut=shortcut,
                     )
                 )
-                delta_mu_accum += weight * delta_mu_single
-                delta_sigma_accum += weight * delta_sigma_single
-                fisher_accum += weight * fisher_single
-
-            delta_mu_np = delta_mu_accum
-            delta_sigma_np = delta_sigma_accum
-            fisher_np = fisher_accum
-            block_size_used: int | list[int] = block_sizes_list.tolist()
+            delta_mu_np, delta_sigma_np, fisher_np = (maps / n_block_sizes).astype(
+                np.float32
+            )
+            block_size_used: int | list[int] = block_sizes
         else:
             # Single block size mode
             if block_size is None:
@@ -908,7 +899,7 @@ class AblationSaliencyAnalyzer:
 
         # Compute metrics for all ablation positions in batches
         all_delta_mu = []  # List of (batch, n_params) tensors
-        all_delta_sigma = []  # Absolute change in sigma
+        all_delta_sigma = []  # Signed change in sigma
         all_delta_ln_s = []  # For Fisher metric computation
 
         if shortcut is not None:

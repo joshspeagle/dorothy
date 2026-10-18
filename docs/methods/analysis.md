@@ -50,9 +50,19 @@ over the blocks that cover it.
 :file: ../figures/ablation.svg
 ```
 
-With `use_training_distribution=True`, the analyzer averages over block sizes
-drawn as in [input masking](training.md#augmentation), so the map reflects
-the kinds of gaps the model saw in training.
+With `use_training_distribution=True`, the map is the mean of the maps for K
+block sizes (`n_block_sizes`):
+
+$$
+\bar I(i) = \frac{1}{K}\sum_{k=1}^{K} I_{b_k}(i), \qquad
+b_k = \lceil N f_k \rceil, \qquad
+\ln f_k = \ln f_{\min} + \frac{k - 1}{K - 1}\ln\frac{f_{\max}}{f_{\min}},
+$$
+
+where N is the number of pixels, f_min defaults to 1/N and f_max to 0.5.
+[Input masking](training.md#augmentation) draws ln f uniformly in the same
+way, so each b_k has equal weight and the map reflects the kinds of gaps the
+model saw in training. A size that several f_k round to counts once for each.
 
 ```python
 from dorothy.analysis import (

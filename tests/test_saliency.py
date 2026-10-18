@@ -796,6 +796,41 @@ class TestAblationSaliencyAnalyzer:
         assert np.all(np.isfinite(result.delta_mu))
         assert np.all(result.fisher_weighted >= 0)
 
+    def test_training_distribution_weights_block_sizes_equally(self, analyzer):
+        """The map is the mean of single-block maps over block sizes ceil(N f),
+        with f evenly spaced in log f; a size that several f round to counts
+        once for each."""
+        n_wavelengths, n_sizes, f_max = 100, 21, 0.5
+        X = torch.randn(3, n_wavelengths, generator=torch.Generator().manual_seed(0))
+        X[2] = 1.0
+        wavelength = np.linspace(3600, 9000, n_wavelengths).astype(np.float32)
+        fractions = np.exp(
+            np.linspace(np.log(1 / n_wavelengths), np.log(f_max), n_sizes)
+        )
+        sizes = np.ceil(fractions * n_wavelengths).astype(int).tolist()
+        assert len(set(sizes)) < n_sizes
+
+        result = analyzer.compute_saliency(
+            X,
+            wavelength,
+            use_training_distribution=True,
+            n_block_sizes=n_sizes,
+            f_max=f_max,
+        )
+
+        assert result.block_size == sizes
+        single = {
+            b: analyzer.compute_saliency(X, wavelength, block_size=b) for b in sizes
+        }
+        for name in ("delta_mu", "delta_sigma", "fisher_weighted"):
+            expected = np.mean([getattr(single[b], name) for b in sizes], axis=0)
+            np.testing.assert_allclose(
+                getattr(result, name),
+                expected,
+                rtol=0,
+                atol=1e-6 * np.abs(expected).max(),
+            )
+
     def test_large_block_size(self, analyzer):
         """Test with block size larger than spectrum."""
         n_wavelengths = 100

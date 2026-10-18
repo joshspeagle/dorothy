@@ -45,6 +45,10 @@
   labels or no valid pixels.
 - `load_merged_sparse` did not detect duplicate stars.
 - `loss: penalty` passed configuration checks but failed when training started; the configuration now rejects it.
+- Ablation saliency with `use_training_distribution=True` weighted its
+  log-spaced block sizes by 1/b, so the map was close to single-pixel
+  ablation: for BOSS, block sizes of at most 5 pixels had 84% of the weight.
+  A size that several grid points round to counted only once.
 
 ### Performance
 
@@ -106,3 +110,7 @@
   and zeroes non-finite pixels. Rebuilt catalogues differ for stars with
   repeat observations.
 - Learning rates are logged per optimizer step in every training mode.
+- Ablation saliency with `use_training_distribution=True` gives every point
+  of its block-size grid equal weight (for BOSS, block sizes of at most 5
+  pixels now have 24% of the weight), and `AblationSaliencyResult.block_size`
+  lists one size per grid point, with repeats.
