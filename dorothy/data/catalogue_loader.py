@@ -26,8 +26,8 @@ import h5py
 import numpy as np
 
 from dorothy.config.schema import STELLAR_PARAMETERS
+from dorothy.data.fits_loader import _BLOCK_ROWS, zero_invalid_pixels
 from dorothy.data.fits_loader import normalize_spectra as _normalize_spectra
-from dorothy.data.fits_loader import zero_invalid_pixels
 
 # Default (v1/v2 [X/Fe]) parameter names; catalogues may define their own
 PARAMETER_NAMES = list(STELLAR_PARAMETERS)
@@ -207,49 +207,39 @@ def _preprocess_spectra(
     return zero_invalid_pixels(flux, ivar, inplace=True)
 
 
-def _ivar_to_sigma(ivar: np.ndarray, out: np.ndarray) -> None:
+def _ivar_to_sigma(ivar: np.ndarray, out: np.ndarray) -> np.ndarray:
     """Write ``sigma = 1 / sqrt(ivar)`` where ``ivar > 0``, else 0, into ``out``.
 
-    ``out`` may be ``ivar`` itself.
+    ``out`` may be ``ivar`` itself. Returns the mask ``ivar > 0``.
     """
-    invalid = ~(ivar > 0)
+    valid = ivar > 0
     # Warnings can only come from ivar <= 0 or NaN, zeroed below
     with np.errstate(divide="ignore", invalid="ignore"):
         np.sqrt(ivar, out=out)
         np.divide(1.0, out, out=out)
-    np.copyto(out, 0, where=invalid)
+    np.copyto(out, 0, where=~valid)
+    return valid
 
 
 def _spectra_to_model_inputs(
-    flux: np.ndarray, ivar: np.ndarray, block_rows: int = 256
+    flux: np.ndarray, ivar: np.ndarray, block_rows: int = _BLOCK_ROWS
 ) -> np.ndarray:
     """Stack ``[flux, sigma, mask]`` into (N, 3, n_wave) model inputs.
 
     ``sigma = 1 / sqrt(ivar)`` and ``mask = 1`` where ``ivar > 0``, both 0
-    elsewhere. Same result as ``np.stack([flux, sigma, mask], axis=1)`` (with
-    sigma computed in ivar's dtype), but written straight into the output a
-    block of rows at a time, without boolean-indexed copies or full-size
-    sigma/mask temporaries.
+    elsewhere. Same result as ``np.stack([flux, sigma, mask], axis=1)``, but
+    written straight into the output a block of rows at a time, without
+    boolean-indexed copies or full-size sigma/mask temporaries.
     """
     out = np.empty(
         (flux.shape[0], 3) + flux.shape[1:],
         dtype=np.result_type(flux.dtype, ivar.dtype, np.float32),
     )
-    # Compute sigma in place when it already has the output dtype
-    in_place = ivar.dtype == out.dtype and np.issubdtype(ivar.dtype, np.floating)
     for start in range(0, flux.shape[0], block_rows):
         rows = slice(start, start + block_rows)
-        iv = ivar[rows]
-        valid = iv > 0
         block = out[rows]
         block[:, 0] = flux[rows]
-        if in_place:
-            _ivar_to_sigma(iv, block[:, 1])
-        else:
-            sigma = np.zeros_like(iv)
-            sigma[valid] = 1.0 / np.sqrt(iv[valid])
-            block[:, 1] = sigma
-        block[:, 2] = valid
+        block[:, 2] = _ivar_to_sigma(ivar[rows], block[:, 1])
     return out
 
 
@@ -1722,13 +1712,14 @@ class CatalogueLoader:
                 local_to_global[survey] = valid_indices.astype(np.int32)
 
                 flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
-                for start in range(0, n_with_data, 256):
-                    block = ivar[start : start + 256]
+                sigma = ivar  # converted in place, a block of rows at a time
+                for start in range(0, n_with_data, _BLOCK_ROWS):
+                    block = sigma[start : start + _BLOCK_ROWS]
                     _ivar_to_sigma(block, block)
 
                 # Store sparse arrays
                 sparse_flux[survey] = flux
-                sparse_sigma[survey] = ivar
+                sparse_sigma[survey] = sigma
                 sparse_snr[survey] = snr
 
                 print(

@@ -146,14 +146,15 @@
   embeddings directly.
 - `SparseMergedData.ivar` is replaced by `SparseMergedData.sigma`, which
   holds 1/√ivar and 0 at invalid pixels, so the pixel mask is σ > 0.
+  `SparseMergedData.memory_usage_mb` reports `<survey>_sigma` instead of
+  `<survey>_ivar`.
 
 ### Behaviour changes
 
 - `load_merged_sparse` computes σ = 1/√ivar once, with the numpy code of the
   other loading paths, and sparse batches copy it. Before, each batch
-  computed σ with `torch.sqrt`, which is not exactly rounded on the CPU: σ
-  differed from the other paths by up to two rounding steps in about 0.6% of
-  pixels.
+  computed σ with `torch.sqrt`, which is not exactly rounded on the CPU, so σ
+  could differ from the other paths. How often depends on the CPU.
 - `normalize_spectra` marks a pixel invalid (flux and ivar 0) when the
   scaled ivar or the normalized flux overflows to infinity. Before, such a
   pixel kept an infinite ivar, which gave σ = 0 with mask 1.

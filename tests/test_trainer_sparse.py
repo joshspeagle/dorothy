@@ -437,7 +437,6 @@ class TestSharedLoopBehaviour:
         from dorothy.training.batches import SparseBatchSource
 
         data = make_sparse_data(multi_label=True)
-        data.sigma["boss"][0, :2] = [2.7e22, 5.4e-20]  # sigma of the extreme ivars
         idx = np.random.default_rng(1).permutation(N_TOTAL)[:120]
         labels = {k: v.astype(np.float32) for k, v in data.labels_dict.items()}
         source = SparseBatchSource(data, idx, labels, torch.device("cpu"))

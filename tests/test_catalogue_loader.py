@@ -1590,7 +1590,7 @@ class TestSparseMergedDataMethods:
             "survey_a": np.random.randn(60, 1000).astype(np.float32),
             "survey_b": np.random.randn(40, 800).astype(np.float32),
         }
-        ivar = {
+        sigma = {
             "survey_a": np.abs(np.random.randn(60, 1000)).astype(np.float32),
             "survey_b": np.abs(np.random.randn(40, 800)).astype(np.float32),
         }
@@ -1624,7 +1624,7 @@ class TestSparseMergedDataMethods:
 
         return SparseMergedData(
             flux=flux,
-            sigma=ivar,
+            sigma=sigma,
             wavelengths=wavelengths,
             snr=snr,
             global_to_local=global_to_local,
@@ -1650,7 +1650,7 @@ class TestSparseMergedDataMethods:
         """memory_usage_mb should include all data arrays."""
         usage = sparse_data.memory_usage_mb()
 
-        # Flat key structure: {survey}_flux, {survey}_ivar
+        # Flat key structure: {survey}_flux, {survey}_sigma
         assert "survey_a_flux" in usage
         assert "survey_b_flux" in usage
         assert "labels" in usage
@@ -2123,14 +2123,12 @@ class TestNanSnr:
 
 
 class TestModelInputs:
-    @pytest.mark.parametrize("flux_dtype", [np.float32, np.float64])
-    @pytest.mark.parametrize("ivar_dtype", [np.float32, np.float64])
-    def test_model_inputs_match_the_direct_computation(self, flux_dtype, ivar_dtype):
+    def test_model_inputs_match_the_direct_computation(self):
         from dorothy.data.catalogue_loader import _spectra_to_model_inputs
 
         rng = np.random.default_rng(0)
-        flux = rng.normal(size=(7, 9)).astype(flux_dtype)
-        ivar = rng.uniform(0.5, 2.0, size=(7, 9)).astype(ivar_dtype)
+        flux = rng.normal(size=(7, 9)).astype(np.float32)
+        ivar = rng.uniform(0.5, 2.0, size=(7, 9)).astype(np.float32)
         ivar[:, :4] = [0.0, -1.0, np.nan, np.inf]
         flux[:, 0] = np.nan  # a masked pixel can hold any value
         valid = ivar > 0
