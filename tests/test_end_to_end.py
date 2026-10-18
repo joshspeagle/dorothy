@@ -253,6 +253,26 @@ class TestPredictorMultiHead:
         assert predictor.get_embeddings(X[None]).shape[0] == 1
 
 
+def test_training_inputs_match_load_spectrum(tmp_path, catalogue):
+    """load_training_data preprocesses spectra as load_spectrum does, so
+    training, evaluation and prediction see the same inputs."""
+    config_path = _config(tmp_path, catalogue, MULTI_SURVEYS, ["apogee"])
+    import yaml
+
+    raw = complete_config_from_catalogue(yaml.safe_load(config_path.read_text()))
+    config = ExperimentConfig(**raw)
+    assert config.data.normalize_spectra and config.data.precision_encoding
+    loader = CatalogueLoader(catalogue)
+    sparse = load_training_data(config, loader, verbose=False).sparse
+    row = int(sparse.local_to_global["boss"][0])
+    flux, sigma = sparse.flux["boss"][0], sparse.sigma["boss"][0]
+
+    expected = loader.load_spectrum(
+        "boss", row, normalize_spectra=True, precision_encoding=True
+    )[0]
+    np.testing.assert_array_equal(np.stack([flux, sigma, sigma > 0]), expected)
+
+
 class TestPredictFromFits:
     @staticmethod
     def _write_fits(path, flux, ivar):
@@ -306,7 +326,9 @@ class TestPredictFromFits:
         loader = CatalogueLoader(catalogue)
         X = np.stack(
             [
-                loader.load_spectrum("boss", int(r), normalize_spectra=True)[0]
+                loader.load_spectrum(
+                    "boss", int(r), normalize_spectra=True, precision_encoding=True
+                )[0]
                 for r in rows
             ]
         )

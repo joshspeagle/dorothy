@@ -485,8 +485,9 @@ class TestCheckpointArchitecture:
 
 @pytest.mark.parametrize("multi_head", [False, True], ids=["mlp", "multi_head"])
 def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
-    """A checkpoint saved before label-aware uncertainty loads and predicts
-    bit-identically to its model's forward pass from before this option."""
+    """A checkpoint saved before label-aware uncertainty and the precision
+    encoding loads and predicts bit-identically to its model's forward pass
+    from before these options, and its inputs keep sigma."""
     import yaml
 
     if multi_head:
@@ -538,9 +539,10 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     path.mkdir()
     torch.save(model.state_dict(), path / "best_model.pth")
     config.save_yaml(path / "config.yaml")
-    # Configs saved before this option have no label_aware_uncertainty key
+    # Configs saved before these options have neither key
     raw = yaml.full_load((path / "config.yaml").read_text())
     del raw["multi_head_model" if multi_head else "model"]["label_aware_uncertainty"]
+    del raw["data"]["precision_encoding"]
     (path / "config.yaml").write_text(yaml.dump(raw))
 
     X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
@@ -548,7 +550,11 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
         # The forward pass before label-aware uncertainty
         old_input = model.get_embeddings(X, "boss", level="trunk") if multi_head else X
         expected = old(old_input).view(9, 2, 3)
-    result = Predictor.load(path, device="cpu").predict(X)
+    predictor = Predictor.load(path, device="cpu")
+    result = predictor.predict(X)
+
+    # predict_from_fits and evaluation preprocess as this setting says
+    assert predictor.config.data.precision_encoding is False
 
     np.testing.assert_array_equal(result.raw_output, expected.numpy())
     np.testing.assert_array_equal(result.predictions, expected[:, 0].numpy())

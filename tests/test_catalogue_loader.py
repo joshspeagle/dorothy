@@ -2123,8 +2123,12 @@ class TestNanSnr:
 
 
 class TestModelInputs:
-    def test_model_inputs_match_the_direct_computation(self):
+    # ivar = inf gives sigma = 0 at a pixel this helper counts as valid
+    @pytest.mark.filterwarnings("ignore:divide by zero:RuntimeWarning")
+    @pytest.mark.parametrize("encode", [False, True])
+    def test_model_inputs_match_the_direct_computation(self, encode):
         from dorothy.data.catalogue_loader import _spectra_to_model_inputs
+        from dorothy.data.fits_loader import encode_precision
 
         rng = np.random.default_rng(0)
         flux = rng.normal(size=(7, 9)).astype(np.float32)
@@ -2135,19 +2139,26 @@ class TestModelInputs:
         sigma = np.zeros_like(ivar)
         sigma[valid] = 1.0 / np.sqrt(ivar[valid])
         expected = np.stack([flux, sigma, valid.astype(np.float32)], axis=1)
-        got = _spectra_to_model_inputs(flux, ivar, block_rows=3)
+        if encode:
+            expected = encode_precision(expected)
+        got = _spectra_to_model_inputs(flux, ivar, encode, block_rows=3)
         assert got.dtype == expected.dtype and got.shape == expected.shape
         assert got.tobytes() == expected.tobytes()
 
+    @pytest.mark.parametrize("encode", [False, True])
     @pytest.mark.parametrize("normalize", [False, True])
     def test_every_path_gives_the_same_inputs_with_zeros_at_invalid_pixels(
-        self, tmp_path, normalize
+        self, tmp_path, normalize, encode
     ):
         import torch
         from astropy.io import fits
         from astropy.table import Table
 
-        from dorothy.data.fits_loader import FITSLoader, normalize_spectra
+        from dorothy.data.fits_loader import (
+            FITSLoader,
+            encode_precision,
+            normalize_spectra,
+        )
         from dorothy.training.batches import SparseBatchSource
 
         path = build_catalogue(tmp_path / "cat.h5")
@@ -2175,16 +2186,15 @@ class TestModelInputs:
         assert valid[0, 10] != normalize  # the overflow invalidates the pixel
         sigma = np.where(valid, 1 / np.sqrt(np.where(valid, ref_ivar, 1)), 0)
         expected = np.stack([np.where(valid, ref_flux, 0), sigma, valid], axis=1)
+        if encode:
+            expected = encode_precision(expected)
 
         loader = CatalogueLoader(path)
-        X_dict, _, _, _ = loader.load_merged_for_training(
-            ["boss"], normalize_spectra=normalize
-        )
-        single, _ = loader.load_for_training(
-            "boss", max_flag_bits=-1, normalize_spectra=normalize
-        )
-        one = loader.load_spectrum("boss", int(r[0]), normalize_spectra=normalize)
-        sparse = loader.load_merged_sparse(["boss"], normalize_spectra=normalize)
+        options = {"normalize_spectra": normalize, "precision_encoding": encode}
+        X_dict, _, _, _ = loader.load_merged_for_training(["boss"], **options)
+        single, _ = loader.load_for_training("boss", max_flag_bits=-1, **options)
+        one = loader.load_spectrum("boss", int(r[0]), **options)
+        sparse = loader.load_merged_sparse(["boss"], **options)
         batch = SparseBatchSource(
             sparse, rows, {"apogee": sparse.labels}, torch.device("cpu")
         ).build_batch(rows)
@@ -2207,9 +2217,10 @@ class TestModelInputs:
         np.testing.assert_array_equal(single, expected[has_apogee])
         np.testing.assert_array_equal(one[0], expected[0])
         np.testing.assert_array_equal(batch.X["boss"].numpy(), expected)
-        np.testing.assert_array_equal(
-            from_fits.get_model_input_3channel(apply_quality_mask=False), expected
-        )
+        from_fits = from_fits.get_model_input_3channel(apply_quality_mask=False)
+        if encode:  # as predict_from_fits does
+            encode_precision(from_fits, inplace=True)
+        np.testing.assert_array_equal(from_fits, expected)
 
 
 class TestLabelSourceNames:

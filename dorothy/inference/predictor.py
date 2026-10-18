@@ -484,7 +484,8 @@ def predict_from_fits(
 
     Spectra are preprocessed exactly as in training: per-spectrum flux
     normalization when the checkpoint's ``data.normalize_spectra`` is set,
-    and the 3-channel [flux, sigma, mask] input format.
+    the 3-channel [flux, sigma, mask] input format, and the precision
+    encoding of sigma when ``data.precision_encoding`` is set.
 
     Args:
         fits_path: Path to input FITS file (SPECTRA / SPEC_IVAR extensions).
@@ -508,7 +509,7 @@ def predict_from_fits(
     Raises:
         ValueError: If the spectra don't match the model's wavelength grid.
     """
-    from dorothy.data import FITSLoader
+    from dorothy.data import FITSLoader, encode_precision
 
     predictor = Predictor.load(
         checkpoint_path,
@@ -517,10 +518,13 @@ def predict_from_fits(
         label_source=label_source,
         calibrate=calibrate,
     )
-    normalize = (
-        predictor.config.data.normalize_spectra
+    normalize, encode = (
+        (
+            predictor.config.data.normalize_spectra,
+            predictor.config.data.precision_encoding,
+        )
         if predictor.config is not None
-        else True
+        else (True, False)
     )
 
     data = FITSLoader(fits_path).load(
@@ -530,6 +534,8 @@ def predict_from_fits(
         require_labels=False,
     )
     X = data.get_model_input_3channel(apply_quality_mask=False)
+    if encode:
+        encode_precision(X, inplace=True)
 
     model = predictor.model
     if isinstance(model, MultiHeadMLP):
