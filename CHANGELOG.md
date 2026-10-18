@@ -57,6 +57,9 @@
 - The duplicate-star error told users to run a deduplication script that
   moved to `scripts/legacy/` and handles only v1 catalogues. It now tells
   them to rebuild the catalogue with `scripts/build_catalogue_v2.py`.
+- `load_merged` numbered the rows of a catalogue without Gaia IDs from 0, so
+  it dropped row 0 and merged unrelated stars that share a row number in
+  different surveys. It now raises `ValueError`.
 
 ### Performance
 

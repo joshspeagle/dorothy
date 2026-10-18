@@ -1185,7 +1185,11 @@ class CatalogueLoader:
         elif "metadata" in f and "gaia_id" in f["metadata"]:
             gaia_ids = f["metadata"]["gaia_id"][:]
         else:
-            gaia_ids = np.arange(n_stars, dtype=np.int64)
+            raise ValueError(
+                f"Catalogue {self.path} has no Gaia IDs (metadata/gaia_id or "
+                f"labels/{label_source}/gaia_id), which dense loading needs to "
+                "match stars across surveys"
+            )
 
         # Load RA/Dec
         if "ra" in survey_grp:
@@ -1407,7 +1411,8 @@ class CatalogueLoader:
             MergedCatalogueData with outer join structure.
 
         Raises:
-            ValueError: If duplicate observations are found in the catalogue.
+            ValueError: If duplicate observations are found in the catalogue,
+                or it has no Gaia IDs.
 
         Examples:
             >>> merged = loader.load_merged(["boss", "lamost_lrs", "desi"])

@@ -1975,3 +1975,14 @@ class TestSparseHasLabels:
             has_valid = (data.labels_dict[source][:, 2, :] > 0).any(axis=1)
             np.testing.assert_array_equal(data.has_labels_dict[source], has_valid)
             assert not data.has_labels_dict[source][:20].any()
+
+
+class TestGaiaIds:
+    def test_dense_loading_without_gaia_ids_raises(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            del f["metadata/gaia_id"]
+            for source in ("apogee", "galah"):
+                del f["labels"][source]["gaia_id"]
+        with pytest.raises(ValueError, match="no Gaia IDs"):
+            CatalogueLoader(path).load_merged(["boss", "desi"])
