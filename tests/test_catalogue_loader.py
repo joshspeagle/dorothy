@@ -1964,21 +1964,32 @@ class TestLoadMulti:
             np.testing.assert_array_equal(data[survey].gaia_ids, [4, 5])
 
 
-class TestSparseHasLabels:
-    def test_has_labels_counts_only_labels_that_survive_the_flag_filter(self, tmp_path):
+class TestHasLabels:
+    @pytest.mark.parametrize("dense", [False, True])
+    def test_has_labels_counts_only_labels_that_survive_the_flag_filter(
+        self, tmp_path, dense
+    ):
         path = build_catalogue(tmp_path / "cat.h5")
         with h5py.File(path, "r+") as f:
             for source in ("apogee", "galah"):
                 flags = f["labels"][source]["flags"][:]
                 flags[:20, 0] = 1  # max_flag_bits=0 removes all their labels
                 f["labels"][source]["flags"][...] = flags
-        data = CatalogueLoader(path).load_merged_sparse(
-            ["boss", "desi"], label_sources=["apogee", "galah"], max_flag_bits=0
-        )
+        loader = CatalogueLoader(path)
+        surveys = ["boss", "desi"]
+        kwargs = {"label_sources": ["apogee", "galah"], "max_flag_bits": 0}
+        if dense:
+            _, labels, _, has_labels = loader.load_merged_for_training(
+                surveys, **kwargs
+            )
+        else:
+            data = loader.load_merged_sparse(surveys, **kwargs)
+            labels, has_labels = data.labels_dict, data.has_labels_dict
         for source in ("apogee", "galah"):
-            has_valid = (data.labels_dict[source][:, 2, :] > 0).any(axis=1)
-            np.testing.assert_array_equal(data.has_labels_dict[source], has_valid)
-            assert not data.has_labels_dict[source][:20].any()
+            y = labels[source]
+            np.testing.assert_array_equal(has_labels[source], (y[:, 2] > 0).any(1))
+            # Stars with a positive error but no label left exist
+            assert ((y[:, 1] > 0).any(axis=1) & ~has_labels[source]).any()
 
 
 class TestLabelMask:

@@ -1971,8 +1971,9 @@ class CatalogueLoader:
                 - has_data_dict: Dict mapping survey name to boolean mask
                     indicating which stars have data from that survey.
                 - has_labels_dict: Dict mapping label source to boolean mask
-                    indicating which stars have labels from that source.
-                    Only present in multi-source mode; None in single-source mode.
+                    of the stars with at least one valid label (mask 1)
+                    from that source, after the flag filter. Only present in
+                    multi-source mode; None in single-source mode.
 
         Raises:
             ValueError: If duplicate observations are found in the catalogue,
@@ -2044,8 +2045,6 @@ class CatalogueLoader:
                     values = merged.primary_labels
                     errors = merged.primary_errors
                     flags = merged.primary_flags
-                    # Star has labels if at least one error is positive
-                    has_labels = np.any(errors > 0, axis=1)
                 else:
                     source_gaia_ids = _label_gaia_ids(label_grp)
 
@@ -2058,7 +2057,6 @@ class CatalogueLoader:
                     values = np.zeros((n_stars, n_params), dtype=np.float32)
                     errors = np.zeros((n_stars, n_params), dtype=np.float32)
                     flags = np.zeros((n_stars, n_params), dtype=np.uint8)
-                    has_labels = np.zeros(n_stars, dtype=bool)
 
                     # Map label source data to merged structure (vectorized):
                     # merged rows of the source IDs that exist in the merged set
@@ -2071,12 +2069,10 @@ class CatalogueLoader:
                     values[merged_idx] = source_values[valid_source_idx]
                     errors[merged_idx] = source_errors[valid_source_idx]
                     flags[merged_idx] = source_flags[valid_source_idx]
-                    has_labels[merged_idx] = np.any(
-                        source_errors[valid_source_idx] > 0, axis=1
-                    )
 
                 y_dict[source] = _label_array(values, errors, flags, max_flag_bits)
-                has_labels_dict[source] = has_labels
+                # A star has labels if one survives the flag filter
+                has_labels_dict[source] = (y_dict[source][:, 2, :] > 0).any(axis=1)
 
         return X_dict, y_dict, has_data_dict, has_labels_dict
 

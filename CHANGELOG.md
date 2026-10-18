@@ -67,8 +67,9 @@
   loaders.
 - `CatalogueLoader.load_multi(mode="intersection")` returned every star of a
   v2 catalogue, because each survey has a row for every star.
-- `load_merged_sparse` counted a star as labelled by a source
-  (`has_labels_dict`) even when `max_flag_bits` removed all its labels.
+- `load_merged_sparse` and `load_merged_for_training` counted a star as
+  labelled by a source (`has_labels_dict`) even when `max_flag_bits` removed
+  all its labels.
 - The duplicate-star error told users to run a deduplication script that
   moved to `scripts/legacy/` and handles only v1 catalogues. It now tells
   them to rebuild the catalogue with `scripts/build_catalogue_v2.py`.
