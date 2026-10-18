@@ -484,15 +484,7 @@ class SchedulerConfig(_ConfigModel):
 
 
 class OptimizerConfig(_ConfigModel):
-    """Configuration for optimizers.
-
-    Attributes:
-        type: The optimizer type to use.
-        weight_decay: Weight decay of the weight matrices.
-        betas: Coefficients for computing running averages (Adam/AdamW).
-        momentum: Momentum factor (SGD only).
-        nesterov: Whether to use Nesterov momentum (SGD only).
-    """
+    """Configuration for optimizers."""
 
     type: OptimizerType = Field(
         default=OptimizerType.ADAMW, description="Optimizer type"
