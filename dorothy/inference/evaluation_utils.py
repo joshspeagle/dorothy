@@ -24,6 +24,7 @@ from torch import nn
 
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.data.training_data import TrainingData
+from dorothy.inference.checkpoint import head_label_sources
 from dorothy.inference.evaluator import EvaluationResult, Evaluator
 from dorothy.losses.heteroscedastic import predicted_scatter
 from dorothy.models.multi_head_mlp import MultiHeadMLP
@@ -71,13 +72,6 @@ class HeadEvaluation:
         return out
 
 
-def _head_names(model: nn.Module, config: ExperimentConfig) -> list[str]:
-    """Label source of each output head (the configured one for a single head)."""
-    if isinstance(model, MultiHeadMLP) and model.label_sources != ["default"]:
-        return list(model.label_sources)
-    return list(config.data.label_sources[:1])
-
-
 def evaluate_model(
     model: nn.Module,
     normalizer: LabelNormalizer | None,
@@ -111,7 +105,7 @@ def evaluate_model(
     model.to(device)
     model.eval()
     rows = np.asarray(rows)
-    keys = _head_names(model, config)
+    keys = head_label_sources(model, config)
     parameter_names = (
         list(normalizer.parameters)
         if normalizer is not None

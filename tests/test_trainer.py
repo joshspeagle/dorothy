@@ -10,6 +10,7 @@ These tests verify:
 6. Early stopping behavior
 """
 
+import json
 import re
 import tempfile
 from pathlib import Path
@@ -396,6 +397,45 @@ class TestTrainerCheckpointing:
         )
         assert ckpt.model.label_aware_uncertainty
         assert ckpt.normalizer is not None
+
+
+class TestCalibrationFactors:
+    """The factors that training fits for the predicted scatter."""
+
+    def test_parameter_without_validation_labels_keeps_factor_1(
+        self, simple_config, training_data, tmp_path
+    ):
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        y_val = y[80:].copy()
+        y_val[:, 2, 1] = 0  # no validation labels for logg
+        history = trainer.fit(X[:80], y[:80], X[80:], y_val)
+
+        spread = history.val_metrics["z_robust_scatter"][history.best_epoch]
+        assert np.isnan(spread[1])
+        names = trainer.parameter_names
+        expected = {"apogee": {names[0]: spread[0], names[1]: 1.0, names[2]: spread[2]}}
+        assert trainer.calibration == expected
+        trainer.save_checkpoint(tmp_path)
+        assert json.loads((tmp_path / "calibration.json").read_text()) == expected
+
+    @pytest.mark.parametrize(
+        "setting,value",
+        [("calibrate_uncertainties", False), ("loss", LossType.MSE)],
+        ids=["off", "mse"],
+    )
+    def test_checkpoint_without_factors_has_no_calibration_file(
+        self, simple_config, training_data, tmp_path, setting, value
+    ):
+        setattr(simple_config.training, setting, value)
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        trainer.fit(X[:80], y[:80], X[80:], y[80:])
+        (tmp_path / "calibration.json").write_text("{}")  # from an earlier run
+
+        trainer.save_checkpoint(tmp_path)
+        assert trainer.calibration is None
+        assert not (tmp_path / "calibration.json").exists()
 
 
 class TestTrainerPredictions:

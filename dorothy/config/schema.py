@@ -610,6 +610,14 @@ class TrainingConfig(_ConfigModel):
         "Validation, evaluation and prediction always use the missing vector, "
         "so the fraction must be above 0.",
     )
+    calibrate_uncertainties: bool = Field(
+        default=True,
+        description="After training, fit one factor per output head and "
+        "parameter that scales the predicted scatter so that the validation "
+        "z-scores of the best epoch have unit robust spread, and save the "
+        "factors in calibration.json. loss: mse has no scatter, so it saves no "
+        "factors.",
+    )
     label_source_weighting: Literal["per_label", "per_source"] = Field(
         default="per_label",
         description="Combine label-source losses per valid label or per source",

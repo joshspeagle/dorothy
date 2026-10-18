@@ -5,8 +5,8 @@
 
 checkpoint
   The directory a training run writes: the best and final weights, the
-  configuration, the label normalization and the data split. See
-  [Training](../methods/training.md#checkpoints).
+  calibration factors, the configuration, the label normalization and the
+  data split. See [Training](../methods/training.md#checkpoints).
 
 encoder
   The part of a multi-head model that maps one survey's spectrum to a vector

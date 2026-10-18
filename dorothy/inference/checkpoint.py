@@ -120,6 +120,25 @@ def build_model(config: ExperimentConfig) -> MLP | MultiHeadMLP:
     return MLP.from_config(config.model)
 
 
+def head_label_sources(
+    model: MLP | MultiHeadMLP, config: ExperimentConfig
+) -> list[str]:
+    """Label source of each output head, in model order.
+
+    A single-head model's head is named after the configured label source.
+
+    Args:
+        model: The model.
+        config: The experiment config the model was built from.
+
+    Returns:
+        One label source name per output head.
+    """
+    if isinstance(model, MultiHeadMLP) and model.label_sources != ["default"]:
+        return list(model.label_sources)
+    return list(config.data.label_sources[:1])
+
+
 def load_checkpoint(
     checkpoint_path: str | Path,
     model_file: str = "best_model.pth",

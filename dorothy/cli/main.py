@@ -252,6 +252,7 @@ def cmd_train(args: argparse.Namespace) -> int:
 
     from dorothy.config.schema import ExperimentConfig
     from dorothy.data.training_data import complete_config_from_catalogue
+    from dorothy.inference.calibration import CALIBRATION_FILE
     from dorothy.training import Trainer
 
     # Load configuration
@@ -362,6 +363,8 @@ def cmd_train(args: argparse.Namespace) -> int:
     print("\nSaving checkpoint...")
     checkpoint_path = trainer.save_checkpoint()
     print(f"  Saved to: {checkpoint_path}")
+    if trainer.calibration is not None:
+        print(f"  Saved calibration factors to: {checkpoint_path / CALIBRATION_FILE}")
     split_path = split.save(checkpoint_path, data)
     print(f"  Saved data split to: {split_path}")
 
