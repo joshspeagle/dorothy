@@ -433,6 +433,8 @@ def cmd_info(args: argparse.Namespace) -> int:
 
     import torch
 
+    from dorothy.inference.calibration import CALIBRATION_FILE, load_calibration
+
     checkpoint_path = args.checkpoint
     if not checkpoint_path.exists():
         print(f"Error: Checkpoint not found: {checkpoint_path}")
@@ -532,6 +534,21 @@ def cmd_info(args: argparse.Namespace) -> int:
             print(f"  Parameters: {list(params.keys())}")
         except Exception as e:
             print(f"  Error loading normalizer: {e}")
+
+    # Calibration factors, one column per head
+    try:
+        calibration = load_calibration(checkpoint_path)
+        if calibration is None:
+            print("\nCalibration: none (the uncertainties are the raw scatter)")
+        else:
+            heads = list(calibration)
+            print(f"\nCalibration factors of best_model.pth ({CALIBRATION_FILE}):")
+            print(f"  {'Parameter':<12}" + "".join(f"{h:>10}" for h in heads))
+            for p in calibration[heads[0]]:
+                factors = "".join(f"{calibration[h][p]:>10.4f}" for h in heads)
+                print(f"  {p:<12}{factors}")
+    except Exception as e:
+        print(f"\nError loading calibration factors: {e}")
 
     # Check for learning rates
     lr_file = checkpoint_path / "learning_rates.pkl"

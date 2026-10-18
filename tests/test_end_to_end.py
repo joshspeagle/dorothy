@@ -8,6 +8,7 @@ sources.
 from __future__ import annotations
 
 import json
+import re
 
 import numpy as np
 import pytest
@@ -162,6 +163,7 @@ class TestCLIEndToEnd:
         ckpt = tmp_path / "outputs" / "e2e" / "e2e_final"
         for name in [
             "best_model.pth",
+            "calibration.json",
             "config.yaml",
             "normalizer.pkl",
             "data_split.pkl",
@@ -192,6 +194,11 @@ class TestCLIEndToEnd:
         assert "MultiHeadMLP" in info and "galah" in info
         assert "Parameters (4)" in info
         assert "Uncertainty model: label-aware" in info
+        # One column of calibration factors per head
+        table = info.split("Calibration factors of best_model.pth")[1]
+        assert re.search(
+            r"Parameter\s+apogee\s+galah\n\s+teff\s+[\d.]+\s+[\d.]+", table
+        )
 
     def test_saved_split_matches_recreated_split(self, tmp_path, catalogue):
         config_path = _config(tmp_path, catalogue, MULTI_SURVEYS, ["apogee"])
