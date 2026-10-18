@@ -27,6 +27,7 @@ import numpy as np
 
 from dorothy.config.schema import STELLAR_PARAMETERS
 from dorothy.data.fits_loader import normalize_spectra as _normalize_spectra
+from dorothy.data.fits_loader import zero_invalid_pixels
 
 # Default (v1/v2 [X/Fe]) parameter names; catalogues may define their own
 PARAMETER_NAMES = list(STELLAR_PARAMETERS)
@@ -190,6 +191,20 @@ def _read_dual_arm_rows(
         ivar[lo:hi, :n_b] = block[:, 1, :n_b]
         ivar[lo:hi, n_b:] = block[:, 3, :n_r]
     return flux, ivar
+
+
+def _preprocess_spectra(
+    flux: np.ndarray, ivar: np.ndarray, normalize: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """Float32 spectra with invalid pixels zeroed, normalized if ``normalize``.
+
+    Works in place: float32 inputs are modified.
+    """
+    flux = np.asarray(flux, dtype=np.float32)
+    ivar = np.asarray(ivar, dtype=np.float32)
+    if normalize:
+        return _normalize_spectra(flux, ivar, inplace=True)
+    return zero_invalid_pixels(flux, ivar, inplace=True)
 
 
 def _spectra_to_model_inputs(
@@ -513,7 +528,10 @@ class SparseMergedData:
     Attributes:
         flux: Per-survey sparse spectra. Maps survey name to array of shape
             (n_with_data[survey], n_wavelengths) containing only stars with data.
-        ivar: Per-survey inverse variance arrays with same structure as flux.
+            Normalized if requested, and 0 at invalid pixels
+            (:func:`~dorothy.data.fits_loader.zero_invalid_pixels`).
+        ivar: Per-survey inverse variance arrays with same structure as flux,
+            0 at invalid pixels.
         wavelengths: Per-survey wavelength grids (n_wavelengths,).
         snr: Per-survey SNR values for stars with data.
         global_to_local: Maps survey name to index array (n_total,) where
@@ -934,10 +952,7 @@ class CatalogueLoader:
         if max_flag_bits >= 0:
             data = data.filter_by_flags(max_flag_bits)
 
-        flux = data.flux
-        ivar = data.ivar
-        if normalize_spectra:
-            flux, ivar = _normalize_spectra(flux, ivar)
+        flux, ivar = _preprocess_spectra(data.flux, data.ivar, normalize_spectra)
         X = _spectra_to_model_inputs(flux, ivar)
         # filter_by_flags removed the stars with too many set flag bits
         y = _label_array(data.labels, data.label_errors, data.label_flags, -1)
@@ -1676,10 +1691,7 @@ class CatalogueLoader:
                 global_to_local[survey] = g2l
                 local_to_global[survey] = valid_indices.astype(np.int32)
 
-                if normalize_spectra:
-                    flux = np.ascontiguousarray(flux, dtype=np.float32)
-                    ivar = np.ascontiguousarray(ivar, dtype=np.float32)
-                    flux, ivar = _normalize_spectra(flux, ivar, inplace=True)
+                flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
 
                 # Store sparse arrays
                 sparse_flux[survey] = flux
@@ -1864,10 +1876,7 @@ class CatalogueLoader:
             has_ids = "metadata" in f and "gaia_id" in f["metadata"]
             gaia_id = int(f["metadata"]["gaia_id"][index]) if has_ids else -1
 
-        flux = flux.astype(np.float32)
-        ivar = ivar.astype(np.float32)
-        if normalize_spectra:
-            flux, ivar = _normalize_spectra(flux, ivar)
+        flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
         X = _spectra_to_model_inputs(flux, ivar)[0]
         return X, wavelength.astype(np.float32), gaia_id
 
@@ -1998,10 +2007,9 @@ class CatalogueLoader:
 
         for survey in surveys:
             survey_data = merged.surveys[survey]
-            flux = survey_data["flux"]
-            ivar = survey_data["ivar"]
-            if normalize_spectra:
-                flux, ivar = _normalize_spectra(flux, ivar)
+            flux, ivar = _preprocess_spectra(
+                survey_data["flux"], survey_data["ivar"], normalize_spectra
+            )
 
             # 3-channel format: [flux, sigma = 1/sqrt(ivar), mask = ivar > 0]
             X_dict[survey] = _spectra_to_model_inputs(flux, ivar)

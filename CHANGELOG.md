@@ -176,3 +176,9 @@
 - `SparseMergedData.has_labels_dict` marks a star only if it has a label
   that survives the flag filter, as its label mask does.
 - Dense loading skips spectra with a NaN S/N, as sparse loading does.
+- With `data.normalize_spectra: false`, every loading path and prediction set
+  the flux and ivar of invalid pixels to 0, as normalization does. A pixel is
+  invalid when its flux is not finite, or its ivar is not finite and
+  positive. Before, training passed the stored flux of masked pixels to the
+  model, and a NaN flux with a positive ivar reached the model.
+  `dorothy.data.zero_invalid_pixels` applies the rule.

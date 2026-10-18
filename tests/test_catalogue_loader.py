@@ -14,6 +14,7 @@ from dorothy.data.catalogue_loader import (
     MergedCatalogueData,
     SparseMergedData,
 )
+from dorothy.data.fits_loader import zero_invalid_pixels
 from tests.synthetic import build_catalogue
 
 
@@ -1935,8 +1936,9 @@ class TestSurveyWavelengthGrid:
         data = loader.load(survey)
         np.testing.assert_array_equal(data.wavelength, grid)
         rows = sparse.local_to_global[survey]
-        np.testing.assert_array_equal(data.flux[rows], sparse.flux[survey])
-        np.testing.assert_array_equal(data.ivar[rows], sparse.ivar[survey])
+        flux, ivar = zero_invalid_pixels(data.flux[rows], data.ivar[rows])
+        np.testing.assert_array_equal(flux, sparse.flux[survey])
+        np.testing.assert_array_equal(ivar, sparse.ivar[survey])
 
     @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
     def test_raw_spectra_are_returned_as_stored(self, tmp_path, survey):
@@ -2095,6 +2097,73 @@ class TestModelInputs:
         got = _spectra_to_model_inputs(flux, ivar, block_rows=3)
         assert got.dtype == expected.dtype and got.shape == expected.shape
         assert got.tobytes() == expected.tobytes()
+
+    @pytest.mark.parametrize("normalize", [False, True])
+    def test_every_path_gives_the_same_inputs_with_zeros_at_invalid_pixels(
+        self, tmp_path, normalize
+    ):
+        import torch
+        from astropy.io import fits
+        from astropy.table import Table
+
+        from dorothy.data.fits_loader import FITSLoader, normalize_spectra
+        from dorothy.training.batches import SparseBatchSource
+
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            boss = f["surveys/boss"]
+            flux, ivar = boss["flux"][:], boss["ivar"][:]
+            rows = np.flatnonzero(boss["snr"][:] > 0)
+            # Pixels 0 and 1 are masked (ivar 0) and hold a nonzero flux
+            r = rows[:3]
+            flux[r[:2], 0] = [np.nan, np.inf]
+            flux[r[:2], 5] = [np.nan, np.inf]
+            ivar[r, 6] = [np.nan, -1.0, np.inf]
+            boss["flux"][...] = flux
+            boss["ivar"][...] = ivar
+            has_apogee = (f["labels/apogee/errors"][:] > 0).any(axis=1)[rows]
+        flux, ivar = flux[rows], ivar[rows]
+        valid = np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0)
+        ref_flux, ref_ivar = (
+            normalize_spectra(flux, ivar) if normalize else (flux, ivar)
+        )
+        sigma = np.where(valid, 1 / np.sqrt(np.where(valid, ref_ivar, 1)), 0)
+        expected = np.stack([np.where(valid, ref_flux, 0), sigma, valid], axis=1)
+
+        loader = CatalogueLoader(path)
+        X_dict, _, _, _ = loader.load_merged_for_training(
+            ["boss"], normalize_spectra=normalize
+        )
+        single, _ = loader.load_for_training(
+            "boss", max_flag_bits=-1, normalize_spectra=normalize
+        )
+        one = loader.load_spectrum("boss", int(r[0]), normalize_spectra=normalize)
+        sparse = loader.load_merged_sparse(["boss"], normalize_spectra=normalize)
+        batch = SparseBatchSource(
+            sparse, rows, {"apogee": sparse.labels}, torch.device("cpu")
+        ).build_batch(rows)
+        fits_path = tmp_path / "spectra.fits"
+        fits.HDUList(
+            [
+                fits.PrimaryHDU(),
+                fits.BinTableHDU(Table({"FLUX": flux}), name="SPECTRA"),
+                fits.BinTableHDU(Table({"IVAR": ivar}), name="SPEC_IVAR"),
+            ]
+        ).writeto(fits_path)
+        from_fits = FITSLoader(fits_path).load(
+            apply_normalization=normalize,
+            apply_quality_filter=False,
+            compute_spectral_mask=True,
+            require_labels=False,
+        )
+
+        np.testing.assert_array_equal(X_dict["boss"], expected)
+        np.testing.assert_array_equal(single, expected[has_apogee])
+        np.testing.assert_array_equal(one[0], expected[0])
+        np.testing.assert_array_equal(batch.X["boss"].numpy(), expected)
+        np.testing.assert_array_equal(
+            from_fits.get_model_input_3channel(apply_quality_mask=False), expected
+        )
 
 
 class TestLabelSourceNames:
