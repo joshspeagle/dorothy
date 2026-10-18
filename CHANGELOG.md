@@ -23,12 +23,20 @@
   training data, splits and batches, shared by `dorothy train`,
   `dorothy evaluate` and the Python API.
 - `dorothy.inference.load_checkpoint` and `evaluate_model`.
+- `dorothy.analysis.compare_label_sources` compares the APOGEE and GALAH labels
+  of the stars that both measure with the spread that their reported errors
+  predict, for each parameter. It needs no trained model.
+  `plot_label_differences` plots the differences against Teff and [Fe/H].
 - `CatalogueLoader.load_spectrum` and `load_labels_for_index` load one star.
+  `CatalogueLoader.load_labels` loads one label source for every star,
+  matched by Gaia ID.
 - A documentation site (Sphinx), with background, methods, usage guides and an API reference.
 - The Dorothy logo in the README and on the documentation site.
 
 ### Fixed
 
+- The catalogue loaders raised h5py's `KeyError`, not `ValueError`, for a
+  catalogue without a `labels` group.
 - `ReduceLROnPlateau` crashed in every multi-survey training mode.
 - Masked labels could produce NaN losses (for example log10(0) for a masked
   Teff with `max_flag_bits: -1`).

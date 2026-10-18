@@ -4,7 +4,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 
 ## Layout
 
-- `dorothy/`: the package. `config/` holds the experiment configuration, `data/` catalogue loading and training data, `models/`, `losses/`, `training/`, `inference/` (checkpoints, prediction, evaluation), `analysis/` (saliency, anomaly detection), `visualization/` and `cli/` (the `dorothy` command).
+- `dorothy/`: the package. `config/` holds the experiment configuration, `data/` catalogue loading and training data, `models/`, `losses/`, `training/`, `inference/` (checkpoints, prediction, evaluation), `analysis/` (saliency, anomaly detection, label-source comparison), `visualization/` and `cli/` (the `dorothy` command).
 - `scripts/build_catalogue_v2.py`: builds the super-catalogue from the cross-matched FITS files in `data/raw_catalogues/`. `scripts/legacy/` holds the deprecated v1 pipeline.
 - `tests/`: the test suite. `tests/synthetic.py` writes small v2 catalogues (all four surveys, both label sources) for end-to-end tests.
 - `examples/`: training configurations (`variant*.yaml`) and saliency scripts.

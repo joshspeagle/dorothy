@@ -2041,6 +2041,40 @@ class TestLabelMask:
             np.testing.assert_array_equal(dense[source], expected[source][rows])
 
 
+class TestLoadLabels:
+    def test_labels_are_matched_to_catalogue_stars_by_gaia_id(self, tmp_path):
+        """A label group may list only some stars, in any order."""
+        path = build_catalogue(tmp_path / "cat.h5")
+        loader = CatalogueLoader(path)
+        expected = loader.load_labels("galah", max_flag_bits=-1)
+        with h5py.File(path, "r+") as f:
+            grp = f["labels/galah"]
+            labelled = np.flatnonzero(grp["errors"][:].any(axis=1))
+            rows = np.random.default_rng(0).permutation(labelled)
+            for name in ("values", "errors", "flags", "gaia_id"):
+                data = grp[name][:][rows]
+                del grp[name]
+                grp.create_dataset(name, data=data)
+
+        assert 0 < len(rows) < len(expected)
+        np.testing.assert_array_equal(loader.load_labels("galah", -1), expected)
+        with pytest.raises(ValueError, match="Label source 'lamost' not in"):
+            loader.load_labels("lamost")
+
+    @pytest.mark.parametrize("max_flag_bits", [-2, None])
+    def test_invalid_max_flag_bits_is_rejected(self, tmp_path, max_flag_bits):
+        loader = CatalogueLoader(build_catalogue(tmp_path / "cat.h5", n_stars=20))
+        with pytest.raises(ValueError, match="max_flag_bits must be an integer"):
+            loader.load_labels("galah", max_flag_bits)
+
+    def test_catalogue_without_labels_raises_value_error(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with h5py.File(path, "r+") as f:
+            del f["labels"]
+        with pytest.raises(ValueError, match="has no 'labels' group"):
+            CatalogueLoader(path).load_labels("galah")
+
+
 class TestGaiaIds:
     def test_dense_loading_without_gaia_ids_raises(self, tmp_path):
         path = build_catalogue(tmp_path / "cat.h5")

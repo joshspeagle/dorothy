@@ -1143,6 +1143,8 @@ class CatalogueLoader:
            c. Try 'galah' directly (v2 schema)
            d. Try 'apogee_{survey}' pattern (v1 fallback)
         """
+        if "labels" not in f:
+            raise ValueError(f"Catalogue {self.path} has no 'labels' group")
         labels = f["labels"]
         if label_source is None:
             survey = surveys[0]
@@ -1904,6 +1906,46 @@ class CatalogueLoader:
                 return None
             grp = f["labels"][resolved]
             return grp["values"][index], grp["errors"][index], grp["flags"][index]
+
+    def load_labels(self, label_source: str, max_flag_bits: int = 0) -> np.ndarray:
+        """Load one label source's labels for every catalogue star.
+
+        The labels are matched to stars by Gaia ID, in the row order of
+        ``metadata/gaia_id``, so the label group may store its rows in any
+        order. A label is valid (mask 1) when its error is positive and its
+        flag is 0; with ``max_flag_bits`` >= 0, every label of a star with
+        more set flag bits than ``max_flag_bits`` is masked.
+
+        Args:
+            label_source: Label group name, such as "apogee" or "galah".
+            max_flag_bits: Largest number of set flag bits, summed over the
+                parameters of a star, for its labels to count; -1 sets no
+                limit.
+
+        Returns:
+            Labels of shape (n_stars, 3, n_parameters) = [values, errors,
+            mask], in the catalogue's units. Stars without a row in the label
+            group have mask 0.
+
+        Raises:
+            ValueError: If max_flag_bits is not an integer >= -1, the catalogue
+                has no labels, the label source is not in the catalogue, or
+                the catalogue or its label group has no Gaia IDs.
+        """
+        if not isinstance(max_flag_bits, (int, np.integer)) or max_flag_bits < -1:
+            raise ValueError(
+                f"max_flag_bits must be an integer >= -1, got {max_flag_bits!r}"
+            )
+        with h5py.File(self.path, "r") as f:
+            source = self._resolve_label_source([], label_source, f)
+            if "gaia_id" not in f.get("metadata", {}):
+                raise ValueError(
+                    f"Catalogue {self.path} has no metadata/gaia_id, which "
+                    "load_labels needs to match labels to stars"
+                )
+            return _align_labels(
+                f["labels"][source], f["metadata"]["gaia_id"][:], max_flag_bits
+            )
 
     def get_parameter_names(self) -> list[str]:
         """Get the label parameter names, in catalogue column order."""

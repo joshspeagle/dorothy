@@ -17,7 +17,7 @@ code to read or change.
 | {py:mod}`dorothy.losses` | Heteroscedastic and masked MSE losses | {py:class}`~dorothy.losses.heteroscedastic.HeteroscedasticLoss`, {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` |
 | {py:mod}`dorothy.training` | The training loop and batch assembly | {py:class}`~dorothy.training.trainer.Trainer` |
 | {py:mod}`dorothy.inference` | Checkpoints, prediction, evaluation | {py:func}`~dorothy.inference.checkpoint.load_checkpoint`, {py:class}`~dorothy.inference.predictor.Predictor`, {py:func}`~dorothy.inference.evaluation_utils.evaluate_model` |
-| {py:mod}`dorothy.analysis` | Saliency maps, anomaly detection | {py:class}`~dorothy.analysis.saliency.SaliencyAnalyzer`, {py:class}`~dorothy.analysis.knn_anomaly.AnomalyDetector` |
+| {py:mod}`dorothy.analysis` | Saliency maps, anomaly detection, comparison of label sources | {py:class}`~dorothy.analysis.saliency.SaliencyAnalyzer`, {py:class}`~dorothy.analysis.knn_anomaly.AnomalyDetector`, {py:func}`~dorothy.analysis.label_comparison.compare_label_sources` |
 | {py:mod}`dorothy.visualization` | Training and evaluation plots | {py:func}`~dorothy.visualization.evaluation_plots.generate_evaluation_plots` |
 | {py:mod}`dorothy.cli` | The `dorothy` command | {py:func}`~dorothy.cli.main.main` |
 
