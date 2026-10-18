@@ -141,13 +141,9 @@ signatures/keys. Bugs fixed structurally:
 
 ## After cleanup (science work, separate PRs, each behind config flags)
 
-1. Label-error-aware variance: `σ_tot² = exp(2α)·σ_label² + s(x)²` (α learned
-   per head × parameter; α=0 recovers current loss). Then optionally the full
-   version (σ_label fed to the scatter branch only, with a "missing" token for
-   inference).
-2. Post-hoc per-head/per-parameter uncertainty recalibration on validation.
-3. EMA of weights; β-NLL option; weight decay excluding norm/bias params.
-4. Input error channel: bounded precision instead of raw σ (masked σ=0 currently
+1. Post-hoc per-head/per-parameter uncertainty recalibration on validation.
+2. EMA of weights; β-NLL option; weight decay excluding norm/bias params.
+3. Input error channel: bounded precision instead of raw σ (masked σ=0 currently
    looks like infinite precision); optional continuum normalization.
-5. Speed: bf16 AMP default on GPU, `torch.compile`, fewer validation passes.
-6. Diagnostic: APOGEE–GALAH overlap error calibration (Var(Δ) vs σ_A²+σ_G²).
+4. Speed: bf16 AMP default on GPU, `torch.compile`, fewer validation passes.
+5. Diagnostic: APOGEE–GALAH overlap error calibration (Var(Δ) vs σ_A²+σ_G²).
