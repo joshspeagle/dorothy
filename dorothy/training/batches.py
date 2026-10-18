@@ -130,7 +130,7 @@ class SparseBatchSource:
     Spectra are stored only for stars that have them (see
     :class:`~dorothy.data.catalogue_loader.SparseMergedData`); dense batches
     are assembled per step. Only the rows of stars that have a survey are
-    gathered, moved to the device and converted to sigma/mask; the other
+    gathered, moved to the device and given a mask; the other
     rows stay zero. On CUDA the gathered rows go through pinned memory with
     asynchronous copies, and nothing in batch assembly waits for the GPU.
 
@@ -174,8 +174,8 @@ class SparseBatchSource:
         """Assemble a dense batch for the given global star indices.
 
         Each survey gives X (batch, 3, n_wavelengths) = [flux, sigma, mask]
-        with sigma = 1/sqrt(ivar) and mask = 1 where ivar > 0 (both 0
-        elsewhere), and all-zero rows for stars without that survey.
+        with mask = 1 where sigma > 0, and all-zero rows for stars without
+        that survey.
         """
         n = len(global_indices)
         X, has_data = {}, {}
@@ -187,11 +187,8 @@ class SparseBatchSource:
             x = torch.zeros((n, 3, n_wave), device=self.device)
             if len(rows):
                 flux = self._gather(self.data.flux[survey], local_idx[rows])
-                ivar = self._gather(self.data.ivar[survey], local_idx[rows])
-                valid = ivar > 0
-                # rsqrt is an exact square root and division on the CPU, as in
-                # numpy; torch.sqrt is not exactly rounded there
-                sigma = torch.where(valid, torch.rsqrt(ivar), 0.0)
+                sigma = self._gather(self.data.sigma[survey], local_idx[rows])
+                valid = sigma > 0
                 if len(rows) == n:
                     x[:, 0], x[:, 1], x[:, 2] = flux, sigma, valid
                 else:

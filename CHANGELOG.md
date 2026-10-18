@@ -144,13 +144,16 @@
   one row per star.
 - `AnomalyDetector.tree` is removed; the detector searches the training
   embeddings directly.
+- `SparseMergedData.ivar` is replaced by `SparseMergedData.sigma`, which
+  holds 1/√ivar and 0 at invalid pixels, so the pixel mask is σ > 0.
 
 ### Behaviour changes
 
-- Sparse training batches compute σ = 1/√ivar with `torch.rsqrt`, which
-  matches the numpy loading paths exactly on the CPU. `torch.sqrt` is not
-  exactly rounded there: σ differed by one rounding step in some pixels, and
-  by up to 2.4e-4 on one CI runner.
+- `load_merged_sparse` computes σ = 1/√ivar once, with the numpy code of the
+  other loading paths, and sparse batches copy it. Before, each batch
+  computed σ with `torch.sqrt`, which is not exactly rounded on the CPU: σ
+  differed from the other paths by up to two rounding steps in about 0.6% of
+  pixels.
 - Multi-head encoders run only on the stars that have their survey (except
   encoders with batch normalization or dropout in training mode). Results
   change by floating-point rounding only: losses after a few epochs differ

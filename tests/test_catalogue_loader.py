@@ -1624,7 +1624,7 @@ class TestSparseMergedDataMethods:
 
         return SparseMergedData(
             flux=flux,
-            ivar=ivar,
+            sigma=ivar,
             wavelengths=wavelengths,
             snr=snr,
             global_to_local=global_to_local,
@@ -1771,7 +1771,7 @@ class TestParameterNamesAndSpectralNormalization:
         flux = norm.flux["boss"]
         assert flux.shape == raw.flux["boss"].shape == (25, 50)
         np.testing.assert_allclose(np.median(flux[:, 5:], axis=1), 0.0, atol=1e-5)
-        assert np.all(flux[:, :5] == 0) and np.all(norm.ivar["boss"][:, :5] == 0)
+        assert np.all(flux[:, :5] == 0) and np.all(norm.sigma["boss"][:, :5] == 0)
         assert not np.allclose(raw.flux["boss"][:, 5:], flux[:, 5:])
 
     def test_all_loading_paths_normalize_identically(self, tmp_path):
@@ -1805,11 +1805,8 @@ class TestParameterNamesAndSpectralNormalization:
         assert X.shape == (3, len(sparse.wavelengths[survey]))
         np.testing.assert_allclose(wavelength, sparse.wavelengths[survey])
         np.testing.assert_allclose(X[0], sparse.flux[survey][local], rtol=1e-6)
-        valid = sparse.ivar[survey][local] > 0
-        np.testing.assert_array_equal(X[2], valid.astype(np.float32))
-        np.testing.assert_allclose(
-            X[1][valid], 1 / np.sqrt(sparse.ivar[survey][local][valid]), rtol=1e-6
-        )
+        np.testing.assert_array_equal(X[2], sparse.sigma[survey][local] > 0)
+        np.testing.assert_array_equal(X[1], sparse.sigma[survey][local])
         assert gaia_id == 4
 
     def test_load_labels_for_index(self, tmp_path):
@@ -1914,7 +1911,7 @@ class TestSelectiveRowReads:
         rows = np.flatnonzero(has)
         for data in loaded.values():
             np.testing.assert_array_equal(data.flux["boss"], flux[rows])
-            np.testing.assert_array_equal(data.ivar["boss"], ivar[rows])
+            np.testing.assert_array_equal(data.sigma["boss"], 1 / np.sqrt(ivar[rows]))
             mrs = np.concatenate([spectra[rows, 0, :8], spectra[rows, 2, :6]], axis=1)
             np.testing.assert_array_equal(data.flux["lamost_mrs"], mrs)
             np.testing.assert_array_equal(data.local_to_global["boss"], rows)
@@ -1938,7 +1935,8 @@ class TestSurveyWavelengthGrid:
         rows = sparse.local_to_global[survey]
         flux, ivar = zero_invalid_pixels(data.flux[rows], data.ivar[rows])
         np.testing.assert_array_equal(flux, sparse.flux[survey])
-        np.testing.assert_array_equal(ivar, sparse.ivar[survey])
+        sigma = np.where(ivar > 0, 1 / np.sqrt(np.where(ivar > 0, ivar, 1)), 0)
+        np.testing.assert_array_equal(sigma, sparse.sigma[survey])
 
     @pytest.mark.parametrize("survey", ["boss", "lamost_mrs"])
     def test_raw_spectra_are_returned_as_stored(self, tmp_path, survey):
@@ -2159,8 +2157,7 @@ class TestModelInputs:
             boss = f["surveys/boss"]
             flux, ivar = boss["flux"][:], boss["ivar"][:]
             # Varied ivar, so that an inexact 1/sqrt shows in some pixels
-            noise = np.random.default_rng(0).uniform(1, 100, ivar.shape)
-            ivar = np.where(ivar > 0, noise, 0).astype(ivar.dtype)
+            ivar *= np.random.default_rng(0).uniform(0.5, 2, ivar.shape)
             rows = np.flatnonzero(boss["snr"][:] > 0)
             # Pixels 0 and 1 are masked (ivar 0) and hold a nonzero flux
             r = rows[:3]
