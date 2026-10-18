@@ -39,7 +39,6 @@ class LossType(str, Enum):
 
     MSE = "mse"
     HETEROSCEDASTIC = "heteroscedastic"
-    PENALTY = "penalty"
 
 
 class OptimizerType(str, Enum):

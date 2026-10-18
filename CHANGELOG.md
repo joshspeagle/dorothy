@@ -44,6 +44,7 @@
 - The catalogue builder kept a star's first match even when it had no valid
   labels or no valid pixels.
 - `load_merged_sparse` did not detect duplicate stars.
+- `loss: penalty` passed configuration checks but failed when training started; the configuration now rejects it.
 
 ### Changed
 

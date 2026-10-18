@@ -547,3 +547,10 @@ def test_singular_data_keys_are_aliases():
             name="t",
             data={"catalogue_path": "a.h5", "survey": "desi", "surveys": ["boss"]},
         )
+
+
+def test_unimplemented_loss_type_is_rejected():
+    with pytest.raises(ValidationError, match="loss"):
+        ExperimentConfig(
+            name="t", data={"catalogue_path": "a.h5"}, training={"loss": "penalty"}
+        )
