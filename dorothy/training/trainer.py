@@ -1391,7 +1391,7 @@ class Trainer:
         return {
             name: param.detach()
             for name, param in self.model.named_parameters()
-            if "weight" in name and param.dim() >= 2
+            if param.ndim > 1
         }
 
     @staticmethod
