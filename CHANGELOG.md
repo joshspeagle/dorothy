@@ -21,6 +21,8 @@
   learned missing vector where an error is missing. The mean does not read
   the label errors. `training.label_error_dropout` (default 0.5) sets the
   fraction of training stars that get the missing vector.
+  `HeadEvaluation.z_label_errors` holds the label errors that the z-scores
+  add to the predicted scatter, which only old checkpoints have.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
   (`--survey`, `--label-source`).
