@@ -66,8 +66,10 @@ class SpectralData:
     Container for loaded spectral data.
 
     Attributes:
-        flux: Normalized flux array of shape (n_samples, n_wavelengths).
-        ivar: Scaled inverse variance array of shape (n_samples, n_wavelengths).
+        flux: Flux of shape (n_samples, n_wavelengths), normalized if
+            requested, and 0 at invalid pixels (:func:`zero_invalid_pixels`).
+        ivar: Inverse variance with the same shape, scaled with the flux, and
+            0 at invalid pixels.
         wavelength: Wavelength grid of shape (n_wavelengths,).
         labels: Stellar parameter labels of shape (n_samples, n_parameters).
         errors: Label uncertainties of shape (n_samples, n_parameters).
@@ -195,6 +197,57 @@ class SpectralData:
 # torch.nanquantile rejects inputs above 2**24 elements in some torch versions
 _MAX_QUANTILE_ELEMENTS = 2**24
 
+# Rows per block in zero_invalid_pixels; bounds its boolean temporaries
+_BLOCK_ROWS = 256
+
+
+def zero_invalid_pixels(
+    flux: NDArray,
+    ivar: NDArray,
+    inplace: bool = False,
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """
+    Set the flux and ivar of invalid pixels to 0.
+
+    A pixel is valid when its flux is finite and its ivar is finite and
+    positive. Every loading path applies this rule before it builds the
+    model inputs (:func:`normalize_spectra` applies it first), so the mask
+    ivar > 0 marks exactly the valid pixels and a masked pixel enters the
+    model as zeros.
+
+    Args:
+        flux: Flux array of shape (n_spectra, n_wavelengths) or (n_wavelengths,).
+        ivar: Inverse variance array with the same shape as flux.
+        inplace: Write the results into ``flux`` and ``ivar`` (must be float32
+            arrays) instead of allocating new ones.
+
+    Returns:
+        Tuple of (flux, ivar), float32, same shape as input.
+
+    Raises:
+        ValueError: If flux and ivar differ in shape, or ``inplace`` is set
+            and they are not float32.
+    """
+    flux = np.asarray(flux)
+    ivar = np.asarray(ivar)
+    if flux.shape != ivar.shape:
+        raise ValueError(f"flux shape {flux.shape} != ivar shape {ivar.shape}")
+    if not inplace:
+        flux = flux.astype(np.float32)
+        ivar = ivar.astype(np.float32)
+    elif flux.dtype != np.float32 or ivar.dtype != np.float32:
+        raise ValueError("inplace requires float32 flux and ivar arrays")
+
+    flux_2d = flux[None] if flux.ndim == 1 else flux
+    ivar_2d = ivar[None] if ivar.ndim == 1 else ivar
+    for start in range(0, len(flux_2d), _BLOCK_ROWS):
+        f = flux_2d[start : start + _BLOCK_ROWS]
+        iv = ivar_2d[start : start + _BLOCK_ROWS]
+        invalid = ~(np.isfinite(f) & np.isfinite(iv) & (iv > 0))
+        np.copyto(f, 0, where=invalid)
+        np.copyto(iv, 0, where=invalid)
+    return flux, ivar
+
 
 def normalize_spectra(
     flux: NDArray,
@@ -212,9 +265,9 @@ def normalize_spectra(
 
     where the median and IQR are computed over valid pixels only (finite flux,
     finite and positive ivar). Invalid pixels are returned with flux = 0 and
-    ivar = 0, so downstream code that derives the pixel mask from ivar > 0
-    treats them as masked. Spectra with no valid pixels, or zero IQR, use
-    median = 0 / IQR = 1.
+    ivar = 0 (:func:`zero_invalid_pixels`), so downstream code that derives
+    the pixel mask from ivar > 0 treats them as masked. Spectra with no valid
+    pixels, or zero IQR, use median = 0 / IQR = 1.
 
     Args:
         flux: Flux array of shape (n_spectra, n_wavelengths) or (n_wavelengths,).
@@ -225,22 +278,14 @@ def normalize_spectra(
 
     Returns:
         Tuple of (normalized_flux, scaled_ivar), float32, same shape as input.
-    """
-    flux = np.asarray(flux)
-    ivar = np.asarray(ivar)
-    if flux.shape != ivar.shape:
-        raise ValueError(f"flux shape {flux.shape} != ivar shape {ivar.shape}")
-    squeeze = flux.ndim == 1
-    flux_2d = flux.reshape(1, -1) if squeeze else flux
-    ivar_2d = ivar.reshape(1, -1) if squeeze else ivar
 
-    if inplace:
-        if flux_2d.dtype != np.float32 or ivar_2d.dtype != np.float32:
-            raise ValueError("inplace normalization requires float32 arrays")
-        out_flux, out_ivar = flux_2d, ivar_2d
-    else:
-        out_flux = np.empty(flux_2d.shape, dtype=np.float32)
-        out_ivar = np.empty(ivar_2d.shape, dtype=np.float32)
+    Raises:
+        ValueError: If flux and ivar differ in shape, or ``inplace`` is set
+            and they are not float32.
+    """
+    flux, ivar = zero_invalid_pixels(flux, ivar, inplace)
+    flux_2d = flux[None] if flux.ndim == 1 else flux
+    ivar_2d = ivar[None] if ivar.ndim == 1 else ivar
 
     # Torch is used for speed: its nan-quantiles and elementwise ops are
     # vectorized and multithreaded (numpy's nan-quantiles loop over rows).
@@ -253,24 +298,21 @@ def normalize_spectra(
     rows_per_chunk = max(1, min(chunk_size, _MAX_QUANTILE_ELEMENTS // n_cols))
     for start in range(0, flux_2d.shape[0], rows_per_chunk):
         sl = slice(start, start + rows_per_chunk)
-        f = torch.from_numpy(np.ascontiguousarray(flux_2d[sl], dtype=np.float32))
-        iv = torch.from_numpy(np.ascontiguousarray(ivar_2d[sl], dtype=np.float32))
-        valid = torch.isfinite(f) & torch.isfinite(iv) & (iv > 0)
+        f = torch.from_numpy(flux_2d[sl])
+        iv = torch.from_numpy(ivar_2d[sl])
+        valid = iv > 0
         q25, med, q75 = torch.nanquantile(
             torch.where(valid, f, nan), quantiles, dim=1, keepdim=True
         )
         iqr = q75 - q25
         iqr = torch.where(torch.isfinite(iqr) & (iqr > 0), iqr, torch.ones_like(iqr))
         med = torch.nan_to_num(med, nan=0.0)
-        # Compute both outputs before writing (inplace may alias f / iv)
+        # Compute both outputs before writing (f and iv are views of them)
         new_flux = torch.where(valid, (f - med) / iqr, zero)
         new_ivar = torch.where(valid, iv * iqr**2, zero)
-        out_flux[sl] = new_flux.numpy()
-        out_ivar[sl] = new_ivar.numpy()
-
-    if squeeze:
-        return out_flux.reshape(-1), out_ivar.reshape(-1)
-    return out_flux, out_ivar
+        flux_2d[sl] = new_flux.numpy()
+        ivar_2d[sl] = new_ivar.numpy()
+    return flux, ivar
 
 
 def normalize_spectrum(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
@@ -423,6 +465,7 @@ class FITSLoader:
 
         Args:
             apply_normalization: Whether to normalize spectra (recommended).
+                Either way, invalid pixels get flux 0 and ivar 0.
             apply_quality_filter: Whether to compute quality mask.
             compute_spectral_mask: Whether to compute spectral_mask and
                 spectral_error from ivar. Required for 3-channel format.
@@ -485,23 +528,19 @@ class FITSLoader:
         if flux_col.shape == ivar_col.shape == flux_array.shape and all(
             col.dtype.kind in "biuf" for col in (flux_col, ivar_col)
         ):
-            # Whole columns at once; normalization is per spectrum, so one
-            # batched call gives the same result as normalizing row by row
             flux_array[...] = flux_col
             ivar_array[...] = ivar_col
-            if apply_normalization:
-                normalize_spectra(flux_array, ivar_array, inplace=True)
         else:
             # Irregular columns (e.g. variable-length arrays): row by row
             for i in range(n_samples):
-                flux = np.array(spectra_table["FLUX"][i], dtype=np.float32)
-                ivar = np.array(ivar_table["IVAR"][i], dtype=np.float32)
-
-                if apply_normalization:
-                    flux, ivar = normalize_spectrum(flux, ivar)
-
-                flux_array[i] = flux
-                ivar_array[i] = ivar
+                flux_array[i] = spectra_table["FLUX"][i]
+                ivar_array[i] = ivar_table["IVAR"][i]
+        # Spectra are processed independently, so one batched call gives the
+        # same result as one call per spectrum
+        if apply_normalization:
+            normalize_spectra(flux_array, ivar_array, inplace=True)
+        else:
+            zero_invalid_pixels(flux_array, ivar_array, inplace=True)
 
         # Extract labels and errors
         has_labels = True
@@ -538,8 +577,6 @@ class FITSLoader:
         spectral_error = None
         if compute_spectral_mask:
             spectral_error, spectral_mask = ivar_to_error_and_mask(ivar_array)
-            # Zero the flux at masked pixels, selecting since it may be NaN
-            flux_array = np.where(spectral_mask > 0, flux_array, 0.0)
 
         return SpectralData(
             flux=flux_array,

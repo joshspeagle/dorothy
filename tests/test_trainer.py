@@ -23,6 +23,9 @@ from dorothy.config.schema import (
     InputMaskingConfig,
     LossType,
     ModelConfig,
+    NormalizationType,
+    OptimizerConfig,
+    OptimizerType,
     SchedulerConfig,
     SchedulerType,
     TrainingConfig,
@@ -106,6 +109,28 @@ class TestTrainerInit:
         assert trainer.optimizer is not None
         assert trainer.loss_fn is not None
         assert trainer.device is not None
+
+    @pytest.mark.parametrize("normalization", list(NormalizationType))
+    @pytest.mark.parametrize("optimizer", list(OptimizerType))
+    def test_weight_decay_applies_only_to_weight_matrices(
+        self, simple_config, optimizer, normalization
+    ):
+        """Linear weights are decayed; biases and normalization weights are not."""
+        simple_config.model.normalization = normalization
+        simple_config.training.optimizer = OptimizerConfig(
+            type=optimizer, weight_decay=0.05
+        )
+        trainer = Trainer(simple_config)
+
+        decay = {
+            p: g["weight_decay"]
+            for g in trainer.optimizer.param_groups
+            for p in g["params"]
+        }
+        for module in trainer.model.modules():
+            for name, p in module.named_parameters(recurse=False):
+                linear_weight = isinstance(module, torch.nn.Linear) and name == "weight"
+                assert decay[p] == (0.05 if linear_weight else 0.0), (module, name)
 
     def test_model_has_correct_architecture(self, simple_config):
         """Test that model matches config."""

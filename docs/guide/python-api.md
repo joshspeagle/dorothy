@@ -63,8 +63,9 @@ with `has_data`, a dict of `(n,)` booleans. `label_source=` selects the head
 of a multi-label model. With `denormalize=False` (the default) the outputs
 stay in normalized units.
 
-Spectra must be preprocessed as in training: 3 channels, and the per-spectrum
-normalization when the checkpoint's `data.normalize_spectra` is true.
+Spectra must be preprocessed as in training: 3 channels, invalid pixels set
+to 0, and the per-spectrum normalization when the checkpoint's
+`data.normalize_spectra` is true.
 {py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum` does
-both for a catalogue star, and
+this for a catalogue star, and
 {py:func}`~dorothy.inference.predictor.predict_from_fits` for a FITS file.
