@@ -370,6 +370,26 @@ class TestTrainerCheckpointing:
 
             assert torch.allclose(pred1, pred2)
 
+    def test_epoch_checkpoint_loads_with_its_config(
+        self, simple_config, training_data, tmp_path
+    ):
+        """A label-aware model needs its config.yaml to be rebuilt."""
+        from dorothy.inference import load_checkpoint
+
+        simple_config.output_dir = tmp_path
+        simple_config.training.save_every = 2
+        trainer = Trainer(simple_config)
+        X, y = training_data
+        trainer.fit(X[:80], y[:80], X[80:], y[80:])
+
+        ckpt = load_checkpoint(
+            simple_config.get_checkpoint_path(2),
+            model_file="best_model_epoch_2.pth",
+            device="cpu",
+        )
+        assert ckpt.model.label_aware_uncertainty
+        assert ckpt.normalizer is not None
+
 
 class TestTrainerPredictions:
     """Tests for prediction functionality."""

@@ -1530,6 +1530,11 @@ class Trainer:
         self.history.save(checkpoint_dir / "history_train_val.pkl")
         self.history.save_learning_rates(checkpoint_dir / "learning_rates.pkl")
 
+        # load_checkpoint rebuilds the model from the config
+        self.config.save_yaml(checkpoint_dir / "config.yaml")
+        if self.normalizer is not None:
+            self.normalizer.save(checkpoint_dir / "normalizer.pkl")
+
         logger.debug(f"Saved checkpoint at epoch {epoch}")
 
     def save_checkpoint(self, path: str | Path | None = None) -> Path:

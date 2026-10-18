@@ -101,6 +101,9 @@
 - If every validation loss was NaN, `best_epoch` was 0, but `best_model.pth`
   and the trained model held the weights from before training. Training now
   raises `RuntimeError` when no epoch has a finite validation loss.
+- The epoch checkpoints of `training.save_every` include `config.yaml` and
+  `normalizer.pkl`, so `load_checkpoint` rebuilds their model, multi-head
+  models included.
 
 ### Performance
 
@@ -196,5 +199,4 @@
   predicts and evaluates exactly as before. Training rejects
   `label_aware_uncertainty: false`, so `--resume` from such a checkpoint
   fails. `load_checkpoint` without a `config.yaml` builds only the additive
-  layer and raises `ValueError` for label-aware weights, such as the epoch
-  checkpoints of `training.save_every`.
+  layer and raises `ValueError` for label-aware weights.

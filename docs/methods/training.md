@@ -166,5 +166,6 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 
 `dorothy train config.yaml --resume <checkpoint>` starts from the weights of
 an earlier run, with a new optimizer and schedule. `training.save_every: N`
-also saves the weights every N epochs. BatchNorm needs at least two stars per
+also saves the weights, the configuration and the normalization every N
+epochs, in `epoch_N/`. BatchNorm needs at least two stars per
 batch in training.
