@@ -1881,7 +1881,8 @@ class TestLabelAwareTraining:
 
     def test_masked_labels_get_the_missing_vector(self, simple_config):
         """A masked label's error input is 0 (missing), whatever it stores."""
-        simple_config.training.label_error_dropout = 0.0
+        # With the trainer's seed, this drops neither star
+        simple_config.training.label_error_dropout = 1e-6
         trainer = Trainer(simple_config)
         target = torch.ones(2, 3, 3)
         target[:, 1] = torch.tensor([0.1, 0.2, 0.3])
