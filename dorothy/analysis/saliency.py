@@ -64,8 +64,10 @@ class SaliencyResult:
         mask: Boolean mask of shape (N,) where True = valid, False = masked.
         jacobian_mean_flux: Gradient of means w.r.t. flux, shape (n_params, N).
         jacobian_mean_error: Gradient of means w.r.t. error, shape (n_params, N).
-        jacobian_lns_flux: Gradient of log_scatter w.r.t. flux, shape (n_params, N).
-        jacobian_lns_error: Gradient of log_scatter w.r.t. error, shape (n_params, N).
+        jacobian_sigma_flux: Gradient of the predicted scatter σ w.r.t. flux,
+            shape (n_params, N). σ is ``losses.predicted_scatter``, so the
+            gradient is zero where ln s is clamped.
+        jacobian_sigma_error: Gradient of σ w.r.t. error, shape (n_params, N).
         predictions: Predicted means of shape (n_params,).
         uncertainties: Predicted uncertainties (sigma) of shape (n_params,).
         fisher_importance_per_param: Per-parameter Fisher importance, shape (n_params, N).
@@ -85,8 +87,8 @@ class SaliencyResult:
     # Raw Jacobians
     jacobian_mean_flux: NDArray[np.float32]
     jacobian_mean_error: NDArray[np.float32]
-    jacobian_lns_flux: NDArray[np.float32]
-    jacobian_lns_error: NDArray[np.float32]
+    jacobian_sigma_flux: NDArray[np.float32]
+    jacobian_sigma_error: NDArray[np.float32]
 
     # Predictions
     predictions: NDArray[np.float32]
@@ -303,28 +305,26 @@ class SaliencyAnalyzer:
         (
             jac_mean_flux,
             jac_mean_error,
-            jac_lns_flux,
-            jac_lns_error,
+            jac_sigma_flux,
+            jac_sigma_error,
             predictions,
-            log_scatter,
+            sigma,
         ) = self._compute_jacobian(X_masked, survey)
-
-        sigma = predicted_scatter(log_scatter, self.scatter_floor)
 
         # Compute Fisher importance
         fisher_per_param, fisher_total = self._compute_fisher_importance(
             jac_mean_flux,
             jac_mean_error,
-            jac_lns_flux,
-            jac_lns_error,
+            jac_sigma_flux,
+            jac_sigma_error,
             sigma,
         )
 
         # Convert to numpy and apply mask to zero out invalid pixels
         jac_mean_flux_np = jac_mean_flux.cpu().numpy()
         jac_mean_error_np = jac_mean_error.cpu().numpy()
-        jac_lns_flux_np = jac_lns_flux.cpu().numpy()
-        jac_lns_error_np = jac_lns_error.cpu().numpy()
+        jac_sigma_flux_np = jac_sigma_flux.cpu().numpy()
+        jac_sigma_error_np = jac_sigma_error.cpu().numpy()
         fisher_per_param_np = fisher_per_param.cpu().numpy()
         fisher_total_np = fisher_total.cpu().numpy()
 
@@ -332,8 +332,8 @@ class SaliencyAnalyzer:
         # This ensures bad pixels don't show spurious saliency values
         jac_mean_flux_np[:, ~mask] = 0.0
         jac_mean_error_np[:, ~mask] = 0.0
-        jac_lns_flux_np[:, ~mask] = 0.0
-        jac_lns_error_np[:, ~mask] = 0.0
+        jac_sigma_flux_np[:, ~mask] = 0.0
+        jac_sigma_error_np[:, ~mask] = 0.0
         fisher_per_param_np[:, ~mask] = 0.0
         fisher_total_np[~mask] = 0.0
 
@@ -345,8 +345,8 @@ class SaliencyAnalyzer:
             mask=mask,
             jacobian_mean_flux=jac_mean_flux_np,
             jacobian_mean_error=jac_mean_error_np,
-            jacobian_lns_flux=jac_lns_flux_np,
-            jacobian_lns_error=jac_lns_error_np,
+            jacobian_sigma_flux=jac_sigma_flux_np,
+            jacobian_sigma_error=jac_sigma_error_np,
             predictions=predictions.cpu().numpy(),
             uncertainties=sigma.cpu().numpy(),
             fisher_importance_per_param=fisher_per_param_np,
@@ -369,21 +369,23 @@ class SaliencyAnalyzer:
         torch.Tensor,
         torch.Tensor,
     ]:
-        """Compute Jacobian using torch.autograd.
+        """Compute the Jacobians of the means and scatters with torch.autograd.
 
-        All 2 * n_params rows are computed in one batched backward pass
-        (``is_grads_batched``), which turns the per-row matrix-vector products
-        into matrix-matrix products. Models whose backward cannot be batched
-        fall back to one backward pass per row.
+        The scatter is σ = ``predicted_scatter(ln s)``, so autograd gives its
+        exact derivative, dσ/dx = (exp(2 ln s) / σ) d ln s/dx, which is zero
+        where ln s is clamped. All 2 * n_params rows are computed in one batched
+        backward pass (``is_grads_batched``), which turns the per-row
+        matrix-vector products into matrix-matrix products. Models whose
+        backward cannot be batched fall back to one backward pass per row.
 
         Args:
             X: Input tensor of shape (3, N) - [flux, error, mask].
             survey: Survey name for MultiHeadMLP.
 
         Returns:
-            Tuple of (jac_mean_flux, jac_mean_error, jac_lns_flux, jac_lns_error,
-                      predictions, log_scatter).
-            Jacobians have shape (n_params, N).
+            Tuple of (jac_mean_flux, jac_mean_error, jac_sigma_flux,
+            jac_sigma_error, predictions, sigma). Jacobians have shape
+            (n_params, N); predictions and sigma have shape (n_params,).
         """
         X = X.clone().detach().requires_grad_(True)
 
@@ -398,7 +400,7 @@ class SaliencyAnalyzer:
 
         # output shape: (1, 2, n_params)
         means = output[0, 0, :]  # (n_params,)
-        log_scatter = output[0, 1, :]  # (n_params,)
+        sigma = predicted_scatter(output[0, 1, :], self.scatter_floor)
 
         n_params = means.shape[0]
         N = X.shape[1]  # Number of wavelengths
@@ -406,12 +408,12 @@ class SaliencyAnalyzer:
         # Initialize Jacobian tensors
         jac_mean_flux = torch.zeros(n_params, N, device=self.device)
         jac_mean_error = torch.zeros(n_params, N, device=self.device)
-        jac_lns_flux = torch.zeros(n_params, N, device=self.device)
-        jac_lns_error = torch.zeros(n_params, N, device=self.device)
+        jac_sigma_flux = torch.zeros(n_params, N, device=self.device)
+        jac_sigma_error = torch.zeros(n_params, N, device=self.device)
 
         # Row k of the identity selects output k, so grads[k] = d output_k / dX
-        # for all outputs [means..., log_scatter...] in a single backward pass.
-        flat_output = output[0].reshape(-1)  # (2 * n_params,)
+        # for all outputs [means..., sigma...] in a single backward pass.
+        flat_output = torch.cat([means, sigma])  # (2 * n_params,)
         try:
             (grads,) = torch.autograd.grad(
                 flat_output,
@@ -431,15 +433,15 @@ class SaliencyAnalyzer:
             grads = grads.reshape(2, n_params, *X.shape)  # (2, n_params, 3, N)
             jac_mean_flux.copy_(grads[0, :, 0, :])
             jac_mean_error.copy_(grads[0, :, 1, :])
-            jac_lns_flux.copy_(grads[1, :, 0, :])
-            jac_lns_error.copy_(grads[1, :, 1, :])
+            jac_sigma_flux.copy_(grads[1, :, 0, :])
+            jac_sigma_error.copy_(grads[1, :, 1, :])
             return (
                 jac_mean_flux,
                 jac_mean_error,
-                jac_lns_flux,
-                jac_lns_error,
+                jac_sigma_flux,
+                jac_sigma_error,
                 means.detach(),
-                log_scatter.detach(),
+                sigma.detach(),
             )
 
         # Compute gradients for each output parameter
@@ -455,30 +457,30 @@ class SaliencyAnalyzer:
             jac_mean_flux[i] = grad_mean[0, :]
             jac_mean_error[i] = grad_mean[1, :]
 
-            # Gradient of log_scatter w.r.t. input
-            grad_lns = torch.autograd.grad(
-                log_scatter[i], X, retain_graph=True, create_graph=False
+            # Gradient of the predicted scatter w.r.t. input
+            grad_sigma = torch.autograd.grad(
+                sigma[i], X, retain_graph=True, create_graph=False
             )[
                 0
             ]  # (3, N)
-            jac_lns_flux[i] = grad_lns[0, :]
-            jac_lns_error[i] = grad_lns[1, :]
+            jac_sigma_flux[i] = grad_sigma[0, :]
+            jac_sigma_error[i] = grad_sigma[1, :]
 
         return (
             jac_mean_flux,
             jac_mean_error,
-            jac_lns_flux,
-            jac_lns_error,
+            jac_sigma_flux,
+            jac_sigma_error,
             means.detach(),
-            log_scatter.detach(),
+            sigma.detach(),
         )
 
     def _compute_fisher_importance(
         self,
         jac_mean_flux: torch.Tensor,
         jac_mean_error: torch.Tensor,
-        jac_lns_flux: torch.Tensor,
-        jac_lns_error: torch.Tensor,
+        jac_sigma_flux: torch.Tensor,
+        jac_sigma_error: torch.Tensor,
         sigma: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Aggregate Jacobians into Fisher-weighted importance.
@@ -490,14 +492,11 @@ class SaliencyAnalyzer:
             I_p(i) = (∂μ_p/∂flux_i)²/σ_p² + (∂μ_p/∂err_i)²/σ_p²
                    + 2·(∂σ_p/∂flux_i)²/σ_p² + 2·(∂σ_p/∂err_i)²/σ_p²
 
-        Note: We convert ∂ln_s/∂x to ∂σ/∂x using chain rule:
-            ∂σ/∂x = σ · ∂ln_s/∂x (for the exponential part)
-
         Args:
             jac_mean_flux: Gradient of means w.r.t. flux, shape (n_params, N).
             jac_mean_error: Gradient of means w.r.t. error, shape (n_params, N).
-            jac_lns_flux: Gradient of log_scatter w.r.t. flux, shape (n_params, N).
-            jac_lns_error: Gradient of log_scatter w.r.t. error, shape (n_params, N).
+            jac_sigma_flux: Gradient of σ w.r.t. flux, shape (n_params, N).
+            jac_sigma_error: Gradient of σ w.r.t. error, shape (n_params, N).
             sigma: Predicted uncertainties, shape (n_params,).
 
         Returns:
@@ -507,18 +506,11 @@ class SaliencyAnalyzer:
         """
         # sigma shape: (n_params,) -> (n_params, 1) for broadcasting
         sigma_sq = (sigma**2).unsqueeze(1)  # (n_params, 1)
-
-        # Mean gradients contribution: (∂μ/∂x)² / σ²
-        mean_contrib = (jac_mean_flux**2 + jac_mean_error**2) / sigma_sq
-
-        # For scatter gradients, we use the Fisher metric for σ: 2/σ²
-        # The gradient ∂ln_s/∂x relates to ∂σ/∂x ≈ σ · ∂ln_s/∂x
-        # So (∂σ/∂x)² / σ² ≈ (∂ln_s/∂x)²
-        # And the Fisher weight is 2/σ², so contribution is 2·(∂ln_s/∂x)²
-        scatter_contrib = 2 * (jac_lns_flux**2 + jac_lns_error**2)
-
-        # Per-parameter importance
-        per_param_importance = mean_contrib + scatter_contrib
+        per_param_importance = (
+            jac_mean_flux**2
+            + jac_mean_error**2
+            + 2 * (jac_sigma_flux**2 + jac_sigma_error**2)
+        ) / sigma_sq
 
         # Total importance (sum over parameters)
         total_importance = per_param_importance.sum(dim=0)
@@ -1112,7 +1104,7 @@ def plot_parameter_saliency(
 
     Panels:
     1. Mean sensitivity (∂μ/∂x)
-    2. Scatter sensitivity (∂σ/∂x) - converted from log-scatter using chain rule
+    2. Scatter sensitivity (∂σ/∂x)
     3. Fisher importance for this parameter
 
     Args:
@@ -1145,14 +1137,12 @@ def plot_parameter_saliency(
     flux = result.spectrum
     error = result.spectrum_error
     mask = result.mask
-    sigma = result.uncertainties[param_idx]
 
     # Get gradients for this parameter
     grad_mean_flux = result.jacobian_mean_flux[param_idx]
     grad_mean_error = result.jacobian_mean_error[param_idx]
-    # Convert dln_s to dσ using chain rule: ∂σ/∂x = σ · ∂ln_s/∂x
-    grad_sigma_flux = sigma * result.jacobian_lns_flux[param_idx]
-    grad_sigma_error = sigma * result.jacobian_lns_error[param_idx]
+    grad_sigma_flux = result.jacobian_sigma_flux[param_idx]
+    grad_sigma_error = result.jacobian_sigma_error[param_idx]
     fisher_importance = result.fisher_importance_per_param[param_idx]
 
     # Create figure with nested GridSpec for proper spacing
@@ -1407,21 +1397,16 @@ def plot_saliency_heatmap(
     for i in range(n_params):
         mean_combined[2 * i] = result.jacobian_mean_flux[i]
         mean_combined[2 * i + 1] = result.jacobian_mean_error[i]
-        # Convert dln_s to dσ using chain rule: ∂σ/∂x = σ · ∂ln_s/∂x
-        sigma = result.uncertainties[i]
-        scatter_combined[2 * i] = sigma * result.jacobian_lns_flux[i]
-        scatter_combined[2 * i + 1] = sigma * result.jacobian_lns_error[i]
+        scatter_combined[2 * i] = result.jacobian_sigma_flux[i]
+        scatter_combined[2 * i + 1] = result.jacobian_sigma_error[i]
         # For Fisher, compute separate flux/error contributions
-        fisher_flux = (
-            result.jacobian_mean_flux[i] ** 2 / sigma**2
-            + 2 * result.jacobian_lns_flux[i] ** 2
-        )
-        fisher_error = (
-            result.jacobian_mean_error[i] ** 2 / sigma**2
-            + 2 * result.jacobian_lns_error[i] ** 2
-        )
-        fisher_combined[2 * i] = fisher_flux
-        fisher_combined[2 * i + 1] = fisher_error
+        sigma_sq = result.uncertainties[i] ** 2
+        fisher_combined[2 * i] = (
+            result.jacobian_mean_flux[i] ** 2 + 2 * result.jacobian_sigma_flux[i] ** 2
+        ) / sigma_sq
+        fisher_combined[2 * i + 1] = (
+            result.jacobian_mean_error[i] ** 2 + 2 * result.jacobian_sigma_error[i] ** 2
+        ) / sigma_sq
 
     # Normalize gradient arrays per-component (2 rows at a time) to [-1, 1]
     def normalize_per_component(data: np.ndarray, mask: np.ndarray) -> np.ndarray:

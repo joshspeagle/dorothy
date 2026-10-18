@@ -81,7 +81,9 @@ After each epoch the model is evaluated on the validation stars. The epoch
 with the lowest validation loss is the best epoch; with several label sources
 the validation loss combines the heads as training does, and the history
 also records each head's own best epoch. Training stops early after
-`training.early_stopping_patience` epochs without improvement, if set.
+`training.early_stopping_patience` epochs without improvement, if set. If no
+epoch has a finite validation loss, there is no best epoch, and training
+raises `RuntimeError`.
 
 ## Augmentation
 

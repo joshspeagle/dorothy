@@ -252,6 +252,34 @@ class TestDynamicLabelMaskingEdgeCases:
 
         assert y_out == {}
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    @pytest.mark.parametrize("as_dict", [False, True])
+    def test_nan_or_inf_in_a_masked_label_gives_the_same_output_as_zero(
+        self, value, as_dict
+    ):
+        """Every star has a valid label, so masking drops all its masked labels."""
+        g = torch.Generator().manual_seed(0)
+        y = {s: torch.randn(64, 3, 6, generator=g) for s in ("apogee", "galah")}
+        for labels in y.values():
+            labels[:, 2] = (torch.rand(64, 6, generator=g) > 0.3).float()
+        y["apogee"][:, 2, 0] = 1.0
+        y["galah"][:32, 2] = 0.0  # no GALAH labels for half of the stars
+
+        def masked(fill: float) -> dict[str, torch.Tensor]:
+            filled = {}
+            for s, v in y.items():
+                filled[s] = v.clone()
+                filled[s][:, :2] = torch.where(v[:, 2:] == 0, fill, v[:, :2])
+            np.random.seed(0)
+            torch.manual_seed(0)
+            if as_dict:
+                return DynamicLabelMasking()(filled)
+            return {"apogee": DynamicLabelMasking()(filled["apogee"])}
+
+        out, out_bad = masked(0.0), masked(value)
+        for s in out:
+            assert torch.equal(out_bad[s], out[s]), s
+
     def test_high_keep_probability(self):
         """Test with high keep probability (should keep most labels)."""
         torch.manual_seed(42)
@@ -714,11 +742,7 @@ def _reference_block_masking(masking, X, N):
     keep[torch.arange(len(X)), guaranteed.argmax(dim=1)] = True
     keep = keep | ~any_available.unsqueeze(1)
     keep_wave = keep.unsqueeze(2).expand(-1, -1, block_size).reshape(len(X), -1)
-    keep_float = keep_wave[:, offset : offset + N].float()
-    out = X.clone()
-    for channel in range(3):
-        out[:, channel, :] = X[:, channel, :] * keep_float
-    return out
+    return torch.where(keep_wave[:, offset : offset + N].unsqueeze(1), X, 0.0)
 
 
 def _reference_input_masking(masking, X, n_wavelengths):
@@ -746,7 +770,7 @@ def _reference_input_masking(masking, X, n_wavelengths):
             out[s] = torch.zeros_like(X[s])
             continue
         masked = _reference_block_masking(masking, X[s], n_wavelengths[s])
-        out[s] = masked * keep[:, i].float().view(-1, 1, 1)
+        out[s] = torch.where(keep[:, i].view(-1, 1, 1), masked, 0.0)
     return out
 
 
@@ -801,3 +825,30 @@ class TestDynamicInputMaskingExact:
                 assert out[s] is inputs[s]
             else:
                 assert torch.equal(inputs[s], X[s])
+
+    @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+    @pytest.mark.parametrize("inplace", [False, True])
+    @pytest.mark.parametrize(
+        "waves,coverage", [(WAVES, [0.05, 0.3, 0.6, 0.0]), ({"boss": 45}, [1.0])]
+    )
+    def test_dropped_entries_are_zero_even_when_they_hold_nan_or_inf(
+        self, value, inplace, waves, coverage
+    ):
+        """Masked entries may hold any value; the ones masking drops become 0."""
+        masking = DynamicInputMasking(p_survey_min=0.2, p_block_min=0.2)
+        X = _spectra(32, waves, coverage, seed=0)
+        for x in X.values():
+            x[:, :2] = torch.where(x[:, 2:] == 0, value, x[:, :2])
+        n_wave = {s: x.shape[2] for s, x in X.items()}
+
+        np.random.seed(0)
+        torch.manual_seed(0)
+        expected = _reference_input_masking(masking, X, n_wave)
+        np.random.seed(0)
+        torch.manual_seed(0)
+        out = masking({s: x.clone() for s, x in X.items()}, n_wave, inplace=inplace)
+
+        for s in X:
+            torch.testing.assert_close(
+                out[s], expected[s], rtol=0, atol=0, equal_nan=True
+            )

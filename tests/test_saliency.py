@@ -67,10 +67,10 @@ class TestSaliencyResult:
             jacobian_mean_error=np.random.randn(n_params, n_wavelengths).astype(
                 np.float32
             ),
-            jacobian_lns_flux=np.random.randn(n_params, n_wavelengths).astype(
+            jacobian_sigma_flux=np.random.randn(n_params, n_wavelengths).astype(
                 np.float32
             ),
-            jacobian_lns_error=np.random.randn(n_params, n_wavelengths).astype(
+            jacobian_sigma_error=np.random.randn(n_params, n_wavelengths).astype(
                 np.float32
             ),
             predictions=np.random.randn(n_params).astype(np.float32),
@@ -109,8 +109,8 @@ class TestSaliencyResult:
             mask=np.ones(n, dtype=bool),
             jacobian_mean_flux=np.zeros((11, n), dtype=np.float32),
             jacobian_mean_error=np.zeros((11, n), dtype=np.float32),
-            jacobian_lns_flux=np.zeros((11, n), dtype=np.float32),
-            jacobian_lns_error=np.zeros((11, n), dtype=np.float32),
+            jacobian_sigma_flux=np.zeros((11, n), dtype=np.float32),
+            jacobian_sigma_error=np.zeros((11, n), dtype=np.float32),
             predictions=np.zeros(11, dtype=np.float32),
             uncertainties=np.ones(11, dtype=np.float32),
             fisher_importance_per_param=np.zeros((11, n), dtype=np.float32),
@@ -145,8 +145,8 @@ class TestSaliencyResult:
             mask=np.ones(n, dtype=bool),
             jacobian_mean_flux=np.zeros((11, n), dtype=np.float32),
             jacobian_mean_error=np.zeros((11, n), dtype=np.float32),
-            jacobian_lns_flux=np.zeros((11, n), dtype=np.float32),
-            jacobian_lns_error=np.zeros((11, n), dtype=np.float32),
+            jacobian_sigma_flux=np.zeros((11, n), dtype=np.float32),
+            jacobian_sigma_error=np.zeros((11, n), dtype=np.float32),
             predictions=np.zeros(11, dtype=np.float32),
             uncertainties=np.ones(11, dtype=np.float32),
             fisher_importance_per_param=np.zeros((11, n), dtype=np.float32),
@@ -198,8 +198,8 @@ class TestSaliencyAnalyzer:
 
         assert result.jacobian_mean_flux.shape == (11, n_wavelengths)
         assert result.jacobian_mean_error.shape == (11, n_wavelengths)
-        assert result.jacobian_lns_flux.shape == (11, n_wavelengths)
-        assert result.jacobian_lns_error.shape == (11, n_wavelengths)
+        assert result.jacobian_sigma_flux.shape == (11, n_wavelengths)
+        assert result.jacobian_sigma_error.shape == (11, n_wavelengths)
         assert result.predictions.shape == (11,)
         assert result.uncertainties.shape == (11,)
         assert result.fisher_importance_per_param.shape == (11, n_wavelengths)
@@ -260,12 +260,12 @@ class TestFisherImportance:
         # Manually test the Fisher computation
         jac_mean_flux = torch.randn(n_params, n_wavelengths)
         jac_mean_error = torch.randn(n_params, n_wavelengths)
-        jac_lns_flux = torch.randn(n_params, n_wavelengths)
-        jac_lns_error = torch.randn(n_params, n_wavelengths)
+        jac_sigma_flux = torch.randn(n_params, n_wavelengths)
+        jac_sigma_error = torch.randn(n_params, n_wavelengths)
         sigma = torch.ones(n_params) * 0.5
 
         per_param, total = analyzer._compute_fisher_importance(
-            jac_mean_flux, jac_mean_error, jac_lns_flux, jac_lns_error, sigma
+            jac_mean_flux, jac_mean_error, jac_sigma_flux, jac_sigma_error, sigma
         )
 
         # Check shapes
@@ -280,6 +280,45 @@ class TestFisherImportance:
         # Check non-negativity
         assert (per_param >= 0).all()
         assert (total >= 0).all()
+
+    def test_scatter_jacobian_is_the_exact_derivative_of_the_predicted_scatter(self):
+        """dσ/dx = (s²/σ) d ln s/dx, with s = exp(ln s) and σ = sqrt(s² + s_0²).
+
+        It is 0 where ln s is clamped.
+        """
+        n_wave, floor = 20, 0.05
+        model = SimpleLinearModel(n_wavelengths=n_wave, n_params=4)
+        with torch.no_grad():
+            model.linear.weight.normal_(
+                0, 1e-3, generator=torch.Generator().manual_seed(0)
+            )
+            model.linear.bias.zero_()
+            # ln s below the clamp, at the floor, free, above the clamp
+            model.linear.bias[4:] = torch.tensor([-20.0, np.log(floor), 0.0, 7.0])
+        X = torch.randn(3, n_wave, generator=torch.Generator().manual_seed(1))
+        X[2] = 1.0
+        analyzer = SaliencyAnalyzer(model, device="cpu", scatter_floor=floor)
+        result = analyzer.compute_saliency(X, np.arange(n_wave, dtype=np.float32))
+
+        # A linear model's d ln s / dx is a row of its weights
+        weights = model.linear.weight.detach().view(2, 4, 3, n_wave)
+        with torch.no_grad():
+            ln_s = model(X.unsqueeze(0))[0, 1]
+        sigma = predicted_scatter(ln_s, floor)
+        unclamped = (ln_s >= -10) & (ln_s <= 5)
+        scale = torch.where(unclamped, torch.exp(2 * ln_s) / sigma, 0.0)
+        d_sigma = scale[:, None, None] * weights[1]  # (4, 3, n_wave)
+        for got, want in [
+            (result.jacobian_sigma_flux, d_sigma[:, 0]),
+            (result.jacobian_sigma_error, d_sigma[:, 1]),
+        ]:
+            np.testing.assert_allclose(got, want.numpy(), rtol=1e-5, atol=1e-12)
+        fisher = (weights[0, :, :2] ** 2 + 2 * d_sigma[:, :2] ** 2).sum(dim=1)
+        np.testing.assert_allclose(
+            result.fisher_importance_per_param,
+            (fisher / sigma[:, None] ** 2).numpy(),
+            rtol=1e-5,
+        )
 
 
 class TestMaskedRegions:
@@ -352,11 +391,11 @@ class TestVisualization:
                 np.float32
             )
             * 0.1,
-            jacobian_lns_flux=np.random.randn(n_params, n_wavelengths).astype(
+            jacobian_sigma_flux=np.random.randn(n_params, n_wavelengths).astype(
                 np.float32
             )
             * 0.5,
-            jacobian_lns_error=np.random.randn(n_params, n_wavelengths).astype(
+            jacobian_sigma_error=np.random.randn(n_params, n_wavelengths).astype(
                 np.float32
             )
             * 0.1,
@@ -502,10 +541,11 @@ class TestWithMultiHeadMLP:
         assert result_desi.jacobian_mean_flux.shape[1] == 150
 
     @staticmethod
-    def _per_output_jacobian(model, X, survey):
-        """Reference Jacobian: one autograd.grad call per model output."""
+    def _per_output_jacobian(model, X, survey, scatter_floor):
+        """Reference Jacobian of [means, scatters]: one autograd.grad call each."""
         X = X.clone().requires_grad_(True)
         out = model.forward_single(X.unsqueeze(0), survey)[0]  # (2, n_params)
+        out = torch.stack([out[0], predicted_scatter(out[1], scatter_floor)])
         rows = [
             torch.autograd.grad(out[k, i], X, retain_graph=True)[0]
             for k in range(2)
@@ -520,14 +560,15 @@ class TestWithMultiHeadMLP:
         X = torch.randn(3, 150)
         X[2] = (torch.rand(150) > 0.2).float()
 
-        jmf, jme, jlf, jle, means, lns = analyzer._compute_jacobian(X, "desi")
-        ref = self._per_output_jacobian(multi_head_model, X, "desi")
+        jmf, jme, jsf, jse, means, sigma = analyzer._compute_jacobian(X, "desi")
+        floor = analyzer.scatter_floor
+        ref = self._per_output_jacobian(multi_head_model, X, "desi", floor)
 
         for got, want in [
             (jmf, ref[0, :, 0]),
             (jme, ref[0, :, 1]),
-            (jlf, ref[1, :, 0]),
-            (jle, ref[1, :, 1]),
+            (jsf, ref[1, :, 0]),
+            (jse, ref[1, :, 1]),
         ]:
             assert got.shape == (11, 150)
             torch.testing.assert_close(
@@ -536,7 +577,7 @@ class TestWithMultiHeadMLP:
         with torch.no_grad():
             out = multi_head_model.forward_single(X.unsqueeze(0), "desi")[0]
         assert torch.equal(means, out[0])
-        assert torch.equal(lns, out[1])
+        assert torch.equal(sigma, predicted_scatter(out[1], floor))
 
     def test_jacobian_falls_back_when_batching_fails(
         self, multi_head_model, monkeypatch
@@ -560,7 +601,9 @@ class TestWithMultiHeadMLP:
         looped = analyzer._compute_jacobian(X, "boss")
 
         assert calls["batched"] == 1
-        ref = self._per_output_jacobian(multi_head_model, X, "boss")
+        ref = self._per_output_jacobian(
+            multi_head_model, X, "boss", analyzer.scatter_floor
+        )
         assert torch.equal(looped[0], ref[0, :, 0])
         assert torch.equal(looped[3], ref[1, :, 1])
         for a, b in zip(batched, looped, strict=True):
