@@ -91,9 +91,10 @@ The files `examples/variant*.yaml` cover the supported setups:
 `training`
 :   Epochs, batch size, loss, optimizer, learning-rate schedule, gradient
     clipping, early stopping, mixed precision (`amp`), weight averaging
-    (`ema_decay`, see [Training](../methods/training.md#weight-averaging))
-    and, with several label sources, how their losses combine
-    (`label_source_weighting`, `label_source_weights`).
+    (`ema_decay`, `ema_cpu_every`, see
+    [Training](../methods/training.md#weight-averaging)) and, with several
+    label sources, how their losses combine (`label_source_weighting`,
+    `label_source_weights`).
 
 `label_masking`, `input_masking`
 :   Training-time augmentation that randomly hides labels, label sources,

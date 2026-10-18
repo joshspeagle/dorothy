@@ -1760,28 +1760,38 @@ def _states_after_each_step(trainer: Trainer) -> list[dict[str, torch.Tensor]]:
 
 
 def _moving_average(
-    states: list[dict[str, torch.Tensor]], decay: float
+    states: list[dict[str, torch.Tensor]], decay: float, every: int = 1
 ) -> dict[str, torch.Tensor]:
-    """Reference EMA of the floating-point entries of a sequence of states.
+    """Reference EMA of the floating-point entries of every k-th state.
 
-    The first state is copied; each later one moves the average a fraction
-    1 - decay towards it.
+    The first state is copied; each later one, every k = ``every`` states,
+    moves the average a fraction 1 - decay**k towards it.
     """
-    average = {k: v.clone() for k, v in states[0].items() if v.is_floating_point()}
-    for state in states[1:]:
+    sampled = states[::every]
+    average = {k: v.clone() for k, v in sampled[0].items() if v.is_floating_point()}
+    for state in sampled[1:]:
         for name, value in average.items():
-            value.lerp_(state[name], 1 - decay)
+            value.lerp_(state[name], 1 - decay**every)
     return average
 
 
 class TestWeightAverage:
     """Exponential moving average of the weights (training.ema_decay)."""
 
+    @pytest.mark.parametrize(
+        "cpu_every", [None, 1, 3], ids=["device", "cpu_every_1", "cpu_every_3"]
+    )
     def test_saved_weights_are_moving_averages_of_the_trained_weights(
-        self, training_data, tmp_path
+        self, training_data, tmp_path, cpu_every
     ):
-        """best_model.pth averages up to the best epoch, final_model.pth to the end."""
-        trainer = Trainer(_batchnorm_config(tmp_path, ema_decay=0.9))
+        """best_model.pth averages up to the best epoch, final_model.pth to the end.
+
+        An epoch has 5 steps, so an average every 3 steps also checks that the
+        steps are counted across epochs.
+        """
+        trainer = Trainer(
+            _batchnorm_config(tmp_path, ema_decay=0.9, ema_cpu_every=cpu_every)
+        )
         states = _states_after_each_step(trainer)
         X, y = training_data
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
@@ -1792,9 +1802,10 @@ class TestWeightAverage:
         best = torch.load(path / "best_model.pth", weights_only=True)
         final = torch.load(path / "final_model.pth", weights_only=True)
         # The default float32 tolerances allow lerp kernels that round
-        # differently; a misplaced update moves the average by over 7e-3 here.
+        # differently (the CPU average of a CUDA run); a misplaced update
+        # moves the average by over 7e-3 here.
         for saved, trained in [(best, states[:best_end]), (final, states)]:
-            for name, value in _moving_average(trained, 0.9).items():
+            for name, value in _moving_average(trained, 0.9, cpu_every or 1).items():
                 torch.testing.assert_close(saved[name], value)
         for name, value in trainer.model.state_dict().items():
             assert torch.equal(value, best[name]), name

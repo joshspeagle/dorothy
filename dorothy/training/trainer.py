@@ -555,15 +555,25 @@ class Trainer:
             )
 
     def _create_weight_average(self) -> AveragedModel | None:
-        """Create the moving average of the weights and buffers (None if off)."""
+        """Create the moving average of the weights and buffers (None if off).
+
+        Updated every k = ``ema_cpu_every`` steps, the average decays by d**k
+        per update, so it forgets at the same rate per step as with k = 1.
+        """
         decay = self.config.training.ema_decay
         if decay is None:
             return None
-        logger.info(f"Averaging the weights: decay {decay} per optimizer step")
+        cpu_every = self.config.training.ema_cpu_every
+        device = self.device if cpu_every is None else torch.device("cpu")
+        every = cpu_every or 1
+        logger.info(
+            f"Averaging the weights: decay {decay} per optimizer step, average "
+            f"on {device}, updated every {every} step(s)"
+        )
         return AveragedModel(
             self.model,
-            device=self.device,
-            multi_avg_fn=get_ema_multi_avg_fn(decay),
+            device=device,
+            multi_avg_fn=get_ema_multi_avg_fn(decay**every),
             use_buffers=True,
         )
 
@@ -1160,6 +1170,7 @@ class Trainer:
         batch_size: int,
         rng: np.random.Generator,
         gradient_clip: float,
+        first_step: int,
     ) -> tuple[float, float]:
         """Run one training epoch.
 
@@ -1168,6 +1179,8 @@ class Trainer:
             batch_size: Batch size for training.
             rng: Random number generator for shuffling.
             gradient_clip: Maximum gradient norm for clipping.
+            first_step: Number of optimizer steps before this epoch, which
+                sets the steps that update the weight average.
 
         Returns:
             Tuple of (average_loss, average_gradient_norm).
@@ -1177,6 +1190,7 @@ class Trainer:
         step_scheduler = self.scheduler is not None and not isinstance(
             self.scheduler, ReduceLROnPlateau
         )
+        ema_every = self.config.training.ema_cpu_every or 1
         # Summed on the device in float64 (as the Python floats were) and read
         # once per epoch, so steps do not wait for the GPU. MPS has no float64.
         acc_device = self.device if self.device.type != "mps" else torch.device("cpu")
@@ -1184,7 +1198,7 @@ class Trainer:
         total_grad_norm = torch.zeros((), dtype=torch.float64, device=acc_device)
         n_batches = 0
 
-        for batch in source.batches(batch_size, rng):
+        for step, batch in enumerate(source.batches(batch_size, rng), first_step):
             # Augmentations (training only)
             if self._input_masking is not None:
                 batch.X, batch.has_data = self._apply_input_masking(
@@ -1198,7 +1212,7 @@ class Trainer:
                 loss = self._combine_losses(self._forward(batch), batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
-            if self._ema is not None:
+            if self._ema is not None and step % ema_every == 0:
                 self._ema.update_parameters(self.model)
             total_grad_norm += grad_norm.to(acc_device).double()
             if step_scheduler:
@@ -1276,7 +1290,11 @@ class Trainer:
             prev_weights = self._get_weight_snapshot()
 
             train_loss, grad_norm = self._train_epoch(
-                train_source, batch_size, rng, training_config.gradient_clip
+                train_source,
+                batch_size,
+                rng,
+                training_config.gradient_clip,
+                epoch * steps_per_epoch,
             )
             self.history.train_losses.append(train_loss)
             self.history.grad_norms.append(grad_norm)

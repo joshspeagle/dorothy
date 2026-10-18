@@ -107,6 +107,11 @@ weights wait in CPU memory and return afterwards.
 The average is one more copy of the weights on the training device, 4 bytes
 per parameter. Training with AdamW already holds four such copies (the
 weights, their gradients and two moment estimates), so the average adds 25%.
+If memory on the training device is short, `training.ema_cpu_every: k` keeps
+the average in CPU memory. It is then updated after the first optimizer step
+and every k steps after that, with the decay $d^k$: over k steps, an average
+updated at every step also keeps the fraction $d^k$ of its old value, so both
+forget at the same rate.
 
 Averaging the weights along the training trajectory can improve
 generalization {cite:p}`izmailov2018swa`, and it makes the result depend less

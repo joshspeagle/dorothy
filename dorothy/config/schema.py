@@ -582,6 +582,12 @@ class TrainingConfig(_ConfigModel):
         "of the weights, which validation, the best epoch and the saved weights "
         "then use (null: no average)",
     )
+    ema_cpu_every: int | None = Field(
+        default=None,
+        ge=1,
+        description="Keep the weight average in CPU memory and update it every "
+        "this many optimizer steps (null: on the training device, every step)",
+    )
 
     @field_validator("label_source_weights")
     @classmethod
@@ -591,6 +597,13 @@ class TrainingConfig(_ConfigModel):
             if w < 0:
                 raise ValueError(f"label_source_weights['{source}'] must be >= 0")
         return v
+
+    @model_validator(mode="after")
+    def validate_ema(self) -> TrainingConfig:
+        """Reject a weight-average option without a weight average."""
+        if self.ema_cpu_every is not None and self.ema_decay is None:
+            raise ValueError("ema_cpu_every requires ema_decay to be set")
+        return self
 
 
 class LabelMaskingConfig(_ConfigModel):

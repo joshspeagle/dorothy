@@ -239,6 +239,10 @@ class TestTrainingConfig:
         with pytest.raises(ValidationError):
             TrainingConfig(scatter_floor=2.0)
 
+    def test_ema_cpu_every_requires_ema_decay(self):
+        with pytest.raises(ValidationError, match="ema_cpu_every requires ema_decay"):
+            TrainingConfig(ema_cpu_every=10)
+
 
 class TestExperimentConfig:
     """Tests for the top-level ExperimentConfig."""
