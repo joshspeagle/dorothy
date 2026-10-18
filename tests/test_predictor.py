@@ -23,12 +23,13 @@ from dorothy.config.schema import (
     ModelConfig,
 )
 from dorothy.data.normalizer import LabelNormalizer
+from dorothy.inference.checkpoint import build_model
 from dorothy.inference.predictor import (
     PredictionResult,
     Predictor,
 )
 from dorothy.losses import predicted_scatter
-from dorothy.models import MLP, MultiHeadMLP
+from dorothy.models import MLP
 
 
 @pytest.fixture
@@ -512,12 +513,7 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
         }
     config = ExperimentConfig(name="old", device="cpu", **sections)
     torch.manual_seed(0)
-    model = (
-        MultiHeadMLP.from_config(config.multi_head_model)
-        if multi_head
-        else MLP.from_config(config.model)
-    )
-    model.eval()
+    model = build_model(config).eval()
     path = tmp_path / "ckpt"
     path.mkdir()
     torch.save(model.state_dict(), path / "best_model.pth")
