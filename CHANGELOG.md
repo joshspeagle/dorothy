@@ -88,6 +88,11 @@
   prediction with `normalize_spectra: false` multiplied by a mask, so a NaN
   or infinity in a masked entry stayed NaN. They now select with the mask.
   Results for finite inputs are unchanged, except for the sign of zero.
+- Gradient saliency used the derivative of the log-scatter ln s for its
+  scatter terms, which ignores the scatter floor and the clamp of ln s. It
+  now uses the exact derivative of the predicted scatter σ:
+  `SaliencyResult.jacobian_sigma_flux` and `jacobian_sigma_error` hold dσ/dx
+  and replace `jacobian_lns_flux` and `jacobian_lns_error`.
 
 ### Performance
 
@@ -156,6 +161,10 @@
 - The saliency analyzers compute the predicted scatter with
   `losses.predicted_scatter`. Their uncertainties, scatter changes and
   Fisher weights change where ln s is outside [-10, 5].
+- Gradient saliency differentiates σ = sqrt(exp(2 ln s) + s₀²):
+  dσ/dx = (exp(2 ln s) / σ) d ln s/dx, and 0 where ln s is outside
+  [-10, 5]. Its Fisher importance and the scatter panels of its plots change
+  most where σ is close to the scatter floor s₀ or ln s is clamped.
 - `val_metrics.png`, `zscore_calibration.png`, `per_survey_metrics.png` and
   `per_labelset_metrics.png` in a checkpoint's `plots/` show the best epoch
   instead of the last.
