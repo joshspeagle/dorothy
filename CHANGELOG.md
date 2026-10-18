@@ -46,6 +46,15 @@
 - `load_merged_sparse` did not detect duplicate stars.
 - `loss: penalty` passed configuration checks but failed when training started; the configuration now rejects it.
 
+### Performance
+
+- Training steps run about 1.75x faster and validation passes 2 to 2.6x
+  faster on CPU: validation computes each head's metrics once, input masking
+  runs in one pass, sparse batches gather only the stars that have each
+  survey, and multi-head encoders run only on those stars. On CUDA, batches
+  are copied asynchronously and a training step synchronizes with the GPU 4
+  times instead of about 34.
+
 ### Changed
 
 - The trainer's four training modes share one training loop.
@@ -58,6 +67,13 @@
 
 ### Behaviour changes
 
+- Multi-head encoders run only on the stars that have their survey (except
+  encoders with batch normalization or dropout in training mode). Results
+  change by floating-point rounding only: losses after a few epochs differ
+  by up to 4e-7 relative, less than between runs on 1 and 4 threads.
+  `MultiHeadMLP.encode_present_rows_only = False` restores the previous
+  computation. A NaN in the input of a survey a star lacks no longer reaches
+  the outputs.
 - Stars with at least one valid label are used in sparse single-label
   training; before, every label had to be valid. Existing configurations
   select more stars and get a different split.

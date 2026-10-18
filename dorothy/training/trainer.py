@@ -441,17 +441,12 @@ class Trainer:
         """Create the loss function from configuration."""
         training_config = self.config.training
 
-        if training_config.loss == LossType.HETEROSCEDASTIC:
-            return HeteroscedasticLoss(
-                scatter_floor=training_config.scatter_floor,
-                n_parameters=self.n_parameters,
-            )
-        elif training_config.loss == LossType.MSE:
+        if training_config.loss == LossType.MSE:
             return MaskedMSELoss(n_parameters=self.n_parameters)
-        else:
-            raise NotImplementedError(
-                f"Loss type {training_config.loss} not yet implemented"
-            )
+        return HeteroscedasticLoss(
+            scatter_floor=training_config.scatter_floor,
+            n_parameters=self.n_parameters,
+        )
 
     def _create_optimizer(self) -> torch.optim.Optimizer:
         """Create the optimizer from configuration."""
