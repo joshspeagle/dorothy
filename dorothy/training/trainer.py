@@ -1332,8 +1332,11 @@ class Trainer:
         n_epochs = training_config.epochs
         steps_per_epoch = (train_source.n_samples + batch_size - 1) // batch_size
         self.scheduler = self._create_scheduler(steps_per_epoch)
-        warmup_steps = round(
-            training_config.nll_warmup_fraction * n_epochs * steps_per_epoch
+        # mse has no warm-up, so early stopping must not wait for one
+        warmup_steps = (
+            round(training_config.nll_warmup_fraction * n_epochs * steps_per_epoch)
+            if isinstance(self.loss_fn, HeteroscedasticLoss)
+            else 0
         )
 
         # Train/validate the label sources the data provides (a multi-head
@@ -1404,6 +1407,8 @@ class Trainer:
                     weight_updates[layer_name]
                 )
 
+            # A plateau in the warm-up, which trains on another loss, does not count
+            past_warmup = (epoch + 1) * steps_per_epoch > warmup_steps
             with self._averaged_weights():
                 val = self._evaluate(val_source)
                 val_loss = val["loss"]
@@ -1414,7 +1419,7 @@ class Trainer:
                     self.history.best_epoch = epoch
                     self._store_best_weights()
                     patience_counter = 0
-                else:
+                elif past_warmup:
                     patience_counter += 1
 
                 if (
@@ -1423,7 +1428,7 @@ class Trainer:
                 ):
                     self._save_epoch_checkpoint(epoch + 1)
 
-            if isinstance(self.scheduler, ReduceLROnPlateau):
+            if isinstance(self.scheduler, ReduceLROnPlateau) and past_warmup:
                 self.scheduler.step(val_loss)
 
             current_lr = self.optimizer.param_groups[0]["lr"]

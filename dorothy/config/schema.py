@@ -581,7 +581,10 @@ class TrainingConfig(_ConfigModel):
         default=0, ge=0, description="Save checkpoint every N epochs"
     )
     early_stopping_patience: int = Field(
-        default=0, ge=0, description="Early stopping patience"
+        default=0,
+        ge=0,
+        description="Epochs without a lower validation loss before training "
+        "stops, counted after the β-NLL warm-up; 0 turns early stopping off",
     )
     scatter_floor: float = Field(
         default=0.01,

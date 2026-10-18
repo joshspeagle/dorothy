@@ -162,9 +162,12 @@ steps per epoch and f is `training.nll_warmup_fraction` (0.1 by default; 0
 turns the warm-up off). `loss: mse` has no warm-up.
 
 The validation loss is always $\mathcal{L}$, so the best epoch, early stopping
-and the `reduce_on_plateau` schedule compare all epochs on one objective. The
-training losses in the history are those of $\mathcal{L}_\beta$, so during the
-warm-up they are not comparable with the validation losses.
+and the `reduce_on_plateau` schedule compare all epochs on one objective.
+Early stopping and `reduce_on_plateau` count only the epochs that end after the
+warm-up. During the warm-up the model trains on $\mathcal{L}_\beta$, so a
+plateau of $\mathcal{L}$ does not show convergence. The training losses in the
+history are those of $\mathcal{L}_\beta$, so during the warm-up they are not
+comparable with the validation losses.
 
 ## Optimization
 
@@ -187,9 +190,9 @@ After each epoch the model is evaluated on the validation stars. The epoch
 with the lowest validation loss is the best epoch; with several label sources
 the validation loss combines the heads as training does, and the history
 also records each head's own best epoch. Training stops early after
-`training.early_stopping_patience` epochs without improvement, if set. If no
-epoch has a finite validation loss, there is no best epoch, and training
-raises `RuntimeError`.
+`training.early_stopping_patience` epochs without improvement after the
+[warm-up](#warm-up), if set. If no epoch has a finite validation loss, there
+is no best epoch, and training raises `RuntimeError`.
 
 ## Weight averaging
 

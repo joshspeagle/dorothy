@@ -35,7 +35,9 @@
 - `training.nll_warmup_fraction` (default 0.1) warms up the Gaussian
   negative log-likelihood (NLL) with the β-NLL loss: β falls linearly from 1
   to 0 over that fraction of the optimizer steps, so the means start with
-  mean-squared-error gradients. Validation always uses the plain NLL.
+  mean-squared-error gradients. Validation always uses the plain NLL, and
+  early stopping and `reduce_on_plateau` count only the epochs after the
+  warm-up.
   `HeteroscedasticLoss.element_losses` takes `beta`.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models

@@ -2189,3 +2189,23 @@ class TestNllWarmup:
         assert steps[:warmup] == pytest.approx([1 - t / warmup for t in range(warmup)])
         assert steps[warmup:] == [0.0] * (25 - warmup)  # exactly 0: the plain loss
         assert validation == [0.0] * 5
+
+    def test_early_stopping_waits_for_the_end_of_the_warmup(
+        self, simple_config, training_data
+    ):
+        """A fraction 0.6 warms up over epochs 0 to 2, so with a constant
+        validation loss and patience 1, training stops after epoch 3, not 1."""
+        simple_config.training.nll_warmup_fraction = 0.6
+        simple_config.training.early_stopping_patience = 1
+        trainer = Trainer(simple_config)
+        evaluate = trainer._evaluate
+
+        def constant_loss(source):
+            val = evaluate(source)
+            val["loss"] = 1.0
+            return val
+
+        trainer._evaluate = constant_loss
+        X, y = training_data
+        history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
+        assert len(history.val_losses) == 4
