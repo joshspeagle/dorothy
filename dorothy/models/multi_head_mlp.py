@@ -489,7 +489,6 @@ class MultiHeadMLP(nn.Module):
         self,
         x: torch.Tensor,
         survey: str,
-        label_errors: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass for single-survey input.
 
@@ -498,9 +497,6 @@ class MultiHeadMLP(nn.Module):
         Args:
             x: Input tensor of shape (batch, 3, n_wavelengths).
             survey: Name of the survey.
-            label_errors: Reported label errors (batch, n_parameters) for the
-                head's log-scatter (see LabelAwareOutput). None uses the
-                learned missing vector.
 
         Returns:
             Predictions of shape (batch, 2, n_parameters).
@@ -508,13 +504,12 @@ class MultiHeadMLP(nn.Module):
         Raises:
             KeyError: If survey is not in the model's encoders.
         """
-        return self.output_head(self._forward_single_to_trunk(x, survey), label_errors)
+        return self.output_head(self._forward_single_to_trunk(x, survey))
 
     def forward_multi(
         self,
         inputs: dict[str, torch.Tensor],
         has_data: dict[str, torch.Tensor],
-        label_errors: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass for multi-survey input.
 
@@ -526,9 +521,6 @@ class MultiHeadMLP(nn.Module):
             has_data: Dict mapping survey names to boolean masks.
                 Each mask has shape (batch,) indicating which samples
                 have valid data from that survey.
-            label_errors: Reported label errors (batch, n_parameters) for the
-                head's log-scatter (see LabelAwareOutput). None uses the
-                learned missing vector.
 
         Returns:
             Predictions of shape (batch, 2, n_parameters).
@@ -537,7 +529,7 @@ class MultiHeadMLP(nn.Module):
             Samples must have data from at least one survey.
             If a sample has no data from any survey, the output will be zeros.
         """
-        return self.output_head(self._forward_to_trunk(inputs, has_data), label_errors)
+        return self.output_head(self._forward_to_trunk(inputs, has_data))
 
     def forward(
         self,
@@ -569,7 +561,6 @@ class MultiHeadMLP(nn.Module):
         label_source: str,
         survey: str | None = None,
         has_data: dict[str, torch.Tensor] | None = None,
-        label_errors: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass using a specific label source's output head.
 
@@ -581,9 +572,6 @@ class MultiHeadMLP(nn.Module):
             label_source: Which label source's output head to use.
             survey: Survey name if x is single tensor.
             has_data: Data availability masks if x is dict.
-            label_errors: Reported label errors (batch, n_parameters) for the
-                head's log-scatter (see LabelAwareOutput). None uses the
-                learned missing vector.
 
         Returns:
             Predictions of shape (batch, 2, n_parameters).
@@ -598,7 +586,7 @@ class MultiHeadMLP(nn.Module):
             )
 
         return self.output_heads[label_source](
-            self._trunk_features(x, survey, has_data), label_errors
+            self._trunk_features(x, survey, has_data)
         )
 
     def forward_all_label_sources(
