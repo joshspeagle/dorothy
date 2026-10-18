@@ -467,7 +467,8 @@ def plot_val_metrics(
     """
     Plot validation metrics per parameter (RMSE, Robust SD, Bias, MAE).
 
-    All metrics are in normalized space:
+    The metrics are those of the best epoch, whose weights best_model.pth
+    holds. All metrics are in normalized space:
     - Labels are standardized: (value - median) / IQR
     - Teff is log10-transformed before standardization
 
@@ -485,7 +486,7 @@ def plot_val_metrics(
     if not history.val_metrics:
         return None
 
-    # val_metrics is dict[str, list[np.ndarray]] - get final epoch values
+    # val_metrics is dict[str, list[np.ndarray]], one entry per epoch
     rmse_list = history.val_metrics.get("rmse", [])
     mae_list = history.val_metrics.get("mae", [])
     bias_list = history.val_metrics.get("bias", [])
@@ -495,15 +496,15 @@ def plot_val_metrics(
     if not rmse_list:
         return None
 
-    # Get final epoch metrics
-    rmse = rmse_list[-1]
-    mae = mae_list[-1] if mae_list else np.zeros_like(rmse)
-    bias = bias_list[-1] if bias_list else np.zeros_like(rmse)
+    best = history.best_epoch
+    rmse = rmse_list[best]
+    mae = mae_list[best] if mae_list else np.zeros_like(rmse)
+    bias = bias_list[best] if bias_list else np.zeros_like(rmse)
     # Use robust_scatter if available, fall back to sd
     scatter = (
-        robust_scatter_list[-1]
+        robust_scatter_list[best]
         if robust_scatter_list
-        else (sd_list[-1] if sd_list else np.zeros_like(rmse))
+        else (sd_list[best] if sd_list else np.zeros_like(rmse))
     )
 
     n_params = len(rmse)
@@ -607,7 +608,8 @@ def plot_zscore_calibration(
     """
     Plot z-score distribution to check uncertainty calibration.
 
-    Well-calibrated uncertainties should give z-scores ~ N(0, 1).
+    Well-calibrated uncertainties should give z-scores ~ N(0, 1). The
+    z-scores are those of the best epoch, whose weights best_model.pth holds.
 
     Args:
         history: TrainingHistory object with val_metrics containing z-scores.
@@ -623,7 +625,7 @@ def plot_zscore_calibration(
     if not history.val_metrics:
         return None
 
-    # val_metrics is dict[str, list[np.ndarray]] - get final epoch values
+    # val_metrics is dict[str, list[np.ndarray]], one entry per epoch
     # z_median approximates z-score mean, z_robust_scatter approximates z-score std
     z_median_list = history.val_metrics.get("z_median", [])
     z_scatter_list = history.val_metrics.get("z_robust_scatter", [])
@@ -631,8 +633,8 @@ def plot_zscore_calibration(
     if not z_median_list or not z_scatter_list:
         return None
 
-    zscore_mean = z_median_list[-1]
-    zscore_std = z_scatter_list[-1]
+    zscore_mean = z_median_list[history.best_epoch]
+    zscore_std = z_scatter_list[history.best_epoch]
 
     n_params = len(zscore_mean)
     param_names = _param_display_names(history, n_params)
@@ -867,7 +869,7 @@ def plot_per_survey_metrics(
     output_path: Path,
 ) -> Path | None:
     """
-    Plot final validation metrics grouped by survey.
+    Plot the best epoch's validation metrics grouped by survey.
 
     Creates a 2x2 grid of grouped bar charts comparing RMSE, Scatter, Bias, and MAE
     across surveys for each parameter (matching the layout of val_metrics).
@@ -896,7 +898,8 @@ def plot_per_survey_metrics(
         return None
 
     n_surveys = len(history.survey_names)
-    n_params = len(survey_metrics["rmse"][-1])
+    best = history.best_epoch
+    n_params = len(survey_metrics["rmse"][best])
 
     if n_params == 0:
         return None
@@ -917,7 +920,7 @@ def plot_per_survey_metrics(
     for i, survey_name in enumerate(history.survey_names):
         rmse_list = history.per_survey_val_metrics[survey_name].get("rmse", [])
         if rmse_list:
-            rmse = rmse_list[-1][:n_show]
+            rmse = rmse_list[best][:n_show]
             offset = (i - n_surveys / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -941,7 +944,7 @@ def plot_per_survey_metrics(
             "robust_scatter", []
         )
         if scatter_list:
-            scatter = scatter_list[-1][:n_show]
+            scatter = scatter_list[best][:n_show]
             offset = (i - n_surveys / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -963,7 +966,7 @@ def plot_per_survey_metrics(
     for i, survey_name in enumerate(history.survey_names):
         bias_list = history.per_survey_val_metrics[survey_name].get("bias", [])
         if bias_list:
-            bias = bias_list[-1][:n_show]
+            bias = bias_list[best][:n_show]
             offset = (i - n_surveys / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -988,7 +991,7 @@ def plot_per_survey_metrics(
     for i, survey_name in enumerate(history.survey_names):
         mae_list = history.per_survey_val_metrics[survey_name].get("mae", [])
         if mae_list:
-            mae = mae_list[-1][:n_show]
+            mae = mae_list[best][:n_show]
             offset = (i - n_surveys / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -1006,7 +1009,8 @@ def plot_per_survey_metrics(
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.suptitle(
-        "Per-Survey Validation Metrics (normalized space, Final Epoch)", fontsize=12
+        f"Per-Survey Validation Metrics (normalized space, best epoch {best + 1})",
+        fontsize=12,
     )
     plt.tight_layout()
 
@@ -1203,7 +1207,7 @@ def plot_per_labelset_metrics(
     output_path: Path,
 ) -> Path | None:
     """
-    Plot final validation metrics grouped by labelset (output head).
+    Plot the best epoch's validation metrics grouped by labelset (output head).
 
     Creates a 2x2 grid of grouped bar charts comparing RMSE, Scatter, Bias, and MAE
     across labelsets for each parameter (matching the layout of val_metrics).
@@ -1232,7 +1236,8 @@ def plot_per_labelset_metrics(
         return None
 
     n_labelsets = len(history.label_source_names)
-    n_params = len(source_metrics["rmse"][-1])
+    best = history.best_epoch
+    n_params = len(source_metrics["rmse"][best])
 
     if n_params == 0:
         return None
@@ -1253,7 +1258,7 @@ def plot_per_labelset_metrics(
     for i, source_name in enumerate(history.label_source_names):
         rmse_list = history.per_labelset_val_metrics[source_name].get("rmse", [])
         if rmse_list:
-            rmse = rmse_list[-1][:n_show]
+            rmse = rmse_list[best][:n_show]
             offset = (i - n_labelsets / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -1277,7 +1282,7 @@ def plot_per_labelset_metrics(
             "robust_scatter", []
         )
         if scatter_list:
-            scatter = scatter_list[-1][:n_show]
+            scatter = scatter_list[best][:n_show]
             offset = (i - n_labelsets / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -1299,7 +1304,7 @@ def plot_per_labelset_metrics(
     for i, source_name in enumerate(history.label_source_names):
         bias_list = history.per_labelset_val_metrics[source_name].get("bias", [])
         if bias_list:
-            bias = bias_list[-1][:n_show]
+            bias = bias_list[best][:n_show]
             offset = (i - n_labelsets / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -1324,7 +1329,7 @@ def plot_per_labelset_metrics(
     for i, source_name in enumerate(history.label_source_names):
         mae_list = history.per_labelset_val_metrics[source_name].get("mae", [])
         if mae_list:
-            mae = mae_list[-1][:n_show]
+            mae = mae_list[best][:n_show]
             offset = (i - n_labelsets / 2 + 0.5) * width
             ax.bar(
                 x + offset,
@@ -1342,7 +1347,8 @@ def plot_per_labelset_metrics(
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.suptitle(
-        "Per-Labelset Validation Metrics (normalized space, Final Epoch)", fontsize=12
+        f"Per-Labelset Validation Metrics (normalized space, best epoch {best + 1})",
+        fontsize=12,
     )
     plt.tight_layout()
 

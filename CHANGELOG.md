@@ -57,6 +57,8 @@
 - The saliency plots raise a `ValueError` for a fully masked spectrum. Three
   of them failed with an unrelated numpy error, and
   `plot_ablation_saliency_heatmap` drew an empty figure.
+- The bar charts of validation metrics in the training plots showed the last
+  epoch instead of the best epoch, whose weights `best_model.pth` holds.
 
 ### Performance
 
@@ -125,3 +127,6 @@
 - The saliency analyzers compute the predicted scatter with
   `losses.predicted_scatter`. Their uncertainties, scatter changes and
   Fisher weights change where ln s is outside [-10, 5].
+- `val_metrics.png`, `zscore_calibration.png`, `per_survey_metrics.png` and
+  `per_labelset_metrics.png` in a checkpoint's `plots/` show the best epoch
+  instead of the last.
