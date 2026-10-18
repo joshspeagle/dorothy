@@ -592,6 +592,22 @@ class TestMultiLabelsetOutputs:
         assert x.grad is not None
         assert not torch.all(x.grad == 0)
 
+    def test_each_head_reads_only_its_own_label_errors(self, multi_label_model):
+        x = torch.randn(8, 3, 100)
+        errors = {"galah": torch.rand(8, 11) + 0.01}
+        plain = multi_label_model.forward_all_label_sources(x, survey="boss")
+        out = multi_label_model.forward_all_label_sources(
+            x, survey="boss", label_errors=errors
+        )
+
+        assert torch.equal(out["apogee"], plain["apogee"])
+        assert torch.equal(out["galah"][:, 0], plain["galah"][:, 0])
+        assert not torch.allclose(out["galah"][:, 1], plain["galah"][:, 1])
+        with pytest.raises(KeyError, match="unknown label sources"):
+            multi_label_model.forward_all_label_sources(
+                x, survey="boss", label_errors={"gaia": errors["galah"]}
+            )
+
     def test_output_heads_independent(self, multi_label_model):
         """Test output heads produce different outputs (not shared weights)."""
         x = torch.randn(32, 3, 100)

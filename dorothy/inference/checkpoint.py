@@ -6,7 +6,8 @@ model weights, ``config.yaml``, and (usually) ``normalizer.pkl``. The model is
 rebuilt from the saved config, so every architecture option (MLP or
 MultiHeadMLP, normalization, activation, label sources, per-head dropout)
 matches training. Directories with weights only fall back to inferring a
-plain MLP from the state dict.
+plain MLP from the state dict, with the output layer of checkpoints saved
+before label-aware uncertainty.
 """
 
 from __future__ import annotations
@@ -76,14 +77,25 @@ def infer_mlp_architecture(state_dict: dict[str, torch.Tensor]) -> dict:
 
     Recovers input/output sizes, hidden layer sizes (in layer order) and the
     normalization type. The activation cannot be inferred from weights and is
-    left at the MLP default.
+    left at the MLP default. The state dict must come from an MLP with the
+    output layer of checkpoints saved before label-aware uncertainty; a
+    label-aware model is rebuilt from its config.
 
     Args:
         state_dict: MLP state dict.
 
     Returns:
         Dict of keyword arguments for :class:`~dorothy.models.MLP`.
+
+    Raises:
+        ValueError: If the state dict has no linear layers, or has a
+            label-aware output layer (its config is needed to rebuild it).
     """
+    if any(k.endswith("missing_log_error") for k in state_dict):
+        raise ValueError(
+            "state_dict has a label-aware output layer; load it from a "
+            "checkpoint directory with its config.yaml"
+        )
     linear = sorted(
         (k for k, v in state_dict.items() if k.endswith("weight") and v.dim() == 2),
         key=_layer_sort_key,
@@ -100,6 +112,7 @@ def infer_mlp_architecture(state_dict: dict[str, torch.Tensor]) -> dict:
         "output_features": state_dict[linear[-1]].shape[0],
         "hidden_layers": [state_dict[k].shape[0] for k in linear[:-1]],
         "normalization": normalization,
+        "label_aware_uncertainty": False,
     }
 
 
@@ -129,6 +142,8 @@ def load_checkpoint(
 
     Raises:
         FileNotFoundError: If the checkpoint or weights file does not exist.
+        ValueError: If a checkpoint without config.yaml holds a model with
+            label-aware uncertainty.
     """
     path = Path(checkpoint_path)
     model_path = path / model_file

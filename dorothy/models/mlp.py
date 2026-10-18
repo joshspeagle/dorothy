@@ -8,7 +8,7 @@ stellar parameters along with their uncertainties.
 Default architecture (DOROTHY standard):
     Input: (batch, 3, wavelengths) -> Flatten -> (batch, 3*wavelengths)
     Hidden: 3*wavelengths -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100
-    Output: 100 -> 22 -> reshape -> (batch, 2, 11)
+    Output: LabelAwareOutput, 100 -> (batch, 2, 11)
 
 Input tensor has shape (batch, 3, wavelengths) where:
     - input[:, 0, :] contains the flux values
@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
+from dorothy.models.output import LabelAwareOutput
 from dorothy.models.utils import get_activation, get_normalization
 
 if TYPE_CHECKING:
@@ -44,9 +45,10 @@ class MLP(nn.Module):
     - Dropout probability
 
     The network flattens 3D input tensors (batch, 3, wavelengths) to 2D
-    before processing through the hidden layers. The output is reshaped to
-    (batch, 2, n_params) where the second dimension separates means and
-    log-scatter predictions.
+    before processing through the hidden layers. The last layer, a
+    LabelAwareOutput, returns (batch, 2, n_params): the means, from the last
+    hidden layer alone, and the log-scatter, which also reads the reported
+    label errors.
 
     Input format (3-channel):
         - Channel 0: flux values
@@ -58,6 +60,8 @@ class MLP(nn.Module):
         output_features: Number of output features (2 * n_parameters).
         n_parameters: Number of stellar parameters being predicted.
         hidden_layers: List of hidden layer sizes.
+        label_aware_uncertainty: Whether the last layer is a LabelAwareOutput
+            (True) or the nn.Linear of checkpoints saved before this option.
         layers: The sequential container of all network layers.
 
     Examples:
@@ -78,6 +82,7 @@ class MLP(nn.Module):
         normalization: str = "layernorm",
         activation: str = "gelu",
         dropout: float = 0.0,
+        label_aware_uncertainty: bool = True,
     ) -> None:
         """
         Initialize the MLP.
@@ -97,6 +102,10 @@ class MLP(nn.Module):
                 - "relu": Rectified Linear Unit
                 - "silu": Sigmoid Linear Unit (Swish)
             dropout: Dropout probability. Default is 0.0 (no dropout).
+            label_aware_uncertainty: Build a LabelAwareOutput as the last
+                layer (default). False builds the nn.Linear to
+                output_features outputs of checkpoints saved before this
+                option, which takes no label errors.
 
         Raises:
             ValueError: If normalization or activation type is invalid.
@@ -114,6 +123,7 @@ class MLP(nn.Module):
         self.output_features = output_features
         self.n_parameters = output_features // 2
         self.hidden_layers = hidden_layers
+        self.label_aware_uncertainty = label_aware_uncertainty
 
         # Select activation function
         activation_fn = get_activation(activation)
@@ -135,11 +145,16 @@ class MLP(nn.Module):
             prev_size = hidden_size
 
         # Output layer (no normalization or activation)
-        layers.append(nn.Linear(prev_size, output_features))
+        if label_aware_uncertainty:
+            layers.append(LabelAwareOutput(prev_size, self.n_parameters, activation))
+        else:
+            layers.append(nn.Linear(prev_size, output_features))
 
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, label_errors: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         Forward pass through the network.
 
@@ -150,16 +165,28 @@ class MLP(nn.Module):
                 - x[:, 0, :] contains the flux values
                 - x[:, 1, :] contains the sigma (uncertainty) values
                 - x[:, 2, :] contains the mask (1=valid, 0=invalid)
+            label_errors: Reported label errors of shape
+                (batch_size, n_parameters), in normalized units, for the
+                log-scatter (see LabelAwareOutput). None uses the learned
+                missing vector for every entry.
 
         Returns:
             Output tensor of shape (batch_size, 2, n_parameters) where:
                 - output[:, 0, :] contains the predicted means
                 - output[:, 1, :] contains the predicted log-scatter values
+
+        Raises:
+            ValueError: If label_errors is given to a model built with
+                label_aware_uncertainty=False, or has the wrong shape.
         """
-        flat_output = self.layers(x)  # (batch, 2 * n_params)
-        batch_size = flat_output.shape[0]
-        # Reshape to (batch, 2, n_params)
-        return flat_output.view(batch_size, 2, self.n_parameters)
+        if label_errors is not None and not self.label_aware_uncertainty:
+            raise ValueError(
+                "label_errors needs a model built with label_aware_uncertainty=True"
+            )
+        h = self.layers[:-1](x)
+        if self.label_aware_uncertainty:
+            return self.layers[-1](h, label_errors)
+        return self.layers[-1](h).view(h.shape[0], 2, self.n_parameters)
 
     def get_embeddings(self, x: torch.Tensor, layer_index: int = -2) -> torch.Tensor:
         """
@@ -176,9 +203,9 @@ class MLP(nn.Module):
         Returns:
             Embedding tensor of shape (batch_size, embedding_dim).
         """
-        # Get the layer to stop at (skip final linear layer)
-        # Need to account for: Flatten + (Linear + Norm + Activation + [Dropout]) * N + Linear
-        # We want to get output after the last activation/dropout, before final linear
+        # Get the layer to stop at (skip the output layer)
+        # Need to account for: Flatten + (Linear + Norm + Activation + [Dropout]) * N + output
+        # We want to get output after the last activation/dropout, before the output layer
 
         # Find the actual layer index
         layers_list = list(self.layers.children())
@@ -212,6 +239,7 @@ class MLP(nn.Module):
             normalization=config.normalization.value,
             activation=config.activation.value,
             dropout=config.dropout,
+            label_aware_uncertainty=config.label_aware_uncertainty,
         )
 
     def count_parameters(self) -> int:

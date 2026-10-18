@@ -535,6 +535,33 @@ def test_checkpoint_config_20_parameter_mlp_assumed_normalized(tmp_path):
         assert ExperimentConfig.load_checkpoint_config(path).data.normalize_spectra
 
 
+@pytest.mark.parametrize("section", ["model", "multi_head_model"])
+def test_checkpoint_config_without_label_aware_uncertainty_is_additive(
+    tmp_path, section
+):
+    """Checkpoints saved before label_aware_uncertainty get False; new ones keep True."""
+    import yaml
+
+    kwargs = (
+        {
+            "data": {"catalogue_path": "a.h5", "surveys": ["boss", "desi"]},
+            "multi_head_model": {"survey_wavelengths": {"boss": 10, "desi": 20}},
+        }
+        if section == "multi_head_model"
+        else {"data": {"catalogue_path": "a.h5"}}
+    )
+    path = tmp_path / "config.yaml"
+    ExperimentConfig(name="t", **kwargs).save_yaml(path)
+    loaded = ExperimentConfig.load_checkpoint_config(path)
+    assert getattr(loaded, section).label_aware_uncertainty is True
+
+    raw = yaml.full_load(path.read_text())
+    del raw[section]["label_aware_uncertainty"]
+    path.write_text(yaml.dump(raw))
+    loaded = ExperimentConfig.load_checkpoint_config(path)
+    assert getattr(loaded, section).label_aware_uncertainty is False
+
+
 def test_singular_data_keys_are_aliases():
     config = ExperimentConfig(
         name="t",

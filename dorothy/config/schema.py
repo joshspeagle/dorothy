@@ -231,6 +231,14 @@ class DataConfig(_ConfigModel):
         return self
 
 
+_LABEL_AWARE_DESCRIPTION = (
+    "Predict ln s from the head's features and the reported label errors, or "
+    "a learned missing vector, so that s includes the label noise (see "
+    "LabelAwareOutput). False builds the output layer of checkpoints saved "
+    "before this option and exists only to load them; training rejects it."
+)
+
+
 class ModelConfig(_ConfigModel):
     """Configuration for the neural network architecture.
 
@@ -274,6 +282,10 @@ class ModelConfig(_ConfigModel):
         default=22,
         ge=2,
         description="Number of outputs (n_params * 2 for mean + uncertainty)",
+    )
+    label_aware_uncertainty: bool = Field(
+        default=True,
+        description=_LABEL_AWARE_DESCRIPTION,
     )
 
     @field_validator("hidden_layers")
@@ -385,6 +397,10 @@ class MultiHeadModelConfig(_ConfigModel):
     head_dropout: dict[str, float] = Field(
         default_factory=dict,
         description="Per-label-source output head dropout (falls back to dropout)",
+    )
+    label_aware_uncertainty: bool = Field(
+        default=True,
+        description=_LABEL_AWARE_DESCRIPTION,
     )
 
     @field_validator("head_dropout")
@@ -984,8 +1000,10 @@ class ExperimentConfig(_ConfigModel):
         configs from the ``dorothy_update`` branch, recognizable by a
         ``multi_head_model.head_dropout`` entry or 20 predicted parameters,
         whose sparse and single-survey loaders already normalized spectra. A
-        warning is issued either way. Settings this version no longer has are
-        ignored with a warning.
+        warning is issued either way. A model section without
+        ``label_aware_uncertainty`` predates it, so the flag defaults to False
+        there. Settings this version no longer has are ignored with a
+        warning.
 
         Args:
             path: Path to the checkpoint's ``config.yaml``.
@@ -1030,6 +1048,9 @@ class ExperimentConfig(_ConfigModel):
                 UserWarning,
                 stacklevel=2,
             )
+        for key in ("model", "multi_head_model"):
+            if data.get(key) is not None:
+                data[key].setdefault("label_aware_uncertainty", False)
         # Dropout is irrelevant once trained: drop head_dropout entries for
         # heads the model doesn't have rather than refusing to load
         mh_section = data.get("multi_head_model") or {}
