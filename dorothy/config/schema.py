@@ -517,10 +517,16 @@ class OptimizerConfig(_ConfigModel):
     )
     betas: tuple[float, float] = Field(
         default=(0.9, 0.999),
-        description="Coefficients for running averages (Adam/AdamW)",
+        description="Coefficients for running averages (Adam/AdamW). The "
+        "one_cycle scheduler replaces the first: it cycles it between 0.85 and "
+        "0.95.",
     )
     momentum: float = Field(
-        default=0.9, ge=0, le=1.0, description="Momentum factor (SGD only)"
+        default=0.9,
+        ge=0,
+        le=1.0,
+        description="Momentum factor (SGD only). The one_cycle scheduler "
+        "replaces it: it cycles it between 0.85 and 0.95.",
     )
     nesterov: bool = Field(
         default=False, description="Use Nesterov momentum (SGD only)"
@@ -553,7 +559,12 @@ class TrainingConfig(_ConfigModel):
     epochs: int = Field(default=300, ge=1, le=10000, description="Number of epochs")
     batch_size: int = Field(default=1024, ge=1, le=65536, description="Batch size")
     learning_rate: float = Field(
-        default=1e-3, gt=0, le=1.0, description="Initial learning rate"
+        default=1e-3,
+        gt=0,
+        le=1.0,
+        description="Initial learning rate of the none, reduce_on_plateau and "
+        "cosine_annealing schedulers. one_cycle and cyclic set the learning "
+        "rate from their own fields.",
     )
     loss: LossType = Field(
         default=LossType.HETEROSCEDASTIC, description="Loss function"
