@@ -84,6 +84,10 @@
   source without a `gaia_id` dataset a copy of the first source's labels, so
   its head trained on them. They now raise `ValueError`, naming the label
   group.
+- Input and label masking, the `mean` combination of `MultiHeadMLP` and FITS
+  prediction with `normalize_spectra: false` multiplied by a mask, so a NaN
+  or infinity in a masked entry stayed NaN. They now select with the mask.
+  Results for finite inputs are unchanged, except for the sign of zero.
 
 ### Performance
 

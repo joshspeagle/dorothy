@@ -733,6 +733,17 @@ class TestPresentRowsOnlyEncoding:
         X_bad["desi"][~has["desi"]] = float("nan")
         assert torch.equal(model(X_bad, has_data=has), out)
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    def test_mean_over_every_encoded_row_ignores_rows_without_data(self, value):
+        """A NaN or inf in a row without data gives the same output as zeros."""
+        model = self._model(combination_mode="mean")
+        model.encode_present_rows_only = False
+        X, has = self._inputs()
+        X_bad = {s: x.clone() for s, x in X.items()}
+        for s in X_bad:
+            X_bad[s][~has[s]] = value
+        assert torch.equal(model(X_bad, has_data=has), model(X, has_data=has))
+
     def test_survey_without_rows_gets_no_gradient(self):
         """An encoder with no rows in the batch is skipped, as before."""
         model = self._model()

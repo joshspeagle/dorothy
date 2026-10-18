@@ -856,6 +856,39 @@ class TestFITSLoaderSpectralMask:
         # Flux should be zero where mask is zero
         assert np.all(data.flux[:, :20] == 0.0)
 
+    @pytest.mark.parametrize("value", [np.nan, np.inf])
+    def test_nan_or_inf_flux_at_a_masked_pixel_gives_the_same_input_as_zero(
+        self, tmp_path, value
+    ):
+        """Without normalization, the mask alone zeroes the masked flux."""
+        from astropy.io import fits
+        from astropy.table import Table
+
+        rng = np.random.default_rng(0)
+        flux = rng.normal(1000, 50, (6, 30)).astype(np.float32)
+        ivar = rng.uniform(0.01, 0.02, (6, 30)).astype(np.float32)
+        ivar[:, :5] = 0.0
+
+        def model_input(masked_flux: float) -> np.ndarray:
+            flux[:, :5] = masked_flux
+            path = tmp_path / f"{masked_flux}.fits"
+            fits.HDUList(
+                [
+                    fits.PrimaryHDU(),
+                    fits.BinTableHDU(Table({"FLUX": flux}), name="SPECTRA"),
+                    fits.BinTableHDU(Table({"IVAR": ivar}), name="SPEC_IVAR"),
+                ]
+            ).writeto(path)
+            data = FITSLoader(path).load(
+                apply_normalization=False,
+                apply_quality_filter=False,
+                compute_spectral_mask=True,
+                require_labels=False,
+            )
+            return data.get_model_input_3channel(apply_quality_mask=False)
+
+        np.testing.assert_array_equal(model_input(value), model_input(0.0))
+
     def test_3channel_output_from_loader(self, mock_fits_path_with_masked_ivar):
         """Test getting 3-channel output from loaded data."""
         loader = FITSLoader(

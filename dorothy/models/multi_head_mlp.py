@@ -741,7 +741,8 @@ class MultiHeadMLP(nn.Module):
             if rows is not None:
                 combined = combined.index_add(0, rows, latent.to(dtype))
             else:
-                combined = combined + latent * mask_float
+                # Rows without data may encode to NaN: select, don't multiply
+                combined = combined + torch.where(mask_float > 0, latent, 0.0)
             count = count + mask_float
 
         # Average (avoid division by zero)
