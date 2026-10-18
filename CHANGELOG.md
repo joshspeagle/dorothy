@@ -183,3 +183,9 @@
   positive. Before, training passed the stored flux of masked pixels to the
   model, and a NaN flux with a positive ivar reached the model.
   `dorothy.data.zero_invalid_pixels` applies the rule.
+- The Fisher-weighted change of ablation saliency is
+  ((Δμ)² + 2 (Δσ)²) / σ₀², the quadratic form of gradient saliency for
+  finite changes, with σ from `losses.predicted_scatter`. Its scatter term
+  was 2 (Δ ln s)², which ignores the scatter floor and the clamp of ln s.
+  `AblationSaliencyResult.fisher_weighted` changes most where σ is close to
+  the floor or ln s is clamped.

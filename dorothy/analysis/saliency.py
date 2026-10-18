@@ -156,7 +156,8 @@ class AblationSaliencyResult:
         delta_sigma: Per-parameter signed change in scatter (σ_ablated - σ₀), shape (n_params, N).
             Positive = region decreased uncertainty; negative = region increased it.
         delta_sigma_total: Sum of signed scatter changes across parameters, shape (N,).
-        fisher_weighted: Per-parameter Fisher metric (unsigned), shape (n_params, N).
+        fisher_weighted: Per-parameter Fisher-weighted change
+            ((Δμ)² + 2 (Δσ)²) / σ₀² (unsigned), shape (n_params, N).
         fisher_weighted_total: Total Fisher metric, shape (N,).
         predictions: Baseline predicted means of shape (n_params,).
         uncertainties: Baseline predicted uncertainties (sigma) of shape (n_params,).
@@ -183,7 +184,7 @@ class AblationSaliencyResult:
     delta_sigma: NDArray[np.float32]
     delta_sigma_total: NDArray[np.float32]
 
-    # Fisher-weighted metrics: (delta_mu)^2/sigma^2 + 2*(delta_ln_s)^2 (unsigned)
+    # Fisher-weighted metrics: ((Δμ)² + 2 (Δσ)²) / σ₀² (unsigned)
     fisher_weighted: NDArray[np.float32]
     fisher_weighted_total: NDArray[np.float32]
 
@@ -659,9 +660,12 @@ class AblationSaliencyAnalyzer:
     and shifting one pixel at a time to compute per-pixel importance scores.
 
     Three metrics are computed:
+
     1. Delta-mu: Signed change in predicted parameters when region is ablated
     2. Delta-sigma: Signed change in predicted scatter
-    3. Fisher-weighted: (delta_mu)^2/sigma^2 + 2*(delta_ln_s)^2
+    3. Fisher-weighted: ((delta_mu)^2 + 2*(delta_sigma)^2)/sigma_0^2, the
+       Fisher quadratic form of N(mu, sigma^2) that gradient saliency uses,
+       with finite changes
 
     When the spectrum reaches the output only through the model's first
     nn.Linear layer, the analyzer temporarily replaces that layer's forward
@@ -777,7 +781,6 @@ class AblationSaliencyAnalyzer:
                         survey,
                         int(size),
                         mu_0,
-                        ln_s_0,
                         sigma_0,
                         natural_mask,
                         shortcut=shortcut,
@@ -796,7 +799,6 @@ class AblationSaliencyAnalyzer:
                 survey,
                 block_size,
                 mu_0,
-                ln_s_0,
                 sigma_0,
                 natural_mask,
                 shortcut=shortcut,
@@ -835,22 +837,22 @@ class AblationSaliencyAnalyzer:
         survey: str | None,
         block_size: int,
         mu_0: torch.Tensor,
-        ln_s_0: torch.Tensor,
         sigma_0: torch.Tensor,
         natural_mask: NDArray[np.bool_],
         shortcut: _InputLayerShortcut | None = None,
     ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
         """Compute ablation importance for a single block size.
 
-        Uses sliding window ablation with stride 1.
+        Uses sliding window ablation with stride 1. For each window,
+        fisher_weighted = ((Δμ)² + 2 (Δσ)²) / σ₀², where σ is
+        ``losses.predicted_scatter``.
 
         Args:
             X: Masked input tensor of shape (3, N).
             survey: Survey name for MultiHeadMLP.
             block_size: Size of ablation block.
             mu_0: Baseline means, shape (n_params,).
-            ln_s_0: Baseline log_scatter, shape (n_params,).
-            sigma_0: Baseline sigma, shape (n_params,).
+            sigma_0: Baseline predicted scatter σ₀, shape (n_params,).
             natural_mask: Boolean mask of valid pixels.
             shortcut: Optional input-layer shortcut from _baseline_forward().
                 If None, each ablated input is built and run through the model.
@@ -873,7 +875,6 @@ class AblationSaliencyAnalyzer:
         # Compute metrics for all ablation positions in batches
         all_delta_mu = []  # List of (batch, n_params) tensors
         all_delta_sigma = []  # Signed change in sigma
-        all_delta_ln_s = []  # For Fisher metric computation
 
         if shortcut is not None:
             layer_outputs = shortcut.layer_outputs(n_positions, block_size)
@@ -903,27 +904,22 @@ class AblationSaliencyAnalyzer:
             # This matches gradient saliency where positive = increasing input increases output
             delta_mu = mu_ablated - mu_0.unsqueeze(0)  # (batch, n_params)
             delta_sigma = sigma_ablated - sigma_0.unsqueeze(0)  # (batch, n_params)
-            delta_ln_s = ln_s_ablated - ln_s_0.unsqueeze(0)  # (batch, n_params)
 
             all_delta_mu.append(delta_mu.cpu())
             all_delta_sigma.append(delta_sigma.cpu())
-            all_delta_ln_s.append(delta_ln_s.cpu())
 
         # Concatenate all batches
         all_delta_mu_tensor = torch.cat(all_delta_mu, dim=0)  # (n_positions, n_params)
         all_delta_sigma_tensor = torch.cat(
             all_delta_sigma, dim=0
         )  # (n_positions, n_params)
-        all_delta_ln_s_tensor = torch.cat(
-            all_delta_ln_s, dim=0
-        )  # (n_positions, n_params)
 
-        # Compute Fisher-weighted metric per position
-        sigma_0_cpu = sigma_0.cpu()
+        # Fisher quadratic form of N(mu, sigma^2) for the finite changes,
+        # shape (n_positions, n_params)
+        sigma_0_sq = (sigma_0.cpu() ** 2).unsqueeze(0)
         fisher_per_pos = (
-            all_delta_mu_tensor**2 / (sigma_0_cpu**2).unsqueeze(0)
-            + 2 * all_delta_ln_s_tensor**2
-        )  # (n_positions, n_params)
+            all_delta_mu_tensor**2 + 2 * all_delta_sigma_tensor**2
+        ) / sigma_0_sq
 
         # Aggregate to per-pixel importance
         # Each pixel i is covered by windows starting at max(0, i-B+1) to min(i, n_positions-1)
