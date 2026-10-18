@@ -240,6 +240,13 @@ def _print_memory(label: str) -> None:
         print(f"  [Memory] {label}: {mem:.0f} MB ({mem/1024:.2f} GB)")
 
 
+def _error_channel(precision_encoding: bool) -> str:
+    """How the model inputs carry sigma, as train and info print it."""
+    if precision_encoding:
+        return "log(1 + 1/sigma), the precision encoding"
+    return "sigma (saved before the precision encoding)"
+
+
 def _generate_training_plots(history, checkpoint_path: Path, name: str) -> None:
     """Write the training report plots next to a checkpoint."""
     print("\nGenerating training plots...")
@@ -317,6 +324,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"Output: {config.get_output_path()}")
     print(f"Surveys: {config.data.surveys}")
     print(f"Label sources: {config.data.label_sources}")
+    print(f"Error channel: {_error_channel(config.data.precision_encoding)}")
     _print_memory("After config")
 
     # Load data, keep stars with >= 1 survey and >= 1 valid label, and split
@@ -491,6 +499,7 @@ def cmd_info(args: argparse.Namespace) -> int:
             names = config.parameter_names
             print(f"  Parameters ({len(names)}): {', '.join(names)}")
             print(f"  Spectral normalization: {config.data.normalize_spectra}")
+            print(f"  Error channel: {_error_channel(config.data.precision_encoding)}")
         except Exception as e:
             print(f"  Error loading config: {e}")
 
