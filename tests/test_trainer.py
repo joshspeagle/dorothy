@@ -23,6 +23,7 @@ from dorothy.config.schema import (
     InputMaskingConfig,
     LossType,
     ModelConfig,
+    NormalizationType,
     OptimizerConfig,
     OptimizerType,
     SchedulerConfig,
@@ -109,11 +110,13 @@ class TestTrainerInit:
         assert trainer.loss_fn is not None
         assert trainer.device is not None
 
+    @pytest.mark.parametrize("normalization", list(NormalizationType))
     @pytest.mark.parametrize("optimizer", list(OptimizerType))
     def test_weight_decay_applies_only_to_weight_matrices(
-        self, simple_config, optimizer
+        self, simple_config, optimizer, normalization
     ):
         """Linear weights are decayed; biases and normalization weights are not."""
+        simple_config.model.normalization = normalization
         simple_config.training.optimizer = OptimizerConfig(
             type=optimizer, weight_decay=0.05
         )
