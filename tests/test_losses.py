@@ -13,7 +13,7 @@ import math
 import pytest
 import torch
 
-from dorothy.losses.heteroscedastic import HeteroscedasticLoss
+from dorothy.losses.heteroscedastic import HeteroscedasticLoss, MaskedMSELoss
 
 
 class TestHeteroscedasticLossInit:
@@ -268,6 +268,37 @@ class TestHeteroscedasticLossGradients:
         )  # Positive gradient means decreasing mu reduces loss
 
 
+class TestBetaNLL:
+    """The β-NLL weight sg(s^2)^beta of the loss of each label."""
+
+    def test_beta_one_gives_the_means_the_mean_squared_error_gradient(self):
+        """The weight passes no gradient, so ln s gets s^2 times its plain gradient."""
+        torch.manual_seed(0)
+        output = torch.randn(64, 2, 3)
+        target = make_target_3ch(64, 3)
+        target[:8, 2, 0] = 0.0  # masked labels get no gradient
+        nll = HeteroscedasticLoss(n_parameters=3)
+
+        def gradient(loss_fn, **kwargs):
+            out = output.clone().requires_grad_()
+            loss_fn.element_losses(out, target, **kwargs).sum().backward()
+            return out.grad
+
+        weighted = gradient(nll, beta=1.0)
+        mse = gradient(MaskedMSELoss(n_parameters=3))
+        torch.testing.assert_close(weighted[:, 0], mse[:, 0])
+        # Divided by s^2, so the tolerance applies at the scale of the plain gradient
+        variance = nll.get_predicted_scatter(output) ** 2
+        torch.testing.assert_close(weighted[:, 1] / variance, gradient(nll)[:, 1])
+
+    @pytest.mark.parametrize("beta", [-0.1, 1.1])
+    def test_beta_outside_zero_to_one_is_rejected(self, beta):
+        with pytest.raises(ValueError, match="beta must be in"):
+            HeteroscedasticLoss(n_parameters=3).element_losses(
+                torch.zeros(1, 2, 3), make_target_3ch(1, 3), beta
+            )
+
+
 class TestHeteroscedasticLossGetPredictedScatter:
     """Tests for the get_predicted_scatter helper method."""
 
@@ -517,8 +548,6 @@ class TestNonFiniteMaskedTargets:
 
     @pytest.mark.parametrize("bad", [float("-inf"), float("inf"), float("nan")])
     def test_loss_and_gradients_finite(self, bad):
-        from dorothy.losses import MaskedMSELoss
-
         torch.manual_seed(0)
         output = torch.randn(4, 2, 3, requires_grad=True)
         target = torch.zeros(4, 3, 3)

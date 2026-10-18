@@ -15,6 +15,9 @@ Where:
       expected scatter between mu and the label, label noise included.
     - y: label value
     - s_0: scatter floor to prevent numerical instability
+
+A ``beta`` above 0 weights the loss of each label as the β-NLL (see
+:meth:`~dorothy.losses.heteroscedastic.HeteroscedasticLoss.element_losses`).
 """
 
 from __future__ import annotations
@@ -144,8 +147,14 @@ class HeteroscedasticLoss(nn.Module):
         self,
         output: torch.Tensor,
         target: torch.Tensor,
+        beta: float = 0.0,
     ) -> torch.Tensor:
         """Unreduced loss per (sample, parameter), zero where masked.
+
+        loss = sg(s^2)^beta * ((mu - y)^2 / s^2 + log(s^2)), the β-NLL of
+        Seitzer et al. (2022), where sg passes its value but no gradient.
+        With beta = 1 the gradient for mu is 2 (mu - y), that of the squared
+        error, and beta = 0 gives the plain loss.
 
         Masked entries are zeroed with ``torch.where`` (not multiplied by the
         mask), so non-finite values in masked entries cannot leak NaN into
@@ -155,23 +164,33 @@ class HeteroscedasticLoss(nn.Module):
             output: Model predictions of shape (batch_size, 2, n_parameters).
             target: Targets of shape (batch_size, 3, n_parameters) holding
                 [labels, label errors, mask].
+            beta: Exponent of the variance weight, in [0, 1].
 
         Returns:
             Tensor of shape (batch_size, n_parameters).
+
+        Raises:
+            ValueError: If output or target shapes don't match expectations,
+                or beta is outside [0, 1].
         """
         self._check_shapes(output, target)
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError(f"beta must be in [0, 1], got {beta}")
 
         mu = output[:, 0, :]
         y, mask = _safe_targets(mu, target)
         variance = self.get_predicted_scatter(output) ** 2
 
         loss = (mu - y) ** 2 / variance + torch.log(variance)
+        if beta > 0:
+            loss = loss * variance.detach() ** beta
         return torch.where(mask > 0, loss * mask, torch.zeros_like(loss))
 
     def forward(
         self,
         output: torch.Tensor,
         target: torch.Tensor,
+        beta: float = 0.0,
     ) -> torch.Tensor:
         """
         Compute the heteroscedastic loss.
@@ -184,14 +203,17 @@ class HeteroscedasticLoss(nn.Module):
                 target[:, 0, :] contains true labels (y).
                 target[:, 1, :] contains label errors (not used).
                 target[:, 2, :] contains mask (1=valid, 0=masked).
+            beta: Exponent of the β-NLL variance weight, in [0, 1] (see
+                :meth:`element_losses`).
 
         Returns:
             The computed loss, reduced according to self.reduction.
 
         Raises:
-            ValueError: If output or target shapes don't match expectations.
+            ValueError: If output or target shapes don't match expectations,
+                or beta is outside [0, 1].
         """
-        loss_per_element = self.element_losses(output, target)
+        loss_per_element = self.element_losses(output, target, beta)
 
         if self.reduction == "none":
             return loss_per_element
