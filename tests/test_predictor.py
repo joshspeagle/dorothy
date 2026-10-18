@@ -555,3 +555,54 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     np.testing.assert_array_equal(
         result.uncertainties, predicted_scatter(expected[:, 1], 0.01).numpy()
     )
+
+
+def test_each_head_scales_its_scatter_by_its_own_calibration_factors(tmp_path):
+    """calibrate=False gives the raw scatter, and other weights files load
+    without the factors, which describe best_model.pth."""
+    import json
+
+    names = ["teff", "logg", "fe_h"]
+    config = ExperimentConfig(
+        name="calibrated",
+        device="cpu",
+        data=DataConfig(
+            catalogue_path=tmp_path / "c.h5",
+            surveys=["boss"],
+            label_sources=["apogee", "galah"],
+            parameter_names=names,
+        ),
+        multi_head_model={
+            "survey_wavelengths": {"boss": 20},
+            "latent_dim": 16,
+            "encoder_hidden": [24],
+            "trunk_hidden": [16],
+            "output_hidden": [8],
+            "label_sources": ["apogee", "galah"],
+        },
+    )
+    torch.manual_seed(0)
+    model = build_model(config).eval()
+    path = tmp_path / "ckpt"
+    path.mkdir()
+    for name in ["best_model.pth", "final_model.pth"]:
+        torch.save(model.state_dict(), path / name)
+    config.save_yaml(path / "config.yaml")
+    calibration = {
+        "apogee": {"teff": 1.5, "logg": 0.5, "fe_h": 2.0},
+        "galah": {"teff": 3.0, "logg": 1.25, "fe_h": 0.75},
+    }
+    (path / "calibration.json").write_text(json.dumps(calibration))
+
+    X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
+    for source, factors in calibration.items():
+        kwargs = {"device": "cpu", "survey": "boss", "label_source": source}
+        raw = Predictor.load(path, calibrate=False, **kwargs).predict(X)
+        result = Predictor.load(path, **kwargs).predict(X)
+        expected = raw.uncertainties * np.array([factors[p] for p in names], "f4")
+        np.testing.assert_array_equal(result.uncertainties, expected)
+        np.testing.assert_array_equal(result.predictions, raw.predictions)
+        assert result.calibrated and not raw.calibrated
+    assert Predictor.load(path, device="cpu").calibration == calibration["apogee"]
+    final = Predictor.load(path, model_file="final_model.pth", device="cpu")
+    assert final.calibration is None

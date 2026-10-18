@@ -54,9 +54,11 @@ dorothy predict --checkpoint <checkpoint> --input spectra.fits \
 ```
 
 Predicts labels for the spectra in a FITS file and writes one CSV row per
-spectrum, with each parameter and its predicted scatter (`teff`, `teff_err`,
-...) in physical units. The spectra are preprocessed as in training,
-including the per-spectrum normalization when the model used it.
+spectrum, with each parameter and its uncertainty (`teff`, `teff_err`, ...)
+in physical units. The uncertainty is the predicted scatter, times the
+checkpoint's calibration factor for that head and parameter when it has one;
+the `calibrated` column says which. The spectra are preprocessed as in
+training, including the per-spectrum normalization when the model used it.
 
 The FITS file needs `SPECTRA` (column `FLUX`) and `SPEC_IVAR` (column `IVAR`)
 table extensions with one row per spectrum, on the model's wavelength grid.
@@ -70,6 +72,7 @@ arms are not supported yet.
 | `--survey` | Survey of the spectra; required for a multi-survey model |
 | `--label-source` | Output head to use (default: the first label source) |
 | `--normalized` | Writes normalized units instead of physical units |
+| `--no-calibration` | Writes the raw predicted scatter, without the calibration factors |
 | `--device`, `--batch-size` | Inference device and batch size |
 
 ## info

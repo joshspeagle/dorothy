@@ -139,6 +139,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output head to predict from, for multi-label models "
         "(default: the first label source)",
     )
+    predict_parser.add_argument(
+        "--no-calibration",
+        action="store_true",
+        help="Write the raw predicted scatter, without the checkpoint's "
+        "calibration factors",
+    )
 
     # Info command
     info_parser = subparsers.add_parser(
@@ -405,6 +411,7 @@ def cmd_predict(args: argparse.Namespace) -> int:
             denormalize=not args.normalized,
             survey=args.survey,
             label_source=args.label_source,
+            calibrate=not args.no_calibration,
         )
         units = "normalized" if args.normalized else "physical"
         print(f"\nPredictions ({units} units) saved to {output_path}")

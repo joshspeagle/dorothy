@@ -22,7 +22,7 @@ from dorothy.data.training_data import (
 )
 from dorothy.inference import Predictor, evaluate_model, load_checkpoint
 from dorothy.training import Trainer
-from tests.synthetic import PARAMS, build_catalogue, write_config
+from tests.synthetic import PARAMS, SURVEY_WAVES, build_catalogue, write_config
 
 MULTI_SURVEYS = ["boss", "desi", "lamost_mrs"]
 
@@ -284,6 +284,37 @@ class TestPredictFromFits:
         np.testing.assert_allclose(
             df["teff_err"].to_numpy(), expected.uncertainties[:, 0], rtol=1e-4
         )
+
+    def test_predict_command_writes_calibrated_uncertainties_unless_told_not_to(
+        self, tmp_path, catalogue
+    ):
+        import pandas as pd
+
+        config_path = _config(tmp_path, catalogue, ["boss"], ["apogee"], epochs=1)
+        _, _, _, trainer = _train(config_path)
+        path = trainer.save_checkpoint(tmp_path / "ckpt")
+        rng = np.random.default_rng(0)
+        flux = rng.normal(10.0, 1.0, (4, SURVEY_WAVES["boss"])).astype(np.float32)
+        fits_path = tmp_path / "spectra.fits"
+        self._write_fits(fits_path, flux, np.full_like(flux, 50.0))
+
+        tables = []
+        for flags in ([], ["--no-calibration"]):
+            out = tmp_path / f"predictions{len(flags)}.csv"
+            args = ["--checkpoint", str(path), "--input", str(fits_path)]
+            args += ["--output", str(out), "--device", "cpu", *flags]
+            assert main(["predict", *args]) == 0
+            tables.append(pd.read_csv(out))
+        calibrated, raw = tables
+
+        assert calibrated["calibrated"].all() and not raw["calibrated"].any()
+        np.testing.assert_array_equal(calibrated["teff"], raw["teff"])
+        for p in PARAMS:
+            np.testing.assert_allclose(
+                calibrated[f"{p}_err"] / raw[f"{p}_err"],
+                trainer.calibration["apogee"][p],
+                rtol=1e-6,  # float32 rounding of the scatter and the CSV
+            )
 
     def test_wrong_wavelength_grid_raises(self, tmp_path, catalogue):
         from dorothy.inference import predict_from_fits
