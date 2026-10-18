@@ -1979,6 +1979,55 @@ class TestSparseHasLabels:
             assert not data.has_labels_dict[source][:20].any()
 
 
+class TestLabelMask:
+    @pytest.mark.parametrize("max_flag_bits", [-1, 0, 2])
+    def test_every_loader_masks_labels_by_flag_error_and_flag_count(
+        self, tmp_path, max_flag_bits
+    ):
+        path = build_catalogue(tmp_path / "cat.h5")
+        rng = np.random.default_rng(0)
+        expected, flag_ok = {}, {}
+        with h5py.File(path, "r+") as f:
+            for source in ("apogee", "galah"):
+                grp = f["labels"][source]
+                flags = rng.choice([0, 0, 0, 0, 1, 2, 3], size=grp["flags"].shape)
+                grp["flags"][...] = flags
+                # Set bits per star, counted without np.bitwise_count
+                bits = np.unpackbits(flags.astype(np.uint8)[:, :, None], axis=2)
+                flag_ok[source] = (max_flag_bits < 0) | (
+                    bits.sum(axis=(1, 2)) <= max_flag_bits
+                )
+                errors = grp["errors"][:]
+                valid = (flags == 0) & (errors > 0) & flag_ok[source][:, None]
+                expected[source] = np.stack(
+                    [grp["values"][:], errors, valid.astype(np.float32)], axis=1
+                )
+            # Without gaia_id, the primary labels are matched by catalogue row
+            del f["labels/apogee/gaia_id"]
+            has_boss = np.any(f["surveys/boss/ivar"][:] > 0, axis=1)
+        # load_for_training keeps complete stars and drops the flagged ones
+        has_apogee = np.any(expected["apogee"][:, 1] > 0, axis=1)
+        boss_rows = has_boss & has_apogee & flag_ok["apogee"]
+        loader = CatalogueLoader(path)
+        surveys, sources = ["boss", "desi"], ["apogee", "galah"]
+        common = {"max_flag_bits": max_flag_bits}
+
+        sparse = loader.load_merged_sparse(surveys, label_sources=sources, **common)
+        rows = np.flatnonzero(sparse.has_data("boss") | sparse.has_data("desi"))
+        _, dense, _, _ = loader.load_merged_for_training(
+            surveys, label_sources=sources, **common
+        )
+        _, primary, _, _ = loader.load_merged_for_training(surveys, **common)
+        _, single = loader.load_for_training("boss", **common)
+
+        np.testing.assert_array_equal(sparse.labels, expected["apogee"])
+        np.testing.assert_array_equal(primary, expected["apogee"][rows])
+        np.testing.assert_array_equal(single, expected["apogee"][boss_rows])
+        for source in sources:
+            np.testing.assert_array_equal(sparse.labels_dict[source], expected[source])
+            np.testing.assert_array_equal(dense[source], expected[source][rows])
+
+
 class TestGaiaIds:
     def test_dense_loading_without_gaia_ids_raises(self, tmp_path):
         path = build_catalogue(tmp_path / "cat.h5")

@@ -258,6 +258,26 @@ def _label_gaia_ids(label_grp: h5py.Group) -> np.ndarray:
     return label_grp["gaia_id"][:]
 
 
+def _flag_bit_count(flags: np.ndarray) -> np.ndarray:
+    """Number of set flag bits of each star (row), over all its parameters."""
+    return np.bitwise_count(flags.astype(np.uint64)).sum(axis=1)
+
+
+def _label_array(
+    values: np.ndarray, errors: np.ndarray, flags: np.ndarray, max_flag_bits: int
+) -> np.ndarray:
+    """Labels in the (N, 3, n_params) format [values, errors, mask].
+
+    A label is valid (mask 1) when its flag is 0 and its error is positive.
+    With ``max_flag_bits`` >= 0, every label of a star with more set flag
+    bits than ``max_flag_bits`` is masked.
+    """
+    valid = (flags == 0) & (errors > 0)
+    if max_flag_bits >= 0:
+        valid &= (_flag_bit_count(flags) <= max_flag_bits)[:, None]
+    return np.stack([values, errors, valid.astype(np.float32)], axis=1)
+
+
 @dataclass
 class CatalogueData:
     """
@@ -356,12 +376,7 @@ class CatalogueData:
         Returns:
             New CatalogueData with filtered stars.
         """
-        # Count bits set in each flag
-        flag_bits = np.zeros(len(self.gaia_ids), dtype=int)
-        for i in range(self.label_flags.shape[1]):
-            flag_bits += np.bitwise_count(self.label_flags[:, i].astype(np.uint64))
-
-        mask = flag_bits <= max_flag_bits
+        mask = _flag_bit_count(self.label_flags) <= max_flag_bits
         return CatalogueData(
             gaia_ids=self.gaia_ids[mask],
             ra=self.ra[mask],
@@ -924,13 +939,8 @@ class CatalogueLoader:
         if normalize_spectra:
             flux, ivar = _normalize_spectra(flux, ivar)
         X = _spectra_to_model_inputs(flux, ivar)
-
-        # Create 3-channel label data: [values, errors, mask]
-        label_mask = ((data.label_flags == 0) & (data.label_errors > 0)).astype(
-            np.float32
-        )
-        y = np.stack([data.labels, data.label_errors, label_mask], axis=1)
-
+        # filter_by_flags removed the stars with too many set flag bits
+        y = _label_array(data.labels, data.label_errors, data.label_flags, -1)
         return X, y
 
     def load_raw_spectra(
@@ -1680,21 +1690,9 @@ class CatalogueLoader:
                     f"  {survey}: {n_with_data:,} stars ({100*n_with_data/n_total:.1f}%)"
                 )
 
-        # Build 3-channel label format: [values, errors, mask]
-        # Apply flag filtering to label mask
-        if max_flag_bits >= 0:
-            flag_bits = np.sum(
-                np.bitwise_count(primary_flags.astype(np.uint64)), axis=1
-            )
-            flag_ok = flag_bits <= max_flag_bits
-        else:
-            flag_ok = np.ones(n_total, dtype=bool)
-
-        label_mask = (
-            (primary_flags == 0) & (primary_errors > 0) & flag_ok[:, None]
-        ).astype(np.float32)
-
-        labels_3ch = np.stack([primary_labels, primary_errors, label_mask], axis=1)
+        labels_3ch = _label_array(
+            primary_labels, primary_errors, primary_flags, max_flag_bits
+        )
 
         # Multi-label support: load additional label sources if requested
         labels_dict_out: dict[str, np.ndarray] | None = None
@@ -1743,23 +1741,8 @@ class CatalogueLoader:
                     errors[merged_idx] = source_errors[valid_source_idx]
                     flags[merged_idx] = source_flags[valid_source_idx]
 
-                    # Apply flag filtering (vectorized)
-                    if max_flag_bits >= 0:
-                        source_flag_bits = np.sum(
-                            np.bitwise_count(flags.astype(np.uint64)), axis=1
-                        )
-                        source_flag_ok = source_flag_bits <= max_flag_bits
-                    else:
-                        source_flag_ok = np.ones(n_total, dtype=bool)
-
-                    # Create label mask
-                    source_label_mask = (
-                        (flags == 0) & (errors > 0) & source_flag_ok[:, None]
-                    ).astype(np.float32)
-
-                    # Stack into 3-channel format
-                    labels_dict_out[source] = np.stack(
-                        [values, errors, source_label_mask], axis=1
+                    labels_dict_out[source] = _label_array(
+                        values, errors, flags, max_flag_bits
                     )
 
             has_labels_dict_out = {
@@ -2026,28 +2009,12 @@ class CatalogueLoader:
 
         # Single-source mode: return single y array
         if label_sources is None:
-            # Create 3-channel label data: [values, errors, mask]
-            # Apply flag filtering to label mask (vectorized)
-            if max_flag_bits >= 0:
-                # Count bits set in each flag
-                flag_bits = np.sum(
-                    np.bitwise_count(merged.primary_flags.astype(np.uint64)), axis=1
-                )
-                flag_ok = flag_bits <= max_flag_bits
-            else:
-                flag_ok = np.ones(merged.n_stars, dtype=bool)
-
-            # Label mask: valid if flag is ok, error > 0, and per-parameter flag is 0
-            label_mask = (
-                (merged.primary_flags == 0)
-                & (merged.primary_errors > 0)
-                & flag_ok[:, None]
-            ).astype(np.float32)
-
-            y = np.stack(
-                [merged.primary_labels, merged.primary_errors, label_mask], axis=1
+            y = _label_array(
+                merged.primary_labels,
+                merged.primary_errors,
+                merged.primary_flags,
+                max_flag_bits,
             )
-
             return X_dict, y, has_data_dict, None
 
         # Multi-source mode: load labels from each source and return dicts
@@ -2066,9 +2033,9 @@ class CatalogueLoader:
                 if source == label_source and "gaia_id" not in label_grp:
                     # load_merged matched the primary labels to stars by
                     # catalogue row
-                    values = merged.primary_labels.copy()
-                    errors = merged.primary_errors.copy()
-                    flags = merged.primary_flags.copy()
+                    values = merged.primary_labels
+                    errors = merged.primary_errors
+                    flags = merged.primary_flags
                     # Star has labels if at least one error is positive
                     has_labels = np.any(errors > 0, axis=1)
                 else:
@@ -2100,22 +2067,7 @@ class CatalogueLoader:
                         source_errors[valid_source_idx] > 0, axis=1
                     )
 
-                # Apply flag filtering (vectorized)
-                if max_flag_bits >= 0:
-                    flag_bits = np.sum(
-                        np.bitwise_count(flags.astype(np.uint64)), axis=1
-                    )
-                    flag_ok = flag_bits <= max_flag_bits
-                else:
-                    flag_ok = np.ones(n_stars, dtype=bool)
-
-                # Create label mask: valid if flag ok, error > 0, per-param flag is 0
-                label_mask = ((flags == 0) & (errors > 0) & flag_ok[:, None]).astype(
-                    np.float32
-                )
-
-                # Stack into 3-channel format
-                y_dict[source] = np.stack([values, errors, label_mask], axis=1)
+                y_dict[source] = _label_array(values, errors, flags, max_flag_bits)
                 has_labels_dict[source] = has_labels
 
         return X_dict, y_dict, has_data_dict, has_labels_dict
