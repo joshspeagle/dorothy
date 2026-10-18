@@ -15,6 +15,8 @@
 - `training.label_source_weighting` (`per_label` or `per_source`) and
   `training.label_source_weights` set how the losses of several label
   sources combine.
+- `training.amp_dtype` (`bfloat16` by default, or `float16`) selects the
+  precision of `training.amp`.
 - `loss: mse` trains with a masked mean squared error.
 - Label-aware uncertainty: each head predicts the mean with a label decoder
   and the log-scatter with a parallel error decoder, which also reads the
@@ -45,6 +47,8 @@
 
 ### Fixed
 
+- Training on Apple MPS failed at the first step with PyTorch before 2.5,
+  which rejects autocast on MPS even when it is disabled.
 - The catalogue loaders raised h5py's `KeyError`, not `ValueError`, for a
   catalogue without a `labels` group.
 - `ReduceLROnPlateau` crashed in every multi-survey training mode.
@@ -161,6 +165,7 @@
   holds 1/√ivar and 0 at invalid pixels, so the pixel mask is σ > 0.
   `SparseMergedData.memory_usage_mb` reports `<survey>_sigma` instead of
   `<survey>_ivar`.
+- The minimum PyTorch version is 2.4.
 
 ### Behaviour changes
 
@@ -243,3 +248,10 @@
   was 2 (Δ ln s)², which ignores the scatter floor and the clamp of ln s.
   `AblationSaliencyResult.fisher_weighted` changes most where σ is close to
   the floor or ln s is clamped.
+- With `training.amp: true`, the training forward pass on CUDA runs in
+  bfloat16 without a gradient scaler, instead of float16 with one;
+  `training.amp_dtype: float16` keeps float16. On a GPU without native
+  bfloat16 (compute capability below 8.0, such as a V100 or T4), such a
+  configuration now raises `ValueError` and needs `training.amp_dtype:
+  float16`. Validation runs in float32 instead of under autocast, which can
+  change the best epoch.
