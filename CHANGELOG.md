@@ -54,6 +54,13 @@
   survey, and multi-head encoders run only on those stars. On CUDA, batches
   are copied asynchronously and a training step synchronizes with the GPU 4
   times instead of about 34.
+- Gradient saliency runs about 6 times faster: one batched backward pass
+  replaces one pass per output. Ablation saliency runs 6 to 11 times faster:
+  when a spectrum reaches the output only through the model's first linear
+  layer, ablated spectra reuse that layer's per-pixel sums. k-NN anomaly
+  detection runs 15 to 40 times faster with a brute-force search. Saliency
+  maps and k-NN distances agree with the previous results to floating-point
+  rounding.
 
 ### Changed
 
@@ -64,6 +71,8 @@
   are converted when loaded.
 - The deduplication script moved to `scripts/legacy/`; v2 catalogues have
   one row per star.
+- `AnomalyDetector.tree` is removed; the detector searches the training
+  embeddings directly.
 
 ### Behaviour changes
 

@@ -500,6 +500,71 @@ class TestWithMultiHeadMLP:
         assert result_boss.jacobian_mean_flux.shape[1] == 100
         assert result_desi.jacobian_mean_flux.shape[1] == 150
 
+    @staticmethod
+    def _per_output_jacobian(model, X, survey):
+        """Reference Jacobian: one autograd.grad call per model output."""
+        X = X.clone().requires_grad_(True)
+        out = model.forward_single(X.unsqueeze(0), survey)[0]  # (2, n_params)
+        rows = [
+            torch.autograd.grad(out[k, i], X, retain_graph=True)[0]
+            for k in range(2)
+            for i in range(out.shape[1])
+        ]
+        return torch.stack(rows).view(2, out.shape[1], *X.shape)
+
+    def test_jacobian_matches_per_output_gradients(self, multi_head_model):
+        """The batched Jacobian equals per-output gradients, row by row."""
+        analyzer = SaliencyAnalyzer(multi_head_model, device="cpu")
+        torch.manual_seed(0)
+        X = torch.randn(3, 150)
+        X[2] = (torch.rand(150) > 0.2).float()
+
+        jmf, jme, jlf, jle, means, lns = analyzer._compute_jacobian(X, "desi")
+        ref = self._per_output_jacobian(multi_head_model, X, "desi")
+
+        for got, want in [
+            (jmf, ref[0, :, 0]),
+            (jme, ref[0, :, 1]),
+            (jlf, ref[1, :, 0]),
+            (jle, ref[1, :, 1]),
+        ]:
+            assert got.shape == (11, 150)
+            torch.testing.assert_close(
+                got, want, rtol=0, atol=1e-5 * want.abs().max().item()
+            )
+        with torch.no_grad():
+            out = multi_head_model.forward_single(X.unsqueeze(0), "desi")[0]
+        assert torch.equal(means, out[0])
+        assert torch.equal(lns, out[1])
+
+    def test_jacobian_falls_back_when_batching_fails(
+        self, multi_head_model, monkeypatch
+    ):
+        """If the batched backward raises, the per-output loop is used."""
+        analyzer = SaliencyAnalyzer(multi_head_model, device="cpu")
+        torch.manual_seed(1)
+        X = torch.randn(3, 100)
+        batched = analyzer._compute_jacobian(X, "boss")
+
+        real_grad = torch.autograd.grad
+        calls = {"batched": 0}
+
+        def grad_without_batching(*args, **kwargs):
+            if kwargs.get("is_grads_batched"):
+                calls["batched"] += 1
+                raise RuntimeError("batching rule not implemented")
+            return real_grad(*args, **kwargs)
+
+        monkeypatch.setattr(torch.autograd, "grad", grad_without_batching)
+        looped = analyzer._compute_jacobian(X, "boss")
+
+        assert calls["batched"] == 1
+        ref = self._per_output_jacobian(multi_head_model, X, "boss")
+        assert torch.equal(looped[0], ref[0, :, 0])
+        assert torch.equal(looped[3], ref[1, :, 1])
+        for a, b in zip(batched, looped, strict=True):
+            torch.testing.assert_close(a, b, rtol=0, atol=1e-5 * b.abs().max().item())
+
 
 # =============================================================================
 # Ablation Saliency Tests
@@ -744,6 +809,37 @@ class TestAblationSaliencyAnalyzer:
         assert np.all(result.delta_mu == 0)
         assert np.all(result.fisher_weighted == 0)
 
+    def test_create_ablated_batch_zeroes_windows(self, analyzer):
+        """Each row zeroes all three channels inside its own window only."""
+        X = torch.randn(3, 50)
+        positions = [0, 7, 45]
+        batch = analyzer._create_ablated_batch(X, positions, block_size=6)
+
+        expected = X.unsqueeze(0).repeat(len(positions), 1, 1)
+        for i, pos in enumerate(positions):
+            expected[i, :, pos : pos + 6] = 0.0
+        assert batch.is_contiguous()
+        assert torch.equal(batch, expected)
+
+    @pytest.mark.parametrize("block_size", [1, 4, 30, 50])
+    def test_aggregate_to_pixels_matches_window_means(self, analyzer, block_size):
+        """Per-pixel values are means over the windows covering each pixel."""
+        rng = np.random.default_rng(0)
+        n_wavelengths = 50
+        n_positions = n_wavelengths - block_size + 1
+        metrics = rng.normal(size=(3, n_positions)).astype(np.float32)
+        mask = rng.random(n_wavelengths) > 0.2
+
+        result = analyzer._aggregate_to_pixels(metrics, block_size, n_wavelengths, mask)
+
+        expected = np.zeros((3, n_wavelengths), dtype=np.float32)
+        for i in np.flatnonzero(mask):
+            lo, hi = max(0, i - block_size + 1), min(i + 1, n_positions)
+            expected[:, i] = metrics[:, lo:hi].mean(axis=1)
+        assert result.dtype == np.float32
+        assert np.all(result[:, ~mask] == 0)
+        np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-7)
+
 
 class TestAblationWithMultiHeadMLP:
     """Tests with the actual MultiHeadMLP model."""
@@ -804,6 +900,163 @@ class TestAblationWithMultiHeadMLP:
         assert result_desi.survey == "desi"
         assert result_boss.delta_mu.shape[1] == 100
         assert result_desi.delta_mu.shape[1] == 150
+
+
+class _SkipConnectionModel(nn.Module):
+    """The input reaches the output directly, not only via the first Linear."""
+
+    def __init__(self, n_wavelengths: int = 100, n_params: int = 11):
+        super().__init__()
+        self.n_params = n_params
+        self.hidden = nn.Linear(3 * n_wavelengths, 32)
+        self.out = nn.Linear(32, 2 * n_params)
+        self.skip = nn.Parameter(0.01 * torch.randn(3 * n_wavelengths, 2 * n_params))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        flat = x.flatten(1)
+        y = self.out(torch.relu(self.hidden(flat))) + flat @ self.skip
+        return y.view(x.shape[0], 2, self.n_params)
+
+
+class _PreprocessedInputModel(nn.Module):
+    """The input is transformed before the first Linear."""
+
+    def __init__(self, n_wavelengths: int = 100, n_params: int = 11):
+        super().__init__()
+        self.n_params = n_params
+        self.linear = nn.Linear(3 * n_wavelengths, 2 * n_params)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.linear(torch.tanh(x).flatten(1))
+        return out.view(x.shape[0], 2, self.n_params)
+
+
+class _ScaledLinear(nn.Linear):
+    """A Linear subclass whose forward is not W x + b."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return 2.0 * super().forward(x)
+
+
+class _CustomLinearModel(nn.Module):
+    """The first layer is an nn.Linear subclass with its own forward."""
+
+    def __init__(self, n_wavelengths: int = 100, n_params: int = 11):
+        super().__init__()
+        self.n_params = n_params
+        self.linear = _ScaledLinear(3 * n_wavelengths, 2 * n_params)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.linear(x.flatten(1)).view(x.shape[0], 2, self.n_params)
+
+
+class TestAblationInputLayerShortcut:
+    """Ablated inputs evaluated via the input-layer shortcut."""
+
+    @pytest.fixture
+    def multi_head_model(self):
+        from dorothy.models import MultiHeadMLP
+
+        torch.manual_seed(0)
+        return MultiHeadMLP(
+            survey_configs={"boss": 100, "desi": 150},
+            n_parameters=11,
+            latent_dim=32,
+            encoder_hidden=[64],
+            trunk_hidden=[32],
+            output_hidden=[16],
+        )
+
+    @staticmethod
+    def _masked_input(n_wavelengths: int) -> tuple[torch.Tensor, torch.Tensor]:
+        generator = torch.Generator().manual_seed(0)
+        X = torch.randn(3, n_wavelengths, generator=generator)
+        X[2] = 1.0
+        X[2, 20:30] = 0.0
+        X_masked = X.clone()
+        X_masked[:2] *= X[2]
+        return X, X_masked
+
+    def test_layer_outputs_match_direct_forward(self, multi_head_model):
+        """Model outputs with the shortcut match forwarding ablated inputs."""
+        analyzer = AblationSaliencyAnalyzer(multi_head_model, device="cpu")
+        _, X_masked = self._masked_input(150)
+        _, _, shortcut = analyzer._baseline_forward(X_masked, "desi")
+        assert shortcut is not None
+
+        block_size = 11
+        positions = list(range(150 - block_size + 1))
+        direct = analyzer._forward_model(
+            analyzer._create_ablated_batch(X_masked, positions, block_size), "desi"
+        )
+        with shortcut.pinned(shortcut.layer_outputs(len(positions), block_size)):
+            fast = analyzer._forward_model(
+                X_masked.unsqueeze(0).expand(len(positions), -1, -1), "desi"
+            )
+        for got, want in zip(fast, direct, strict=True):
+            torch.testing.assert_close(
+                got, want, rtol=0, atol=1e-5 * want.abs().max().item()
+            )
+
+    @pytest.mark.parametrize("block_size", [1, 7, 60])
+    def test_importance_matches_direct_ablation(self, multi_head_model, block_size):
+        """Per-pixel importance with the shortcut matches direct ablation."""
+        analyzer = AblationSaliencyAnalyzer(multi_head_model, device="cpu")
+        X, X_masked = self._masked_input(150)
+        mu_0, ln_s_0, shortcut = analyzer._baseline_forward(X_masked, "desi")
+        mu_0, ln_s_0 = mu_0[0], ln_s_0[0]
+        sigma_0 = torch.sqrt(torch.exp(2 * ln_s_0) + analyzer.scatter_floor**2)
+        args = (X_masked, "desi", block_size, mu_0, ln_s_0, sigma_0, X[2].numpy() > 0)
+
+        fast = analyzer._compute_ablation_importance(*args, shortcut=shortcut)
+        direct = analyzer._compute_ablation_importance(*args)
+
+        for got, want in zip(fast, direct, strict=True):
+            assert np.all(got[:, 20:30] == 0)
+            np.testing.assert_allclose(
+                got, want, rtol=0, atol=1e-4 * np.abs(want).max()
+            )
+
+    @pytest.mark.parametrize(
+        "model_cls",
+        [_SkipConnectionModel, _PreprocessedInputModel, _CustomLinearModel],
+    )
+    def test_shortcut_rejected_when_not_exact(self, model_cls):
+        """Models whose input does not reach the output only through the first
+        Linear on the flattened spectrum use direct ablation."""
+        analyzer = AblationSaliencyAnalyzer(model_cls(), device="cpu", batch_size=16)
+        X, X_masked = self._masked_input(100)
+        _, _, shortcut = analyzer._baseline_forward(X_masked, None)
+        assert shortcut is None
+
+        wavelength = np.linspace(3600, 9000, 100).astype(np.float32)
+        result = analyzer.compute_saliency(X, wavelength, block_size=10)
+        assert np.isfinite(result.delta_mu).all()
+
+    def test_shortcut_rejected_for_non_finite_input(self):
+        """Non-finite spectra use direct ablation."""
+        analyzer = AblationSaliencyAnalyzer(SimpleLinearModel(), device="cpu")
+        _, X_masked = self._masked_input(100)
+        X_masked[0, 50] = float("inf")
+        _, _, shortcut = analyzer._baseline_forward(X_masked, None)
+        assert shortcut is None
+
+    def test_model_restored_after_analysis(self, multi_head_model):
+        """The input layer is only pinned while ablated inputs are evaluated."""
+        analyzer = AblationSaliencyAnalyzer(multi_head_model, device="cpu")
+        X, X_masked = self._masked_input(150)
+        with torch.no_grad():
+            before = multi_head_model.forward_single(X_masked.unsqueeze(0), "desi")
+
+        wavelength = np.linspace(3600, 9800, 150).astype(np.float32)
+        analyzer.compute_saliency(X, wavelength, survey="desi", block_size=10)
+
+        first_layer = multi_head_model.encoders["desi"].encoder[1]
+        assert "forward" not in first_layer.__dict__
+        assert all(not m._forward_hooks for m in multi_head_model.modules())
+        with torch.no_grad():
+            after = multi_head_model.forward_single(X_masked.unsqueeze(0), "desi")
+        assert torch.equal(before, after)
 
 
 class TestAblationVisualization:

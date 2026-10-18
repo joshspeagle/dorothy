@@ -19,6 +19,7 @@ Examples:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,6 +31,8 @@ import torch.nn as nn
 from dorothy.config.schema import STELLAR_PARAMETERS
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from matplotlib.figure import Figure
     from numpy.typing import NDArray
 
@@ -376,6 +379,11 @@ class SaliencyAnalyzer:
     ]:
         """Compute Jacobian using torch.autograd.
 
+        All 2 * n_params rows are computed in one batched backward pass
+        (``is_grads_batched``), which turns the per-row matrix-vector products
+        into matrix-matrix products. Models whose backward cannot be batched
+        fall back to one backward pass per row.
+
         Args:
             X: Input tensor of shape (3, N) - [flux, error, mask].
             survey: Survey name for MultiHeadMLP.
@@ -408,6 +416,39 @@ class SaliencyAnalyzer:
         jac_mean_error = torch.zeros(n_params, N, device=self.device)
         jac_lns_flux = torch.zeros(n_params, N, device=self.device)
         jac_lns_error = torch.zeros(n_params, N, device=self.device)
+
+        # Row k of the identity selects output k, so grads[k] = d output_k / dX
+        # for all outputs [means..., log_scatter...] in a single backward pass.
+        flat_output = output[0].reshape(-1)  # (2 * n_params,)
+        try:
+            (grads,) = torch.autograd.grad(
+                flat_output,
+                X,
+                grad_outputs=torch.eye(
+                    flat_output.numel(),
+                    device=flat_output.device,
+                    dtype=flat_output.dtype,
+                ),
+                retain_graph=True,
+                is_grads_batched=True,
+            )
+        except RuntimeError:
+            grads = None  # Backward not batchable for this model: loop below
+
+        if grads is not None:
+            grads = grads.reshape(2, n_params, *X.shape)  # (2, n_params, 3, N)
+            jac_mean_flux.copy_(grads[0, :, 0, :])
+            jac_mean_error.copy_(grads[0, :, 1, :])
+            jac_lns_flux.copy_(grads[1, :, 0, :])
+            jac_lns_error.copy_(grads[1, :, 1, :])
+            return (
+                jac_mean_flux,
+                jac_mean_error,
+                jac_lns_flux,
+                jac_lns_error,
+                means.detach(),
+                log_scatter.detach(),
+            )
 
         # Compute gradients for each output parameter
         for i in range(n_params):
@@ -493,6 +534,140 @@ class SaliencyAnalyzer:
         return per_param_importance, total_importance
 
 
+@contextmanager
+def _pin_output(module: nn.Module, output: torch.Tensor) -> Iterator[None]:
+    """Temporarily make ``module`` return ``output`` instead of computing it."""
+
+    def forward(inp: torch.Tensor) -> torch.Tensor:
+        if inp.shape[0] != output.shape[0]:
+            raise RuntimeError("Pinned output does not match the input batch size")
+        return output
+
+    module.__dict__["forward"] = forward  # the instance attribute shadows the method
+    try:
+        yield
+    finally:
+        del module.__dict__["forward"]
+
+
+class _InputLayerShortcut:
+    """Evaluate ablated spectra without recomputing the model's input layer.
+
+    Ablation zeroes pixels [p, p + B) in all three channels. When the spectrum
+    reaches the model output only through one nn.Linear applied to the
+    flattened input x (3 * N features), that layer's output for the ablated
+    input is
+
+        h(p) = b + sum of C[i] over pixels i outside [p, p + B),
+        C[i] = sum_c W[:, c * N + i] * x[c, i].
+
+    With float64 prefix sums of C over pixels, each ablated input costs
+    O(hidden) for this layer instead of O(3 * N * hidden). The layer is pinned
+    to return h(p) and the rest of the model runs as usual. h(p) is rounded
+    once from float64, so it is at least as accurate as the float32 matrix
+    product it replaces; results agree with the direct computation up to
+    floating-point rounding.
+    """
+
+    def __init__(self, linear: nn.Module, X: torch.Tensor, output: torch.Tensor):
+        """Precompute prefix sums of per-pixel contributions.
+
+        Args:
+            linear: The model's input layer (nn.Linear on the flattened input).
+            X: Masked input tensor of shape (3, N).
+            output: The layer's baseline output, shape (1, hidden).
+        """
+        # float64 arithmetic runs on the CPU (MPS has no float64)
+        n_channels, n_pixels = X.shape
+        weight = linear.weight.detach()
+        x = X.detach().cpu().double()
+        contrib = torch.zeros(n_pixels, weight.shape[0], dtype=torch.float64)
+        for c in range(n_channels):
+            w_c = weight[:, c * n_pixels : (c + 1) * n_pixels].cpu().double()
+            contrib += x[c].unsqueeze(1) * w_c.T  # (N, hidden)
+
+        # prefix[k] = sum of C[i] for i < k
+        self.prefix = torch.zeros(n_pixels + 1, weight.shape[0], dtype=torch.float64)
+        torch.cumsum(contrib, dim=0, out=self.prefix[1:])
+        self.full = self.prefix[-1].clone()  # b + sum of all C[i]
+        if linear.bias is not None:
+            self.full += linear.bias.detach().cpu().double()
+
+        self.linear = linear
+        self.dtype = output.dtype
+        self.device = output.device
+
+    @classmethod
+    def create(
+        cls,
+        calls: list[tuple[nn.Module, tuple, torch.Tensor]],
+        X: torch.Tensor,
+        mu_0: torch.Tensor,
+        ln_s_0: torch.Tensor,
+        forward: Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]],
+    ) -> _InputLayerShortcut | None:
+        """Return a shortcut if the baseline pass allows one, else None.
+
+        Conditions: the first nn.Linear called uses the standard Linear
+        forward, receives exactly the flattened (finite) masked spectrum and
+        is called only once; with that layer pinned to its baseline output, a
+        different input leaves the model output unchanged (the input reaches
+        the output only through it); and the precomputed output for the
+        unablated spectrum matches the layer's actual output.
+
+        Args:
+            calls: (module, args, output) of each nn.Linear call in the
+                baseline pass, in call order.
+            X: Masked input tensor of shape (3, N).
+            mu_0: Baseline means, shape (1, n_params).
+            ln_s_0: Baseline log_scatter, shape (1, n_params).
+            forward: Model forward pass returning (means, log_scatter).
+        """
+        if not calls:
+            return None
+        linear, args, output = calls[0]
+        flat = X.reshape(1, -1)
+        if (
+            type(linear).forward is not nn.Linear.forward
+            or "forward" in linear.__dict__
+            or len(args) != 1
+            or sum(module is linear for module, _, _ in calls) != 1
+            or args[0].shape != flat.shape
+            or args[0].dtype != flat.dtype
+            or not torch.equal(args[0], flat)
+            or not torch.isfinite(flat).all()
+        ):
+            return None
+
+        with _pin_output(linear, output.clone()):
+            mu, ln_s = forward((X + 1).unsqueeze(0))
+        if not (torch.equal(mu, mu_0) and torch.equal(ln_s, ln_s_0)):
+            return None
+
+        shortcut = cls(linear, X, output)
+        # Self-check: float32 rounding of the layer is far below this tolerance
+        expected = output[0].detach().cpu().double()
+        if (shortcut.full - expected).abs().max() > 1e-4 * expected.abs().max():
+            return None
+        return shortcut
+
+    def layer_outputs(self, n_positions: int, block_size: int) -> torch.Tensor:
+        """Input-layer outputs for windows starting at 0..n_positions-1.
+
+        Returns:
+            Tensor of shape (n_positions, hidden) on the model's device.
+        """
+        window = (
+            self.prefix[block_size : block_size + n_positions]
+            - self.prefix[:n_positions]
+        )
+        return (self.full - window).to(self.dtype).to(self.device)
+
+    def pinned(self, layer_output: torch.Tensor):
+        """Context in which the input layer returns ``layer_output``."""
+        return _pin_output(self.linear, layer_output)
+
+
 class AblationSaliencyAnalyzer:
     """Compute ablation-based saliency maps for stellar parameter predictions.
 
@@ -502,6 +677,10 @@ class AblationSaliencyAnalyzer:
     Two metrics are computed:
     1. Delta-mu: Absolute change in predicted parameters when region is ablated
     2. Fisher-weighted: (delta_mu)^2/sigma^2 + 2*(delta_ln_s)^2
+
+    When the spectrum reaches the output only through the model's first
+    nn.Linear layer, the analyzer temporarily replaces that layer's forward
+    method during a run. Do not call the model from another thread meanwhile.
 
     Attributes:
         model: The neural network model.
@@ -596,8 +775,9 @@ class AblationSaliencyAnalyzer:
         X_masked[0] = X[0] * X[2]
         X_masked[1] = X[1] * X[2]
 
-        # Get baseline predictions
-        mu_0, ln_s_0 = self._forward_model(X_masked.unsqueeze(0), survey)
+        # Get baseline predictions, and a shortcut that evaluates ablated inputs
+        # without recomputing the model's input layer (None if not applicable)
+        mu_0, ln_s_0, shortcut = self._baseline_forward(X_masked, survey)
         mu_0 = mu_0.squeeze(0)  # (n_params,)
         ln_s_0 = ln_s_0.squeeze(0)  # (n_params,)
         sigma_0 = torch.sqrt(torch.exp(2 * ln_s_0) + self.scatter_floor**2)
@@ -632,6 +812,7 @@ class AblationSaliencyAnalyzer:
                         ln_s_0,
                         sigma_0,
                         natural_mask,
+                        shortcut=shortcut,
                     )
                 )
                 delta_mu_accum += weight * delta_mu_single
@@ -647,7 +828,14 @@ class AblationSaliencyAnalyzer:
             if block_size is None:
                 block_size = 5
             delta_mu_np, delta_sigma_np, fisher_np = self._compute_ablation_importance(
-                X_masked, survey, block_size, mu_0, ln_s_0, sigma_0, natural_mask
+                X_masked,
+                survey,
+                block_size,
+                mu_0,
+                ln_s_0,
+                sigma_0,
+                natural_mask,
+                shortcut=shortcut,
             )
             block_size_used = block_size
 
@@ -686,6 +874,7 @@ class AblationSaliencyAnalyzer:
         ln_s_0: torch.Tensor,
         sigma_0: torch.Tensor,
         natural_mask: NDArray[np.bool_],
+        shortcut: _InputLayerShortcut | None = None,
     ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
         """Compute ablation importance for a single block size.
 
@@ -699,6 +888,8 @@ class AblationSaliencyAnalyzer:
             ln_s_0: Baseline log_scatter, shape (n_params,).
             sigma_0: Baseline sigma, shape (n_params,).
             natural_mask: Boolean mask of valid pixels.
+            shortcut: Optional input-layer shortcut from _baseline_forward().
+                If None, each ablated input is built and run through the model.
 
         Returns:
             Tuple of (delta_mu, delta_sigma, fisher_weighted), each shape (n_params, N).
@@ -720,16 +911,26 @@ class AblationSaliencyAnalyzer:
         all_delta_sigma = []  # Absolute change in sigma
         all_delta_ln_s = []  # For Fisher metric computation
 
+        if shortcut is not None:
+            layer_outputs = shortcut.layer_outputs(n_positions, block_size)
+
         positions = list(range(n_positions))
         for batch_start in range(0, n_positions, self.batch_size):
             batch_end = min(batch_start + self.batch_size, n_positions)
             batch_positions = positions[batch_start:batch_end]
 
-            # Create batch of ablated inputs
-            X_ablated = self._create_ablated_batch(X, batch_positions, block_size)
+            if shortcut is not None:
+                # Forward pass with the input layer's outputs computed directly
+                with shortcut.pinned(layer_outputs[batch_start:batch_end]):
+                    mu_ablated, ln_s_ablated = self._forward_model(
+                        X.unsqueeze(0).expand(len(batch_positions), -1, -1), survey
+                    )
+            else:
+                # Create batch of ablated inputs
+                X_ablated = self._create_ablated_batch(X, batch_positions, block_size)
 
-            # Forward pass
-            mu_ablated, ln_s_ablated = self._forward_model(X_ablated, survey)
+                # Forward pass
+                mu_ablated, ln_s_ablated = self._forward_model(X_ablated, survey)
 
             # Compute sigma from log_scatter
             sigma_ablated = torch.sqrt(
@@ -777,6 +978,48 @@ class AblationSaliencyAnalyzer:
 
         return delta_mu_np, delta_sigma_np, fisher_np
 
+    def _baseline_forward(
+        self,
+        X: torch.Tensor,
+        survey: str | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, _InputLayerShortcut | None]:
+        """Baseline forward pass that also looks for an input-layer shortcut.
+
+        The nn.Linear layers called during the pass are recorded (hooks only
+        observe, so the baseline is unchanged) and passed to
+        _InputLayerShortcut.create(), which keeps a shortcut only if the model
+        satisfies its conditions.
+
+        Args:
+            X: Masked input tensor of shape (3, N).
+            survey: Survey name for MultiHeadMLP.
+
+        Returns:
+            Tuple of (means, log_scatter, shortcut); means and log_scatter have
+            shape (1, n_params), shortcut is None when not applicable.
+        """
+        calls: list[tuple[nn.Module, tuple, torch.Tensor]] = []
+
+        def record(module: nn.Module, args: tuple, output: torch.Tensor) -> None:
+            # Copy: later in-place ops (e.g. ReLU(inplace=True)) may modify it
+            calls.append((module, args, output.detach().clone()))
+
+        handles = [
+            module.register_forward_hook(record)
+            for module in self.model.modules()
+            if isinstance(module, nn.Linear)
+        ]
+        try:
+            mu_0, ln_s_0 = self._forward_model(X.unsqueeze(0), survey)
+        finally:
+            for handle in handles:
+                handle.remove()
+
+        shortcut = _InputLayerShortcut.create(
+            calls, X, mu_0, ln_s_0, lambda x: self._forward_model(x, survey)
+        )
+        return mu_0, ln_s_0, shortcut
+
     def _forward_model(
         self,
         X: torch.Tensor,
@@ -818,20 +1061,13 @@ class AblationSaliencyAnalyzer:
         Returns:
             Tensor of shape (len(positions), 3, N) with ablations applied.
         """
-        batch_size = len(positions)
+        # Window mask (batch, N): True inside [pos, pos + block_size)
+        starts = torch.as_tensor(positions, device=X.device).unsqueeze(1)
+        pixel = torch.arange(X.shape[1], device=X.device)
+        in_window = (pixel >= starts) & (pixel < starts + block_size)
 
-        # Replicate X for each position
-        X_batch = X.unsqueeze(0).expand(batch_size, -1, -1).clone()
-
-        # Apply ablation for each position
-        for i, pos in enumerate(positions):
-            end_pos = pos + block_size
-            # Zero out flux, error, and mask in the ablation window
-            X_batch[i, 0, pos:end_pos] = 0.0  # flux
-            X_batch[i, 1, pos:end_pos] = 0.0  # error
-            X_batch[i, 2, pos:end_pos] = 0.0  # mask
-
-        return X_batch
+        # Zero out flux, error, and mask in the ablation window
+        return torch.where(in_window.unsqueeze(1), X.new_zeros(()), X)
 
     def _aggregate_to_pixels(
         self,
@@ -859,20 +1095,22 @@ class AblationSaliencyAnalyzer:
 
         importance = np.zeros((n_params, n_wavelengths), dtype=np.float32)
 
-        for i in range(n_wavelengths):
-            if not natural_mask[i]:
-                # Already masked pixel - zero importance
-                continue
+        # Windows that cover pixel i start at positions max(0, i-B+1) to
+        # min(i, n_pos-1). Window sums come from float64 prefix sums over
+        # positions, so each pixel's mean costs O(1) instead of O(B).
+        pixels = np.flatnonzero(natural_mask)  # masked pixels keep zero importance
+        start_pos = np.maximum(0, pixels - block_size + 1)
+        end_pos = np.minimum(pixels + 1, n_positions)
+        keep = end_pos > start_pos
+        pixels, start_pos, end_pos = pixels[keep], start_pos[keep], end_pos[keep]
 
-            # Windows that cover this pixel start at positions max(0, i-B+1) to min(i, n_pos-1)
-            start_pos = max(0, i - block_size + 1)
-            end_pos = min(i + 1, n_positions)
+        prefix = np.zeros((n_params, n_positions + 1), dtype=np.float64)
+        np.cumsum(per_position_metrics, axis=1, dtype=np.float64, out=prefix[:, 1:])
 
-            if end_pos > start_pos:
-                # Average the metrics from all covering windows
-                importance[:, i] = per_position_metrics[:, start_pos:end_pos].mean(
-                    axis=1
-                )
+        # Average the metrics from all covering windows
+        importance[:, pixels] = (prefix[:, end_pos] - prefix[:, start_pos]) / (
+            end_pos - start_pos
+        )
 
         return importance
 
