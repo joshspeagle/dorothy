@@ -2061,6 +2061,12 @@ class TestLoadLabels:
         with pytest.raises(ValueError, match="Label source 'lamost' not in"):
             loader.load_labels("lamost")
 
+    @pytest.mark.parametrize("max_flag_bits", [-2, None])
+    def test_invalid_max_flag_bits_is_rejected(self, tmp_path, max_flag_bits):
+        loader = CatalogueLoader(build_catalogue(tmp_path / "cat.h5", n_stars=20))
+        with pytest.raises(ValueError, match="max_flag_bits must be an integer"):
+            loader.load_labels("galah", max_flag_bits)
+
     def test_catalogue_without_labels_raises_value_error(self, tmp_path):
         path = build_catalogue(tmp_path / "cat.h5")
         with h5py.File(path, "r+") as f:

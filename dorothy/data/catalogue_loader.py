@@ -1928,10 +1928,14 @@ class CatalogueLoader:
             group have mask 0.
 
         Raises:
-            ValueError: If the catalogue has no labels, the label source is not
-                in the catalogue, or the catalogue or its label group has no
-                Gaia IDs.
+            ValueError: If max_flag_bits is not an integer >= -1, the catalogue
+                has no labels, the label source is not in the catalogue, or
+                the catalogue or its label group has no Gaia IDs.
         """
+        if not isinstance(max_flag_bits, (int, np.integer)) or max_flag_bits < -1:
+            raise ValueError(
+                f"max_flag_bits must be an integer >= -1, got {max_flag_bits!r}"
+            )
         with h5py.File(self.path, "r") as f:
             source = self._resolve_label_source([], label_source, f)
             if "gaia_id" not in f.get("metadata", {}):
