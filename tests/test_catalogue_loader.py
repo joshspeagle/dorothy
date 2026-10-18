@@ -2171,7 +2171,9 @@ class TestModelInputs:
         np.testing.assert_array_equal(X_dict["boss"], expected)
         np.testing.assert_array_equal(single, expected[has_apogee])
         np.testing.assert_array_equal(one[0], expected[0])
-        np.testing.assert_array_equal(batch.X["boss"].numpy(), expected)
+        # The batch computes 1/sqrt(ivar) in torch, which can differ from numpy
+        # by one float32 rounding step; atol=0 keeps the zeros exact
+        np.testing.assert_allclose(batch.X["boss"].numpy(), expected, rtol=1e-6, atol=0)
         np.testing.assert_array_equal(
             from_fits.get_model_input_3channel(apply_quality_mask=False), expected
         )
