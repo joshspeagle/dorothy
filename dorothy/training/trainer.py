@@ -274,11 +274,23 @@ def _mixed_precision(
 ) -> tuple[torch.dtype | None, GradScaler | None]:
     """The autocast dtype of the forward pass and the gradient scaler.
 
-    Mixed precision runs on CUDA only; elsewhere both are None.
+    Mixed precision runs on CUDA only; elsewhere both are None. bfloat16 has
+    the exponent range of float32, so only float16 needs a scaler.
+
+    Raises:
+        ValueError: If ``training.amp_dtype`` is bfloat16 and the CUDA device
+            does not support bfloat16.
     """
     if not training.amp or device.type != "cuda":
         return None, None
-    return torch.float16, GradScaler()
+    if training.amp_dtype == "float16":
+        return torch.float16, GradScaler()
+    if not torch.cuda.is_bf16_supported():
+        raise ValueError(
+            "training.amp_dtype is 'bfloat16', which this CUDA device does not "
+            "support; set training.amp_dtype to 'float16'"
+        )
+    return torch.bfloat16, None
 
 
 class Trainer:

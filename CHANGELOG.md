@@ -15,6 +15,8 @@
 - `training.label_source_weighting` (`per_label` or `per_source`) and
   `training.label_source_weights` set how the losses of several label
   sources combine.
+- `training.amp_dtype` selects the precision of `training.amp`: `bfloat16`
+  (default) or `float16` with a gradient scaler. The loss runs in float32.
 - `loss: mse` trains with a masked mean squared error.
 - `dorothy evaluate` scores every output head and writes evaluation plots
   per label source. `dorothy predict` supports multi-head models
@@ -205,3 +207,6 @@
   was 2 (Δ ln s)², which ignores the scatter floor and the clamp of ln s.
   `AblationSaliencyResult.fisher_weighted` changes most where σ is close to
   the floor or ln s is clamped.
+- With `training.amp: true`, the forward pass on CUDA runs in bfloat16
+  without a gradient scaler, instead of float16 with one.
+  `training.amp_dtype: float16` restores float16.

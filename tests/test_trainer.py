@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from torch.amp import GradScaler
 
 from dorothy.config.schema import (
     DataConfig,
@@ -32,7 +33,12 @@ from dorothy.config.schema import (
 )
 from dorothy.data.augmentation import DynamicInputMasking
 from dorothy.training.batches import SINGLE_SURVEY_KEY, TensorBatchSource
-from dorothy.training.trainer import EVALUATOR_METRIC_NAMES, Trainer, TrainingHistory
+from dorothy.training.trainer import (
+    EVALUATOR_METRIC_NAMES,
+    Trainer,
+    TrainingHistory,
+    _mixed_precision,
+)
 
 
 @pytest.fixture
@@ -676,6 +682,33 @@ class TestTrainerGradientClipping:
 
 class TestTrainerMixedPrecision:
     """Mixed precision with training.amp."""
+
+    @pytest.mark.filterwarnings("ignore:torch.cuda.amp.GradScaler is enabled")
+    @pytest.mark.parametrize(
+        "device, training, dtype, scaled",
+        [
+            ("cuda", {"amp": True}, torch.bfloat16, False),
+            ("cuda", {"amp": True, "amp_dtype": "float16"}, torch.float16, True),
+            ("cuda", {}, None, False),
+            ("cpu", {"amp": True}, None, False),
+        ],
+        ids=["cuda_default", "cuda_float16", "cuda_amp_off", "cpu"],
+    )
+    def test_amp_autocasts_on_cuda_with_a_scaler_for_float16_only(
+        self, monkeypatch, device, training, dtype, scaled
+    ):
+        # Off CUDA, bf16 support must not be checked: report none there
+        monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: device == "cuda")
+        autocast_dtype, scaler = _mixed_precision(
+            TrainingConfig(**training), torch.device(device)
+        )
+        assert autocast_dtype == dtype
+        assert isinstance(scaler, GradScaler) == scaled
+
+    def test_bf16_on_a_cuda_device_without_bf16_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: False)
+        with pytest.raises(ValueError, match="training.amp_dtype"):
+            _mixed_precision(TrainingConfig(amp=True), torch.device("cuda"))
 
     def test_training_loss_is_the_float32_loss_of_bf16_outputs(self, simple_config):
         """exp, log and the division of the loss do not run in bf16."""

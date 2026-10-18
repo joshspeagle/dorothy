@@ -571,8 +571,14 @@ class TrainingConfig(_ConfigModel):
     )
     amp: bool = Field(
         default=False,
-        description="Enable mixed precision training (AMP). Disabled by default "
-        "due to numerical instability with large encoder inputs.",
+        description="Mixed precision on CUDA: the forward pass runs in amp_dtype "
+        "and the loss in float32. On CPU and MPS, training stays in float32.",
+    )
+    amp_dtype: Literal["bfloat16", "float16"] = Field(
+        default="bfloat16",
+        description="Reduced precision for amp. bfloat16 has the range of float32 "
+        "and needs a CUDA device that supports it; float16 has a smaller range "
+        "and uses a gradient scaler.",
     )
 
     @field_validator("label_source_weights")

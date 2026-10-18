@@ -73,9 +73,17 @@ The default optimizer is AdamW {cite:p}`loshchilov2019adamw` (`adam` and
 `sgd` are also available) with a one-cycle learning-rate schedule
 {cite:p}`smith2019superconvergence` (also `cyclic`, `reduce_on_plateau`,
 `cosine_annealing` or `none`). Gradients are clipped to a norm of
-`training.gradient_clip` (10 by default). `training.amp: true` trains with
-mixed precision on CUDA; it is off by default because it produced NaN losses
-in multi-survey training.
+`training.gradient_clip` (10 by default).
+
+`training.amp: true` (off by default) trains with mixed precision on CUDA; on
+CPU and MPS it has no effect. The forward pass of training and validation
+then runs under autocast in `training.amp_dtype`, and the loss runs in
+float32. The default, `bfloat16`, has the exponent range of float32 and needs
+no gradient scaler; if the GPU does not support it, the trainer raises
+`ValueError`. `float16` has a smaller range, so a gradient scaler keeps small
+gradients from underflowing to zero. Because validation also runs in reduced
+precision, its metrics differ from those of `dorothy evaluate`, which runs in
+float32.
 
 After each epoch the model is evaluated on the validation stars. The epoch
 with the lowest validation loss is the best epoch; with several label sources
