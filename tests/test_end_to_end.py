@@ -186,6 +186,7 @@ class TestCLIEndToEnd:
         assert "MultiHeadMLP" in info and "galah" in info
         assert "Parameters (4)" in info
         assert "Uncertainty model: label-aware" in info
+        assert "Precision encoding: True" in info
         # One column of calibration factors per head
         table = info.split("Calibration factors of best_model.pth")[1]
         assert re.search(
@@ -207,6 +208,16 @@ class TestCLIEndToEnd:
         ckpt = tmp_path / "outputs" / "e2e" / "e2e_final"
         assert main(["train", str(config_path), "--resume", str(ckpt)]) == 0
         assert "Initialized weights from" in capsys.readouterr().out
+
+        # A checkpoint saved before the precision encoding was trained on sigma
+        saved = ckpt / "config.yaml"
+        text, removed = re.subn(
+            r"^ *precision_encoding: true\n", "", saved.read_text(), flags=re.M
+        )
+        assert removed == 1
+        saved.write_text(text)
+        assert main(["train", str(config_path), "--resume", str(ckpt)]) == 1
+        assert "before the precision encoding" in capsys.readouterr().out
 
 
 class TestPredictorMultiHead:
@@ -251,6 +262,26 @@ class TestPredictorMultiHead:
 
         # Trunk embeddings are available for multi-head models
         assert predictor.get_embeddings(X[None]).shape[0] == 1
+
+
+def test_training_inputs_match_load_spectrum(tmp_path, catalogue):
+    """load_training_data preprocesses spectra as load_spectrum does, so
+    training, evaluation and prediction see the same inputs."""
+    config_path = _config(tmp_path, catalogue, MULTI_SURVEYS, ["apogee"])
+    import yaml
+
+    raw = complete_config_from_catalogue(yaml.safe_load(config_path.read_text()))
+    config = ExperimentConfig(**raw)
+    assert config.data.normalize_spectra and config.data.precision_encoding
+    loader = CatalogueLoader(catalogue)
+    sparse = load_training_data(config, loader, verbose=False).sparse
+    row = int(sparse.local_to_global["boss"][0])
+    flux, sigma = sparse.flux["boss"][0], sparse.sigma["boss"][0]
+
+    expected = loader.load_spectrum(
+        "boss", row, normalize_spectra=True, precision_encoding=True
+    )[0]
+    np.testing.assert_array_equal(np.stack([flux, sigma, sigma > 0]), expected)
 
 
 class TestPredictFromFits:
@@ -306,7 +337,9 @@ class TestPredictFromFits:
         loader = CatalogueLoader(catalogue)
         X = np.stack(
             [
-                loader.load_spectrum("boss", int(r), normalize_spectra=True)[0]
+                loader.load_spectrum(
+                    "boss", int(r), normalize_spectra=True, precision_encoding=True
+                )[0]
                 for r in rows
             ]
         )

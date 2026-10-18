@@ -371,6 +371,7 @@ def load_training_data(
     common = {
         "max_flag_bits": data_cfg.max_flag_bits,
         "normalize_spectra": data_cfg.normalize_spectra,
+        "precision_encoding": data_cfg.precision_encoding,
     }
 
     if not data_cfg.is_multi_survey:

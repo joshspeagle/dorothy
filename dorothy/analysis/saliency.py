@@ -60,14 +60,17 @@ class SaliencyResult:
         survey: Name of the survey this spectrum is from.
         wavelength: Wavelength grid of shape (N,).
         spectrum: Flux values of shape (N,).
-        spectrum_error: Flux error values of shape (N,).
+        spectrum_error: The error channel of the input, shape (N,): the
+            precision encoding ρ, or σ for checkpoints saved before it.
         mask: Boolean mask of shape (N,) where True = valid, False = masked.
         jacobian_mean_flux: Gradient of means w.r.t. flux, shape (n_params, N).
-        jacobian_mean_error: Gradient of means w.r.t. error, shape (n_params, N).
+        jacobian_mean_error: Gradient of means w.r.t. the error channel, shape
+            (n_params, N).
         jacobian_sigma_flux: Gradient of the predicted scatter σ w.r.t. flux,
             shape (n_params, N). σ is ``losses.predicted_scatter``, so the
             gradient is zero where ln s is clamped.
-        jacobian_sigma_error: Gradient of σ w.r.t. error, shape (n_params, N).
+        jacobian_sigma_error: Gradient of σ w.r.t. the error channel, shape
+            (n_params, N).
         predictions: Predicted means of shape (n_params,).
         uncertainties: Predicted uncertainties (sigma) of shape (n_params,).
         fisher_importance_per_param: Per-parameter Fisher importance, shape (n_params, N).
@@ -145,7 +148,8 @@ class AblationSaliencyResult:
         survey: Name of the survey this spectrum is from.
         wavelength: Wavelength grid of shape (N,).
         spectrum: Flux values of shape (N,).
-        spectrum_error: Flux error values of shape (N,).
+        spectrum_error: The error channel of the input, shape (N,): the
+            precision encoding ρ, or σ for checkpoints saved before it.
         mask: Boolean mask of shape (N,) where True = valid, False = masked.
         block_size: Block size used for ablation, or with the training
             distribution one size per grid point (repeats included); the maps

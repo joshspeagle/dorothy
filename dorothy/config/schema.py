@@ -174,6 +174,14 @@ class DataConfig(_ConfigModel):
         default=True,
         description="Per-spectrum median/IQR flux normalization (train and inference)",
     )
+    precision_encoding: bool = Field(
+        default=True,
+        description="Replace the sigma channel of the model inputs with "
+        "log(1 + 1/sigma) at valid pixels and 0 at masked pixels, after "
+        "normalization (encode_precision). False keeps sigma, as checkpoints "
+        "saved before this option did, and exists only to load them; training "
+        "rejects it.",
+    )
 
     @property
     def test_ratio(self) -> float:
@@ -1066,8 +1074,9 @@ class ExperimentConfig(_ConfigModel):
         ``multi_head_model.head_dropout`` entry or 20 predicted parameters,
         whose sparse and single-survey loaders already normalized spectra. A
         warning is issued either way. A model section without
-        ``label_aware_uncertainty`` predates it, so the flag defaults to False
-        there. Settings this version no longer has are ignored with a
+        ``label_aware_uncertainty``, and a data section without
+        ``precision_encoding``, predate that option, so the flag defaults to
+        False there. Settings this version no longer has are ignored with a
         warning.
 
         Args:
@@ -1113,6 +1122,7 @@ class ExperimentConfig(_ConfigModel):
                 UserWarning,
                 stacklevel=2,
             )
+        data_section.setdefault("precision_encoding", False)
         for key in ("model", "multi_head_model"):
             if data.get(key) is not None:
                 data[key].setdefault("label_aware_uncertainty", False)

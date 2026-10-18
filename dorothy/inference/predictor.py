@@ -92,7 +92,9 @@ class Predictor:
     units.
 
     Inputs use the training format: arrays of shape (n_samples, 3,
-    n_wavelengths) with channels [flux, sigma, mask]. For a MultiHeadMLP,
+    n_wavelengths) with channels [flux, rho, mask], where rho is the precision
+    encoding of sigma (``encode_precision``) unless the checkpoint's
+    ``data.precision_encoding`` is false. For a MultiHeadMLP,
     pass either one survey's array (set ``survey``) or a dict mapping survey
     names to arrays (optionally with ``has_data`` masks).
 
@@ -484,7 +486,8 @@ def predict_from_fits(
 
     Spectra are preprocessed exactly as in training: per-spectrum flux
     normalization when the checkpoint's ``data.normalize_spectra`` is set,
-    and the 3-channel [flux, sigma, mask] input format.
+    the 3-channel [flux, sigma, mask] input format, and the precision
+    encoding of sigma when ``data.precision_encoding`` is set.
 
     Args:
         fits_path: Path to input FITS file (SPECTRA / SPEC_IVAR extensions).
@@ -508,7 +511,7 @@ def predict_from_fits(
     Raises:
         ValueError: If the spectra don't match the model's wavelength grid.
     """
-    from dorothy.data import FITSLoader
+    from dorothy.data import FITSLoader, encode_precision
 
     predictor = Predictor.load(
         checkpoint_path,
@@ -517,11 +520,11 @@ def predict_from_fits(
         label_source=label_source,
         calibrate=calibrate,
     )
-    normalize = (
-        predictor.config.data.normalize_spectra
-        if predictor.config is not None
-        else True
-    )
+    if predictor.config is None:
+        normalize, encode = True, False
+    else:
+        normalize = predictor.config.data.normalize_spectra
+        encode = predictor.config.data.precision_encoding
 
     data = FITSLoader(fits_path).load(
         apply_normalization=normalize,
@@ -530,6 +533,8 @@ def predict_from_fits(
         require_labels=False,
     )
     X = data.get_model_input_3channel(apply_quality_mask=False)
+    if encode:
+        encode_precision(X, inplace=True)
 
     model = predictor.model
     if isinstance(model, MultiHeadMLP):

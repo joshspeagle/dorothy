@@ -37,7 +37,7 @@ from dorothy.analysis import (
     plot_saliency_heatmap,
 )
 from dorothy.config.schema import ExperimentConfig
-from dorothy.data import CatalogueLoader
+from dorothy.data import CatalogueLoader, encode_precision
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.models import MultiHeadMLP
 
@@ -135,6 +135,7 @@ def load_spectrum_from_catalogue(
     survey: str,
     index: int,
     normalize_spectra: bool = True,
+    precision_encoding: bool = True,
 ) -> tuple[torch.Tensor, np.ndarray, int]:
     """Load a spectrum from the super-catalogue as a 3-channel model input.
 
@@ -144,12 +145,17 @@ def load_spectrum_from_catalogue(
         index: Index of spectrum to load.
         normalize_spectra: Apply the same per-spectrum normalization as in
             training (use the checkpoint's ``data.normalize_spectra``).
+        precision_encoding: Encode sigma as in training (use the
+            checkpoint's ``data.precision_encoding``).
 
     Returns:
         Tuple of (X, wavelength, gaia_id).
     """
     X, wavelength, gaia_id = CatalogueLoader(catalogue_path).load_spectrum(
-        survey, index, normalize_spectra=normalize_spectra
+        survey,
+        index,
+        normalize_spectra=normalize_spectra,
+        precision_encoding=precision_encoding,
     )
     return torch.from_numpy(X), wavelength, gaia_id
 
@@ -238,11 +244,12 @@ def main():
 
     # Load model and normalizer
     normalizer = None
-    normalize_spectra = True
+    normalize_spectra = precision_encoding = True
     if args.checkpoint is not None and not args.demo:
         print(f"Loading model from {args.checkpoint}")
         model, normalizer, config = load_model_from_checkpoint(args.checkpoint, device)
         normalize_spectra = config.data.normalize_spectra
+        precision_encoding = config.data.precision_encoding
         print(f"Model loaded: surveys={model.survey_names}")
         if normalizer is not None:
             print("Normalizer loaded for denormalized predictions")
@@ -267,7 +274,11 @@ def main():
             f"Loading spectrum from {args.catalogue} (survey={args.survey}, index={args.index})"
         )
         X, wavelength, gaia_id = load_spectrum_from_catalogue(
-            args.catalogue, args.survey, args.index, normalize_spectra
+            args.catalogue,
+            args.survey,
+            args.index,
+            normalize_spectra,
+            precision_encoding,
         )
         print(f"  Gaia DR3 {gaia_id}")
 
@@ -287,6 +298,8 @@ def main():
             n_wavelengths = 4506
         print(f"Creating synthetic spectrum with {n_wavelengths} wavelengths")
         X, wavelength = create_synthetic_spectrum(n_wavelengths)
+        if precision_encoding:
+            X = encode_precision(X[None])[0]
 
     print(
         f"Spectrum shape: {X.shape}, wavelength range: {wavelength.min():.0f}-{wavelength.max():.0f} Å"

@@ -72,8 +72,11 @@ the checkpoint has them; `calibrate=False` gives the raw scatter, and
 `PredictionResult.calibrated` says which.
 
 Spectra must be preprocessed as in training: 3 channels, invalid pixels set
-to 0, and the per-spectrum normalization when the checkpoint's
-`data.normalize_spectra` is true.
-{py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum` does
-this for a catalogue star, and
+to 0, the per-spectrum normalization when the checkpoint's
+`data.normalize_spectra` is true, and then the precision encoding
+({py:func}`~dorothy.data.fits_loader.encode_precision`) when
+`data.precision_encoding` is true. `Predictor.predict` applies none of these
+steps.
+{py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum`, given
+these two settings, does this for a catalogue star, and
 {py:func}`~dorothy.inference.predictor.predict_from_fits` for a FITS file.

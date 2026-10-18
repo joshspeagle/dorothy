@@ -9,7 +9,8 @@ sources, needs only the catalogue.
 
 Both analyzers take one spectrum of shape `(3, n_wavelengths)`, preprocessed
 as in training (for example from
-{py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum`), and
+{py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum` with
+the checkpoint's `data.normalize_spectra` and `data.precision_encoding`), and
 its wavelength grid. For a multi-survey model, `survey` selects the encoder.
 The analyzers set the masked pixels to zero in all three channels before the
 model sees them, so masked pixels may hold any value, including NaN. They use
@@ -19,8 +20,12 @@ the model's predicted scatter s, without the
 ### Gradient saliency
 
 {py:class}`~dorothy.analysis.saliency.SaliencyAnalyzer` computes the Jacobian
-of the predicted values μ and scatters s with respect to the flux f and its
-uncertainty σ at each pixel {cite:p}`simonyan2014saliency`. It weights the
+of the predicted values μ and scatters s with respect to the two input
+channels at each pixel {cite:p}`simonyan2014saliency`: the flux f and the
+error channel σ, which holds the
+[precision encoding](preprocessing.md#precision-encoding) ρ = ln(1 + 1/σ)
+unless the checkpoint predates it. The derivatives "with respect to σ" below
+are then derivatives with respect to ρ. The analyzer weights the
 derivatives by the Fisher information of the predicted normal distribution,
 N(μ_p, s_p²), so the importance of pixel i for parameter p is
 

@@ -1915,6 +1915,12 @@ class TestTrainerMultiLabelsetMixedOverlap:
         assert all(np.isfinite(history.train_losses))
 
 
+def test_training_rejects_inputs_without_the_precision_encoding(simple_config):
+    simple_config.data.precision_encoding = False
+    with pytest.raises(ValueError, match="^data.precision_encoding"):
+        Trainer(simple_config)
+
+
 class TestLabelAwareTraining:
     """Training reads the label errors through the output layer."""
 

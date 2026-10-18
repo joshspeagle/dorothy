@@ -399,15 +399,21 @@ class Trainer:
 
         Raises:
             ValueError: If the model configuration sets label_aware_uncertainty
-                to false, ``parameter_names`` does not have one name per
-                predicted parameter, or ``training.amp_dtype`` is bfloat16 and
-                the GPU has no native bfloat16.
+                or ``data.precision_encoding`` is false, ``parameter_names``
+                does not have one name per predicted parameter, or
+                ``training.amp_dtype`` is bfloat16 and the GPU has no native
+                bfloat16.
         """
         section = "multi_head_model" if config.is_multi_head else "model"
         if not getattr(config, section).label_aware_uncertainty:
             raise ValueError(
                 f"{section}.label_aware_uncertainty must be true for training; "
                 "false only loads checkpoints saved before this option"
+            )
+        if not config.data.precision_encoding:
+            raise ValueError(
+                "data.precision_encoding must be true for training; false only "
+                "loads checkpoints saved before this option"
             )
         self.config = config
         self.history = TrainingHistory()

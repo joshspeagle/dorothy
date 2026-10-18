@@ -21,6 +21,7 @@ from dorothy.data.fits_loader import (
     FITSLoader,
     SpectralData,
     apply_quality_filter,
+    encode_precision,
     ivar_to_error_and_mask,
     normalize_spectra,
     normalize_spectrum,
@@ -912,3 +913,36 @@ class TestFITSLoaderSpectralMask:
 
         assert data.spectral_mask is None
         assert data.spectral_error is None
+
+
+def test_precision_encoding_replaces_only_valid_sigma_and_leaves_input_unchanged():
+    """sigma becomes log(1 + 1/sigma) where the mask is positive and 0 where
+    it is not, whatever a masked pixel holds; flux, mask and the input are
+    unchanged."""
+    nan, inf = float("nan"), float("inf")
+    x = np.array(
+        [
+            [
+                [1.0, -2.0, 3.0, 4.0, 5.0, 6.0],
+                [0.5, 4.0, 0.0, nan, inf, -1.0],
+                [1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    original = x.copy()
+
+    encoded = encode_precision(x)
+
+    expected = np.array([np.log(3.0), np.log(1.25), 0, 0, 0, 0], dtype=np.float32)
+    np.testing.assert_allclose(encoded[0, 1], expected, rtol=1e-6)
+    np.testing.assert_array_equal(encoded[:, [0, 2]], x[:, [0, 2]])
+    np.testing.assert_array_equal(x, original)
+
+
+@pytest.mark.parametrize("sigma", [0.0, -1.0, float("nan")])
+def test_precision_encoding_rejects_a_valid_pixel_without_positive_sigma(sigma):
+    x = np.ones((1, 3, 4), dtype=np.float32)
+    x[0, 1, 2] = sigma
+    with pytest.raises(ValueError, match="sigma > 0"):
+        encode_precision(x)

@@ -351,6 +351,18 @@ def cmd_train(args: argparse.Namespace) -> int:
         if not weights.exists():
             print(f"Error: No best_model.pth in {args.resume}")
             return 1
+        resumed = args.resume / "config.yaml"
+        if (
+            resumed.exists()
+            and not ExperimentConfig.load_checkpoint_config(
+                resumed
+            ).data.precision_encoding
+        ):
+            print(
+                f"Error: {args.resume} was trained on sigma inputs, before the "
+                "precision encoding, so its weights cannot start a new run"
+            )
+            return 1
         try:
             trainer.model.load_state_dict(
                 torch.load(weights, map_location=trainer.device, weights_only=True)
@@ -491,6 +503,7 @@ def cmd_info(args: argparse.Namespace) -> int:
             names = config.parameter_names
             print(f"  Parameters ({len(names)}): {', '.join(names)}")
             print(f"  Spectral normalization: {config.data.normalize_spectra}")
+            print(f"  Precision encoding: {config.data.precision_encoding}")
         except Exception as e:
             print(f"  Error loading config: {e}")
 

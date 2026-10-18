@@ -26,7 +26,7 @@ import h5py
 import numpy as np
 
 from dorothy.config.schema import STELLAR_PARAMETERS
-from dorothy.data.fits_loader import _BLOCK_ROWS, zero_invalid_pixels
+from dorothy.data.fits_loader import _BLOCK_ROWS, _encode_sigma, zero_invalid_pixels
 from dorothy.data.fits_loader import normalize_spectra as _normalize_spectra
 
 # Default (v1/v2 [X/Fe]) parameter names; catalogues may define their own
@@ -222,14 +222,19 @@ def _ivar_to_sigma(ivar: np.ndarray, out: np.ndarray) -> np.ndarray:
 
 
 def _spectra_to_model_inputs(
-    flux: np.ndarray, ivar: np.ndarray, block_rows: int = _BLOCK_ROWS
+    flux: np.ndarray,
+    ivar: np.ndarray,
+    precision_encoding: bool,
+    block_rows: int = _BLOCK_ROWS,
 ) -> np.ndarray:
     """Stack ``[flux, sigma, mask]`` into (N, 3, n_wave) model inputs.
 
     ``sigma = 1 / sqrt(ivar)`` and ``mask = 1`` where ``ivar > 0``, both 0
-    elsewhere. Same result as ``np.stack([flux, sigma, mask], axis=1)``, but
-    written straight into the output a block of rows at a time, without
-    boolean-indexed copies or full-size sigma/mask temporaries.
+    elsewhere; with ``precision_encoding``, sigma is replaced by its
+    encoding (:func:`~dorothy.data.fits_loader.encode_precision`). Same
+    result as ``np.stack([flux, sigma, mask], axis=1)``, but written straight
+    into the output a block of rows at a time, without boolean-indexed copies
+    or full-size sigma/mask temporaries.
     """
     out = np.empty(
         (flux.shape[0], 3) + flux.shape[1:],
@@ -239,7 +244,10 @@ def _spectra_to_model_inputs(
         rows = slice(start, start + block_rows)
         block = out[rows]
         block[:, 0] = flux[rows]
-        block[:, 2] = _ivar_to_sigma(ivar[rows], block[:, 1])
+        valid = _ivar_to_sigma(ivar[rows], block[:, 1])
+        block[:, 2] = valid
+        if precision_encoding:
+            _encode_sigma(block[:, 1], valid)
     return out
 
 
@@ -549,7 +557,9 @@ class SparseMergedData:
             Normalized if requested, and 0 at invalid pixels
             (:func:`~dorothy.data.fits_loader.zero_invalid_pixels`).
         sigma: Per-survey 1/sqrt(ivar) arrays with the same structure as flux,
-            0 at invalid pixels (so the pixel mask is sigma > 0).
+            0 at invalid pixels (so the pixel mask is sigma > 0). With the
+            precision encoding they hold log(1 + 1/sigma) instead, which is
+            also positive exactly at the valid pixels.
         wavelengths: Per-survey wavelength grids (n_wavelengths,).
         snr: Per-survey SNR values for stars with data.
         global_to_local: Maps survey name to index array (n_total,) where
@@ -937,6 +947,7 @@ class CatalogueLoader:
         label_source: str | None = None,
         max_flag_bits: int = 0,
         normalize_spectra: bool = False,
+        precision_encoding: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Load data ready for training in unified 3-channel format.
@@ -951,6 +962,8 @@ class CatalogueLoader:
             normalize_spectra: Apply per-spectrum median/IQR normalization to
                 flux (and rescale ivar) before building the model inputs.
                 Training and inference must use the same setting.
+            precision_encoding: Replace sigma with log(1 + 1/sigma) after
+                normalization (see ``data.precision_encoding``).
 
         Returns:
             Tuple of (X, y) where:
@@ -971,7 +984,7 @@ class CatalogueLoader:
             data = data.filter_by_flags(max_flag_bits)
 
         flux, ivar = _preprocess_spectra(data.flux, data.ivar, normalize_spectra)
-        X = _spectra_to_model_inputs(flux, ivar)
+        X = _spectra_to_model_inputs(flux, ivar, precision_encoding)
         # filter_by_flags removed the stars with too many set flag bits
         y = _label_array(data.labels, data.label_errors, data.label_flags, -1)
         return X, y
@@ -1557,6 +1570,7 @@ class CatalogueLoader:
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
         normalize_spectra: bool = False,
+        precision_encoding: bool = True,
     ) -> SparseMergedData:
         """
         Load and merge multiple surveys with memory-efficient sparse storage.
@@ -1584,6 +1598,8 @@ class CatalogueLoader:
             normalize_spectra: Apply per-spectrum median/IQR normalization to
                 flux (and rescale ivar) before building the model inputs.
                 Training and inference must use the same setting.
+            precision_encoding: Replace sigma with log(1 + 1/sigma) after
+                normalization (see ``data.precision_encoding``).
 
         Returns:
             SparseMergedData with memory-efficient sparse survey storage.
@@ -1715,7 +1731,9 @@ class CatalogueLoader:
                 sigma = ivar  # converted in place, a block of rows at a time
                 for start in range(0, n_with_data, _BLOCK_ROWS):
                     block = sigma[start : start + _BLOCK_ROWS]
-                    _ivar_to_sigma(block, block)
+                    valid = _ivar_to_sigma(block, block)
+                    if precision_encoding:
+                        _encode_sigma(block, valid)
 
                 # Store sparse arrays
                 sparse_flux[survey] = flux
@@ -1846,6 +1864,7 @@ class CatalogueLoader:
         survey: str,
         index: int,
         normalize_spectra: bool = False,
+        precision_encoding: bool = True,
     ) -> tuple[np.ndarray, np.ndarray, int]:
         """
         Load one star's spectrum as a 3-channel model input.
@@ -1856,6 +1875,8 @@ class CatalogueLoader:
                 ``metadata/gaia_id``).
             normalize_spectra: Apply per-spectrum median/IQR normalization,
                 as during training (see ``data.normalize_spectra``).
+            precision_encoding: Replace sigma with log(1 + 1/sigma) after
+                normalization (see ``data.precision_encoding``).
 
         Returns:
             Tuple of (X, wavelength, gaia_id) where X has shape (3, n_wave)
@@ -1877,7 +1898,7 @@ class CatalogueLoader:
             gaia_id = int(f["metadata"]["gaia_id"][index]) if has_ids else -1
 
         flux, ivar = _preprocess_spectra(flux, ivar, normalize_spectra)
-        X = _spectra_to_model_inputs(flux, ivar)[0]
+        X = _spectra_to_model_inputs(flux, ivar, precision_encoding)[0]
         return X, wavelength.astype(np.float32), gaia_id
 
     def load_labels_for_index(
@@ -1961,6 +1982,7 @@ class CatalogueLoader:
         max_flag_bits: int = 0,
         label_sources: list[str] | None = None,
         normalize_spectra: bool = False,
+        precision_encoding: bool = True,
     ) -> tuple[
         dict[str, np.ndarray],
         np.ndarray | dict[str, np.ndarray],
@@ -1993,6 +2015,8 @@ class CatalogueLoader:
             normalize_spectra: Apply per-spectrum median/IQR normalization to
                 flux (and rescale ivar) before building the model inputs.
                 Training and inference must use the same setting.
+            precision_encoding: Replace sigma with log(1 + 1/sigma) after
+                normalization (see ``data.precision_encoding``).
 
         Returns:
             Tuple of (X_dict, y, has_data_dict, has_labels_dict) where:
@@ -2053,7 +2077,7 @@ class CatalogueLoader:
             )
 
             # 3-channel format: [flux, sigma = 1/sqrt(ivar), mask = ivar > 0]
-            X_dict[survey] = _spectra_to_model_inputs(flux, ivar)
+            X_dict[survey] = _spectra_to_model_inputs(flux, ivar, precision_encoding)
             has_data_dict[survey] = survey_data["has_data"]
 
         # Single-source mode: return single y array
