@@ -306,10 +306,10 @@ def plot_zscore_histograms(
 ) -> Path | None:
     """Per-parameter z-score histograms against a unit Gaussian.
 
-    z = (predicted - true) / sqrt(pred_unc^2 + label_err^2), matching the
-    training loss and Evaluator. Each panel reports the median and robust
-    scatter ((p84 - p16) / 2); a calibrated parameter has median ~0 and
-    scatter ~1. Scatter > 1 means overconfident, < 1 underconfident.
+    z = (predicted - true) / sqrt(pred_unc^2 + label_err^2), as in the
+    Evaluator. Each panel reports the median and robust scatter
+    ((p84 - p16) / 2); a calibrated parameter has median ~0 and scatter ~1.
+    Scatter > 1 means overconfident, < 1 underconfident.
 
     Args:
         output_path: Directory to save the plot.
@@ -317,6 +317,9 @@ def plot_zscore_histograms(
         true: True label values, same shape.
         pred_unc: Predicted model scatter (including the scatter floor).
         label_err: Label measurement errors, or None to use pred_unc only.
+            Pass them only for the additive model of checkpoints saved
+            before label-aware uncertainty; a label-aware model's scatter
+            already includes the label noise.
         mask: Label validity mask (1 = valid), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in the title.

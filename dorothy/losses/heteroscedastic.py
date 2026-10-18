@@ -1,20 +1,19 @@
 """
 Heteroscedastic loss function for stellar parameter inference.
 
-This module implements the uncertainty-aware loss function used by DOROTHY models.
-The loss accounts for both label uncertainties (from APOGEE measurements) and
-model-predicted uncertainties, enabling the network to learn when it is confident
-or uncertain about its predictions.
+The loss is the Gaussian negative log-likelihood of each label under the
+prediction, up to a constant and a factor of 2::
 
-Mathematical formulation:
     s = sqrt(exp(2 * ln_s) + s_0^2)
-    loss = (mu - y)^2 / (sigma_label^2 + s^2) + log(sigma_label^2 + s^2)
+    loss = (mu - y)^2 / s^2 + log(s^2)
 
 Where:
     - mu: predicted stellar parameter value
-    - ln_s: predicted log scatter (uncertainty)
-    - y: true label value
-    - sigma_label: measurement uncertainty from APOGEE
+    - ln_s: predicted log-scatter. The model computes it from the reported
+      label error or a learned missing vector (see
+      :class:`~dorothy.models.output.LabelAwareOutput`), so s is the whole
+      expected scatter between mu and the label, label noise included.
+    - y: label value
     - s_0: scatter floor to prevent numerical instability
 """
 
@@ -30,18 +29,16 @@ LN_S_MAX = 5.0
 
 def _safe_targets(
     mu: torch.Tensor, target: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Split a (batch, 3, P) target, neutralizing masked entries.
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Labels and mask of a (batch, 3, P) target, neutralizing masked entries.
 
-    Masked labels are replaced by the (detached) prediction and their errors
-    by 0 before any arithmetic, so non-finite values stored in masked entries
-    (e.g. log10(0) for a masked Teff) can't produce NaN losses or gradients.
+    Masked labels are replaced by the (detached) prediction before any
+    arithmetic, so non-finite values stored in masked entries (e.g. log10(0)
+    for a masked Teff) can't produce NaN losses or gradients.
     """
     mask = target[:, 2, :]
-    valid = mask > 0
-    y = torch.where(valid, target[:, 0, :], mu.detach())
-    sigma_label = torch.where(valid, target[:, 1, :], torch.zeros_like(mu))
-    return y, sigma_label, mask
+    y = torch.where(mask > 0, target[:, 0, :], mu.detach())
+    return y, mask
 
 
 def predicted_scatter(ln_s: torch.Tensor, scatter_floor: float) -> torch.Tensor:
@@ -65,9 +62,10 @@ class HeteroscedasticLoss(nn.Module):
     """
     Heteroscedastic loss for regression with predicted uncertainties.
 
-    This loss function combines the measurement uncertainty from the labels
-    with the model's predicted uncertainty to weight the squared error.
-    It also includes a log-variance term that penalizes overconfidence.
+    loss = (mu - y)^2 / s^2 + log(s^2), where s is the predicted scatter
+    (:func:`~dorothy.losses.heteroscedastic.predicted_scatter`). The squared
+    error is weighted by the predicted variance, and the log-variance term
+    penalizes underconfidence.
 
     The model output has shape (batch, 2, n_parameters):
     - output[:, 0, :]: predicted means (mu)
@@ -75,7 +73,7 @@ class HeteroscedasticLoss(nn.Module):
 
     The target has 3-channel format (batch, 3, n_parameters):
     - target[:, 0, :]: true labels (y)
-    - target[:, 1, :]: label uncertainties (sigma_label)
+    - target[:, 1, :]: label errors, not used here (the model reads them)
     - target[:, 2, :]: mask (1=valid, 0=masked) - used for loss computation
 
     Attributes:
@@ -130,12 +128,6 @@ class HeteroscedasticLoss(nn.Module):
         self.n_parameters = n_parameters
         self.reduction = reduction
 
-        # Pre-compute squared scatter floor for efficiency
-        self.register_buffer(
-            "scatter_floor_sq",
-            torch.tensor(scatter_floor**2, dtype=torch.float32),
-        )
-
     def _check_shapes(self, output: torch.Tensor, target: torch.Tensor) -> None:
         if output.shape[1:] != (2, self.n_parameters):
             raise ValueError(
@@ -162,7 +154,7 @@ class HeteroscedasticLoss(nn.Module):
         Args:
             output: Model predictions of shape (batch_size, 2, n_parameters).
             target: Targets of shape (batch_size, 3, n_parameters) holding
-                [labels, label uncertainties, mask].
+                [labels, label errors, mask].
 
         Returns:
             Tensor of shape (batch_size, n_parameters).
@@ -170,15 +162,10 @@ class HeteroscedasticLoss(nn.Module):
         self._check_shapes(output, target)
 
         mu = output[:, 0, :]
-        ln_s = torch.clamp(output[:, 1, :], min=LN_S_MIN, max=LN_S_MAX)
-        y, sigma_label, mask = _safe_targets(mu, target)
+        y, mask = _safe_targets(mu, target)
+        variance = predicted_scatter(output[:, 1, :], self.scatter_floor) ** 2
 
-        # Total variance = label variance + model scatter^2 (with floor)
-        s_squared = torch.exp(2 * ln_s) + self.scatter_floor_sq
-        total_variance = sigma_label**2 + s_squared
-
-        # loss = (mu - y)^2 / variance + log(variance)
-        loss = (mu - y) ** 2 / total_variance + torch.log(total_variance)
+        loss = (mu - y) ** 2 / variance + torch.log(variance)
         return torch.where(mask > 0, loss * mask, torch.zeros_like(loss))
 
     def forward(
@@ -195,7 +182,7 @@ class HeteroscedasticLoss(nn.Module):
                 output[:, 1, :] contains predicted log-scatter (ln_s).
             target: Target values of shape (batch_size, 3, n_parameters).
                 target[:, 0, :] contains true labels (y).
-                target[:, 1, :] contains label uncertainties (sigma_label).
+                target[:, 1, :] contains label errors (not used).
                 target[:, 2, :] contains mask (1=valid, 0=masked).
 
         Returns:
@@ -237,14 +224,14 @@ class HeteroscedasticLoss(nn.Module):
         Compute loss with detailed per-parameter and per-component breakdown.
 
         Returns both the total loss and a breakdown into:
-        - Mean component per parameter: (mu - y)² / variance
-        - Scatter component per parameter: log(variance)
+        - Mean component per parameter: (mu - y)² / s²
+        - Scatter component per parameter: log(s²)
 
         Args:
             output: Model predictions of shape (batch_size, 2, n_parameters).
             target: Target values of shape (batch_size, 3, n_parameters).
                 target[:, 0, :] contains true labels (y).
-                target[:, 1, :] contains label uncertainties (sigma_label).
+                target[:, 1, :] contains label errors (not used).
                 target[:, 2, :] contains mask (1=valid, 0=masked).
 
         Returns:
@@ -258,14 +245,14 @@ class HeteroscedasticLoss(nn.Module):
         """
         self._check_shapes(output, target)
         mu = output[:, 0, :]
-        y, sigma_label, mask = _safe_targets(mu, target)
+        y, mask = _safe_targets(mu, target)
 
         pred_scatter = predicted_scatter(output[:, 1, :], self.scatter_floor)
-        total_variance = sigma_label**2 + pred_scatter**2
+        variance = pred_scatter**2
 
         residuals = mu - y
-        mean_component = residuals**2 / total_variance  # (batch, n_params)
-        scatter_component = torch.log(total_variance)  # (batch, n_params)
+        mean_component = residuals**2 / variance  # (batch, n_params)
+        scatter_component = torch.log(variance)  # (batch, n_params)
 
         # Mask with torch.where so non-finite masked entries cannot leak NaN
         valid = mask > 0
@@ -333,7 +320,7 @@ class MaskedMSELoss(nn.Module):
                 f"Expected output (batch, 2, {self.n_parameters}) and target "
                 f"(batch, 3, {self.n_parameters}), got {output.shape} and {target.shape}"
             )
-        y, _, mask = _safe_targets(output[:, 0, :], target)
+        y, mask = _safe_targets(output[:, 0, :], target)
         sq = (output[:, 0, :] - y) ** 2
         return torch.where(mask > 0, sq * mask, torch.zeros_like(sq))
 

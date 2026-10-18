@@ -466,6 +466,13 @@ def cmd_info(args: argparse.Namespace) -> int:
                 print("  Architecture: MLP")
                 print(f"    Input features: {config.model.input_features}")
                 print(f"    Hidden layers: {list(config.model.hidden_layers)}")
+            model_config = config.multi_head_model or config.model
+            uncertainty = (
+                "label-aware"
+                if model_config.label_aware_uncertainty
+                else "additive, sigma_y^2 + s^2 (saved before label-aware uncertainty)"
+            )
+            print(f"  Uncertainty model: {uncertainty}")
             names = config.parameter_names
             print(f"  Parameters ({len(names)}): {', '.join(names)}")
             print(f"  Spectral normalization: {config.data.normalize_spectra}")
@@ -633,6 +640,9 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
             plots_dir = args.plots_dir or checkpoint_path / "plots" / "evaluation"
             n_plots = 0
+            # Label errors enter the z-scores of the additive model only, as
+            # in evaluate_model
+            additive = not ckpt.model.label_aware_uncertainty
             for source_name, head in results.items():
                 n_plots += len(
                     generate_evaluation_plots(
@@ -640,7 +650,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
                         head.y_pred,
                         head.y_true,
                         head.pred_scatter,
-                        head.y_err,
+                        head.y_err if additive else None,
                         head.mask,
                         head.parameter_names,
                         label_source=source_name,

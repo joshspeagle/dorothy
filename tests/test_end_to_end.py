@@ -143,6 +143,7 @@ class TestCLIEndToEnd:
         info = capsys.readouterr().out
         assert "MultiHeadMLP" in info and "galah" in info
         assert "Parameters (4)" in info
+        assert "Uncertainty model: label-aware" in info
 
     def test_saved_split_matches_recreated_split(self, tmp_path, catalogue):
         config_path = _config(tmp_path, catalogue, MULTI_SURVEYS, ["apogee"])

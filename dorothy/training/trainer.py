@@ -332,7 +332,17 @@ class Trainer:
             parameter_names: Names of stellar parameters being predicted.
                 If None, uses ``config.parameter_names`` (``data.parameter_names``
                 when set, otherwise the first n STELLAR_PARAMETERS).
+
+        Raises:
+            ValueError: If the model configuration sets label_aware_uncertainty
+                to false, or parameter_names does not match the model.
         """
+        section = "multi_head_model" if config.is_multi_head else "model"
+        if not getattr(config, section).label_aware_uncertainty:
+            raise ValueError(
+                f"{section}.label_aware_uncertainty must be true for training; "
+                "false only loads checkpoints saved before this option"
+            )
         self.config = config
         self.history = TrainingHistory()
 
@@ -932,9 +942,25 @@ class Trainer:
         }
         return X_batch, has_data_batch
 
-    def _forward(self, batch: Batch) -> dict[str, torch.Tensor]:
+    def _forward(
+        self, batch: Batch, label_errors: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, torch.Tensor]:
         """Model outputs (batch, 2, n_params) for every label source key."""
-        return forward_label_sources(self.model, batch, self.label_keys)
+        return forward_label_sources(self.model, batch, self.label_keys, label_errors)
+
+    def _label_errors(self, y: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Each head's label-error input: the errors of valid labels, else 0.
+
+        Whole stars get 0 (the missing vector) with probability
+        ``training.label_error_dropout``, drawn independently per head.
+        """
+        p = self.config.training.label_error_dropout
+        errors = {}
+        for key, target in y.items():
+            dropped = torch.rand(target.shape[0], 1, device=target.device) < p
+            keep = (target[:, 2, :] > 0) & ~dropped
+            errors[key] = torch.where(keep, target[:, 1, :], 0.0)
+        return errors
 
     def _combine_losses(
         self,
@@ -999,14 +1025,14 @@ class Trainer:
 
         The Evaluator selects each parameter's valid entries column by
         column, which is much faster on column-major copies. The values (and
-        their order) are unchanged.
+        their order) are unchanged. The z-scores divide by the predicted
+        scatter alone, which includes the label noise.
         """
         scatter = self._predicted_scatter(output)
         return {
             "y_pred": np.asfortranarray(output[:, 0, :].numpy()),
             "y_true": np.asfortranarray(target[:, 0, :].numpy()),
             "pred_scatter": None if scatter is None else np.asfortranarray(scatter),
-            "label_errors": np.asfortranarray(target[:, 1, :].numpy()),
             "mask": np.asfortranarray(target[:, 2, :].numpy()),
         }
 
@@ -1155,10 +1181,11 @@ class Trainer:
                 )
             if self._label_masking is not None:
                 batch.y = self._label_masking(batch.y)
+            label_errors = self._label_errors(batch.y)
 
             self.optimizer.zero_grad()
             with autocast(device_type=self.device.type, enabled=use_amp):
-                loss = self._combine_losses(self._forward(batch), batch.y)
+                loss = self._combine_losses(self._forward(batch, label_errors), batch.y)
 
             grad_norm = self._backward_and_step(loss, gradient_clip)
             total_grad_norm += grad_norm.to(acc_device).double()

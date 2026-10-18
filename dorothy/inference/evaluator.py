@@ -533,6 +533,10 @@ class Evaluator:
             y_true: Ground truth values of shape (n_samples, n_parameters).
             pred_scatter: Predicted scatter (s) from the model, shape (n_samples, n_parameters).
             label_errors: Label measurement errors (sigma_label), shape (n_samples, n_parameters).
+                With them, z-scores divide by sqrt(sigma_label^2 + s^2) instead
+                of s: pass them only for the additive model of checkpoints
+                saved before label-aware uncertainty, whose s excludes the
+                label noise.
             mask: Optional mask of shape (n_samples, n_parameters). Values of 1 indicate
                 valid labels, 0 indicates masked labels. When provided, only valid samples
                 contribute to metrics for each parameter.
@@ -952,9 +956,10 @@ class Evaluator:
         pred_unc_p84 = None
 
         if pred_scatter is not None:
-            # Total variance: sigma_label^2 + s^2. pred_scatter is the model's
-            # predicted scatter, which already includes the scatter floor
-            # (see dorothy.losses.predicted_scatter).
+            # Total variance: s^2, plus sigma_label^2 when label errors are
+            # given. pred_scatter is the model's predicted scatter, which
+            # already includes the scatter floor (see
+            # dorothy.losses.predicted_scatter).
             s_squared = pred_scatter**2
             total_var = (
                 label_errors**2 + s_squared if label_errors is not None else s_squared

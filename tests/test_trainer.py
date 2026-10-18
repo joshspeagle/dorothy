@@ -10,6 +10,7 @@ These tests verify:
 6. Early stopping behavior
 """
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from dorothy.config.schema import (
     TrainingConfig,
 )
 from dorothy.data.augmentation import DynamicInputMasking
+from dorothy.losses import predicted_scatter
 from dorothy.training.trainer import EVALUATOR_METRIC_NAMES, Trainer, TrainingHistory
 
 
@@ -1705,3 +1707,117 @@ class TestTrainerMultiLabelsetMixedOverlap:
         )
 
         assert all(np.isfinite(history.train_losses))
+
+
+class TestLabelAwareTraining:
+    """Training reads the label errors through the output layer."""
+
+    @pytest.mark.parametrize("multi_head", [False, True])
+    def test_training_rejects_the_additive_output_layer(
+        self, simple_config, multi_head
+    ):
+        if multi_head:
+            config = ExperimentConfig(
+                name="t",
+                data=DataConfig(
+                    catalogue_path=Path("/fake/catalogue.h5"), surveys=["boss", "desi"]
+                ),
+                multi_head_model={
+                    "survey_wavelengths": {"boss": 10, "desi": 20},
+                    "label_aware_uncertainty": False,
+                },
+            )
+            field = "multi_head_model.label_aware_uncertainty"
+        else:
+            config = simple_config
+            config.model.label_aware_uncertainty = False
+            field = "model.label_aware_uncertainty"
+        with pytest.raises(ValueError, match=f"^{re.escape(field)}"):
+            Trainer(config)
+
+    def test_masked_labels_get_the_missing_vector(self, simple_config):
+        """A masked label's error input is 0 (missing), whatever it stores."""
+        simple_config.training.label_error_dropout = 0.0
+        trainer = Trainer(simple_config)
+        target = torch.ones(2, 3, 3)
+        target[:, 1] = torch.tensor([0.1, 0.2, 0.3])
+        target[0, 1, 0], target[0, 2, 0] = float("nan"), 0.0  # masked NaN error
+        target[1, 2, 1] = 0.0  # masked positive error
+
+        errors = trainer._label_errors({"default": target})["default"]
+
+        assert torch.equal(errors, torch.tensor([[0.0, 0.2, 0.3], [0.1, 0.0, 0.3]]))
+
+    def test_whole_stars_lose_their_label_errors_per_head(self, simple_config):
+        """Each head drops a star's errors with probability label_error_dropout."""
+        simple_config.training.label_error_dropout = 0.3
+        trainer = Trainer(simple_config)
+        n = 4000
+        torch.manual_seed(0)
+        errors = trainer._label_errors(
+            {"a": torch.ones(n, 3, 3), "b": torch.ones(n, 3, 3)}
+        )
+
+        dropped = {}
+        for key, e in errors.items():
+            dropped[key] = (e == 0).all(dim=1)
+            assert torch.all(dropped[key] | (e == 1).all(dim=1))  # whole stars
+            # Binomial standard deviation: sqrt(0.3 * 0.7 / 4000) = 0.0072
+            assert abs(dropped[key].float().mean().item() - 0.3) < 4 * 0.0072
+        assert not torch.equal(dropped["a"], dropped["b"])
+
+    def test_missing_vector_recovers_the_true_label_noise(self):
+        """Labels with noise sigma_true reported as 2 sigma_true: s finds sigma_true.
+
+        The additive variance sigma_y^2 + s^2 of earlier versions can never
+        fall below the reported 2 sigma_true. Each spectrum is one of 4
+        noiseless templates with fixed labels, so the labels are an exactly
+        learnable function of the spectrum.
+        """
+        rng = np.random.default_rng(0)
+        n_stars, n_train, n_wave, sigma_true = 3000, 2400, 8, 0.1
+        templates = rng.normal(size=(4, n_wave)).astype(np.float32)
+        template_labels = rng.uniform(-1, 1, size=(4, 2)).astype(np.float32)
+        star = rng.integers(4, size=n_stars)
+        flux = templates[star]
+        X = np.stack([flux, np.full_like(flux, 0.1), np.ones_like(flux)], axis=1)
+        noise = rng.normal(scale=sigma_true, size=(n_stars, 2)).astype(np.float32)
+        values = template_labels[star] + noise
+        errors = np.full_like(values, 2 * sigma_true)
+        y = np.stack([values, errors, np.ones_like(values)], axis=1)
+        config = ExperimentConfig(
+            name="label_noise",
+            device="cpu",
+            data=DataConfig(catalogue_path=Path("/fake/catalogue.h5")),
+            model=ModelConfig(
+                input_features=3 * n_wave, output_features=4, hidden_layers=[16]
+            ),
+            training=TrainingConfig(
+                epochs=30,
+                batch_size=128,
+                learning_rate=3e-3,
+                scheduler=SchedulerConfig(max_lr=3e-3),
+            ),
+        )
+        trainer = Trainer(config)
+        # The labels are already in model units
+        trainer.fit(
+            X[:n_train], y[:n_train], X[n_train:], y[n_train:], normalize_labels=False
+        )
+
+        X_val = torch.from_numpy(X[n_train:])
+        with torch.no_grad():
+            missing = trainer.model(X_val)
+            reported = trainer.model(
+                X_val, label_errors=torch.from_numpy(errors[n_train:])
+            )
+        # Each template's s is fit to the residuals of about 600 training
+        # stars, so its relative standard error is 1/sqrt(2 * 600) = 2.9%; the
+        # tolerance is three of them. The model error, from estimating each
+        # template's labels from about 600 labels, is sigma_true / sqrt(600)
+        # = 0.04 sigma_true and raises the expected s by under 0.1%.
+        for output in (missing, reported):
+            s = predicted_scatter(output[:, 1], config.training.scatter_floor)
+            np.testing.assert_allclose(
+                np.median(s.numpy(), axis=0), sigma_true, rtol=0.09
+            )

@@ -209,7 +209,7 @@ class TestHeteroscedasticLossMathematics:
         mu = 2.0
         ln_s = 0.0  # exp(0) = 1, so s^2 = 1 + 0.01 ≈ 1.01
         y = 1.5
-        sigma_label = 0.5
+        sigma_label = 0.5  # not in the loss: the model reads the label errors
 
         # Output shape: (1, 2, 1)
         output = torch.tensor([[[mu], [ln_s]]])
@@ -220,8 +220,7 @@ class TestHeteroscedasticLossMathematics:
 
         # Manual calculation
         s_squared = math.exp(2 * ln_s) + scatter_floor**2
-        total_var = sigma_label**2 + s_squared
-        expected_loss = (mu - y) ** 2 / total_var + math.log(total_var)
+        expected_loss = (mu - y) ** 2 / s_squared + math.log(s_squared)
 
         assert abs(loss.item() - expected_loss) < 1e-5
 

@@ -1228,3 +1228,53 @@ class TestEvaluateMatchesPerParameterReference:
             ref = self._reference(pred[m, i], true[m, i], s[m, i], sigma[m, i])
             for key, value in ref.items():
                 np.testing.assert_array_equal(metrics[key], value, err_msg=key)
+
+
+@pytest.mark.parametrize("label_aware", [True, False], ids=["label_aware", "additive"])
+def test_evaluate_model_adds_label_errors_to_z_scores_only_for_additive_models(
+    label_aware,
+):
+    """z = (mu - y) / s for a label-aware model, / sqrt(sigma_y^2 + s^2) else."""
+    import torch
+
+    from dorothy.config.schema import ExperimentConfig
+    from dorothy.data.normalizer import LabelNormalizer
+    from dorothy.data.training_data import TrainingData
+    from dorothy.inference import evaluate_model
+    from dorothy.losses import predicted_scatter
+    from dorothy.models import MLP
+
+    rng = np.random.default_rng(0)
+    n, n_wave, names = 50, 10, ["logg", "fe_h"]
+    X = rng.normal(size=(n, 3, n_wave)).astype(np.float32)
+    values = rng.normal(size=(n, 2))
+    y = np.stack([values, np.full_like(values, 0.5), np.ones_like(values)], axis=1)
+    y = y.astype(np.float32)
+    config = ExperimentConfig(
+        name="t",
+        data={"catalogue_path": "a.h5", "parameter_names": names},
+        model={
+            "input_features": 3 * n_wave,
+            "hidden_layers": [8],
+            "label_aware_uncertainty": label_aware,
+        },
+    )
+    torch.manual_seed(0)
+    model = MLP.from_config(config.model).eval()
+    normalizer = LabelNormalizer(parameters=names).fit(values)
+    data = TrainingData("single_survey", ["apogee"], np.arange(n), X=X, y=y)
+
+    head = evaluate_model(model, normalizer, config, data, np.arange(n), device="cpu")
+
+    target = normalizer.transform_labels(y)
+    with torch.no_grad():
+        out = model(torch.from_numpy(X))
+    s = predicted_scatter(out[:, 1], 0.01).numpy()
+    total = s if label_aware else np.sqrt(s**2 + target[:, 1] ** 2)
+    z = (out[:, 0].numpy() - target[:, 0]) / total
+    for i, name in enumerate(names):
+        p16, p84 = np.percentile(z[:, i], [16, 84])
+        for result in (head["apogee"].normalized, head["apogee"].physical):
+            assert result.metrics[name].z_robust_scatter == pytest.approx(
+                (p84 - p16) / 2, rel=1e-4
+            )
