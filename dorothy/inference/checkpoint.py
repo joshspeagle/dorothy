@@ -6,8 +6,7 @@ model weights, ``config.yaml``, and (usually) ``normalizer.pkl``. The model is
 rebuilt from the saved config, so every architecture option (MLP or
 MultiHeadMLP, normalization, activation, label sources, per-head dropout)
 matches training. Directories with weights only fall back to inferring a
-plain MLP from the state dict, with the output layer of checkpoints saved
-before label-aware uncertainty.
+plain MLP, with an AdditiveOutput layer, from the state dict.
 """
 
 from __future__ import annotations
@@ -77,9 +76,7 @@ def infer_mlp_architecture(state_dict: dict[str, torch.Tensor]) -> dict:
 
     Recovers input/output sizes, hidden layer sizes (in layer order) and the
     normalization type. The activation cannot be inferred from weights and is
-    left at the MLP default. The state dict must come from an MLP with the
-    output layer of checkpoints saved before label-aware uncertainty; a
-    label-aware model is rebuilt from its config.
+    left at the MLP default.
 
     Args:
         state_dict: MLP state dict.

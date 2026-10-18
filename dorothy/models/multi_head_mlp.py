@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
-from dorothy.models.output import LabelAwareOutput
+from dorothy.models.output import output_layer
 from dorothy.models.utils import get_activation, get_normalization
 
 if TYPE_CHECKING:
@@ -211,8 +211,6 @@ class OutputHead(nn.Module):
 
     Attributes:
         n_parameters: Number of stellar parameters to predict.
-        label_aware_uncertainty: Whether the last layer is a LabelAwareOutput
-            (True) or the nn.Linear of checkpoints saved before this option.
     """
 
     def __init__(
@@ -234,17 +232,14 @@ class OutputHead(nn.Module):
             normalization: Normalization type.
             activation: Activation function.
             dropout: Dropout probability.
-            label_aware_uncertainty: Build a LabelAwareOutput as the last
-                layer (default). False builds the nn.Linear to
-                2 * n_parameters outputs of checkpoints saved before this
-                option, which takes no label errors.
+            label_aware_uncertainty: End in a LabelAwareOutput (default);
+                False ends in the AdditiveOutput of old checkpoints.
         """
         super().__init__()
 
         self.input_dim = input_dim
         self.n_parameters = n_parameters
         self.output_features = 2 * n_parameters
-        self.label_aware_uncertainty = label_aware_uncertainty
 
         if hidden_layers is None:
             hidden_layers = [64]
@@ -264,10 +259,9 @@ class OutputHead(nn.Module):
             prev_size = hidden_size
 
         # Final output layer (no norm or activation)
-        if label_aware_uncertainty:
-            layers.append(LabelAwareOutput(prev_size, n_parameters, activation))
-        else:
-            layers.append(nn.Linear(prev_size, self.output_features))
+        layers.append(
+            output_layer(prev_size, n_parameters, activation, label_aware_uncertainty)
+        )
 
         self.head = nn.Sequential(*layers)
 
@@ -292,14 +286,7 @@ class OutputHead(nn.Module):
             ValueError: If label_errors is given to a head built with
                 label_aware_uncertainty=False, or has the wrong shape.
         """
-        if label_errors is not None and not self.label_aware_uncertainty:
-            raise ValueError(
-                "label_errors needs a model built with label_aware_uncertainty=True"
-            )
-        h = self.head[:-1](x)
-        if self.label_aware_uncertainty:
-            return self.head[-1](h, label_errors)
-        return self.head[-1](h).view(h.shape[0], 2, self.n_parameters)
+        return self.head[-1](self.head[:-1](x), label_errors)
 
 
 class MultiHeadMLP(nn.Module):
@@ -321,7 +308,7 @@ class MultiHeadMLP(nn.Module):
         trunk: Shared trunk network.
         output_head: Output prediction head.
         label_aware_uncertainty: Whether the heads end in a LabelAwareOutput
-            (True) or the nn.Linear of checkpoints saved before this option.
+            (True) or an AdditiveOutput.
         encode_present_rows_only: With multi-survey input, run each encoder
             only on the rows that have that survey's data (default True).
             The rows without data are discarded either way, so this changes
@@ -385,8 +372,8 @@ class MultiHeadMLP(nn.Module):
             head_dropout: Optional per-label-source dropout for the output heads,
                 e.g. {"galah": 0.2}. Sources not listed use ``dropout``.
             label_aware_uncertainty: End every head in a LabelAwareOutput
-                (default). False builds the nn.Linear of checkpoints saved
-                before this option, which takes no label errors.
+                (default); False ends them in the AdditiveOutput of old
+                checkpoints.
 
         Raises:
             ValueError: If survey_configs is empty.

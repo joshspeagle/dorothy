@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
-from dorothy.models.output import LabelAwareOutput
+from dorothy.models.output import output_layer
 from dorothy.models.utils import get_activation, get_normalization
 
 if TYPE_CHECKING:
@@ -45,10 +45,9 @@ class MLP(nn.Module):
     - Dropout probability
 
     The network flattens 3D input tensors (batch, 3, wavelengths) to 2D
-    before processing through the hidden layers. The last layer, a
-    LabelAwareOutput, returns (batch, 2, n_params): the means, from the last
-    hidden layer alone, and the log-scatter, which also reads the reported
-    label errors.
+    before processing through the hidden layers. The last layer (see
+    LabelAwareOutput) returns (batch, 2, n_params): the means and the
+    log-scatter.
 
     Input format (3-channel):
         - Channel 0: flux values
@@ -61,7 +60,7 @@ class MLP(nn.Module):
         n_parameters: Number of stellar parameters being predicted.
         hidden_layers: List of hidden layer sizes.
         label_aware_uncertainty: Whether the last layer is a LabelAwareOutput
-            (True) or the nn.Linear of checkpoints saved before this option.
+            (True) or an AdditiveOutput.
         layers: The sequential container of all network layers.
 
     Examples:
@@ -102,10 +101,8 @@ class MLP(nn.Module):
                 - "relu": Rectified Linear Unit
                 - "silu": Sigmoid Linear Unit (Swish)
             dropout: Dropout probability. Default is 0.0 (no dropout).
-            label_aware_uncertainty: Build a LabelAwareOutput as the last
-                layer (default). False builds the nn.Linear to
-                output_features outputs of checkpoints saved before this
-                option, which takes no label errors.
+            label_aware_uncertainty: End in a LabelAwareOutput (default);
+                False ends in the AdditiveOutput of old checkpoints.
 
         Raises:
             ValueError: If normalization or activation type is invalid.
@@ -145,10 +142,11 @@ class MLP(nn.Module):
             prev_size = hidden_size
 
         # Output layer (no normalization or activation)
-        if label_aware_uncertainty:
-            layers.append(LabelAwareOutput(prev_size, self.n_parameters, activation))
-        else:
-            layers.append(nn.Linear(prev_size, output_features))
+        layers.append(
+            output_layer(
+                prev_size, self.n_parameters, activation, label_aware_uncertainty
+            )
+        )
 
         self.layers = nn.Sequential(*layers)
 
@@ -179,14 +177,7 @@ class MLP(nn.Module):
             ValueError: If label_errors is given to a model built with
                 label_aware_uncertainty=False, or has the wrong shape.
         """
-        if label_errors is not None and not self.label_aware_uncertainty:
-            raise ValueError(
-                "label_errors needs a model built with label_aware_uncertainty=True"
-            )
-        h = self.layers[:-1](x)
-        if self.label_aware_uncertainty:
-            return self.layers[-1](h, label_errors)
-        return self.layers[-1](h).view(h.shape[0], 2, self.n_parameters)
+        return self.layers[-1](self.layers[:-1](x), label_errors)
 
     def get_embeddings(self, x: torch.Tensor, layer_index: int = -2) -> torch.Tensor:
         """
