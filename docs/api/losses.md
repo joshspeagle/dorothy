@@ -1,3 +1,0 @@
-# Losses
-
-::: dorothy.losses.heteroscedastic

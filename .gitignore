@@ -97,5 +97,6 @@ nul
 
 # Claude AI files
 .claude/
-# MkDocs build output
-site/
+# Documentation build output and generated API pages
+docs/_build/
+docs/reference/generated/

@@ -56,15 +56,15 @@ Homepage = "https://github.com/joshspeagle/dorothy"
 Documentation = "https://joshspeagle.com/dorothy/"
 Repository = "https://github.com/joshspeagle/dorothy"
 
-# Documentation site tools (pip install --group docs; pip >= 25.1). Pinned:
-# MkDocs 1.x is frozen and Material caps it below 2.0.
+# Documentation tools (pip install --group docs; pip >= 25.1). The API
+# reference imports the package, so install it too (pip install -e .).
 [dependency-groups]
 docs = [
-    "mkdocs==1.6.1",
-    "mkdocs-material==9.7.7",
-    "mkdocstrings==1.0.7",
-    "mkdocstrings-python==2.0.9",
-    "griffe-pydantic==1.3.2",
+    "sphinx==9.1.0",
+    "furo==2025.12.19",
+    "myst-parser==5.1.0",
+    "sphinxcontrib-bibtex==2.7.0",
+    "sphinx-copybutton==0.5.2",
 ]
 
 [tool.setuptools.packages.find]

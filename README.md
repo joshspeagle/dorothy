@@ -41,7 +41,7 @@ multi-survey models with one or two label sources.
 ```bash
 python -m pytest tests/ -q
 black --check dorothy tests scripts examples && ruff check dorothy tests scripts examples
-pip install --group docs && mkdocs serve              # preview the documentation
+pip install --group docs && sphinx-build docs docs/_build/html   # build the documentation
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the project's conventions and

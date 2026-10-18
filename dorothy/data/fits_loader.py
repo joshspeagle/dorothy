@@ -205,9 +205,11 @@ def normalize_spectra(
     """
     Per-spectrum median/IQR normalization over valid pixels.
 
-    For each spectrum (row):
+    For each spectrum (row)::
+
         normalized_flux = (flux - median) / IQR
         scaled_ivar = IQR^2 * ivar
+
     where the median and IQR are computed over valid pixels only (finite flux,
     finite and positive ivar). Invalid pixels are returned with flux = 0 and
     ivar = 0, so downstream code that derives the pixel mask from ivar > 0

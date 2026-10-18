@@ -1,4 +1,4 @@
-# Line Spread Functions (LSF) for DOROTHY Surveys
+# Line spread functions
 
 This document describes the spectral resolution and line spread function (LSF) characteristics for each survey supported by DOROTHY. This information is essential for:
 
@@ -380,15 +380,8 @@ def resolution_matching_kernel(sigma_target, sigma_source):
 
 ---
 
-## Implementation Notes for DOROTHY
+## Practical notes
 
-### Planned Functionality
-
-1. **LSF Convolution Module**: Apply survey-specific LSF to model spectra
-2. **Resolution Matching**: Degrade high-resolution spectra to match survey resolution
-3. **Per-Spectrum LSF**: Load resolution matrices (DESI) or wdisp (BOSS) from data files
-
-### Key Considerations
 
 1. **LSF Shape**: Most fiber-fed spectrographs have approximately Gaussian LSFs, but real LSFs may have extended wings. The resolution matrix (DESI) or measured wdisp (BOSS) should be preferred when available.
 

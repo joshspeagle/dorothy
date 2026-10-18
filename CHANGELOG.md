@@ -24,7 +24,7 @@
   `dorothy evaluate` and the Python API.
 - `dorothy.inference.load_checkpoint` and `evaluate_model`.
 - `CatalogueLoader.load_spectrum` and `load_labels_for_index` load one star.
-- A documentation site built with MkDocs.
+- A documentation site (Sphinx), with background, methods, usage guides and an API reference.
 
 ### Fixed
 

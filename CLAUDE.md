@@ -8,7 +8,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 - `scripts/build_catalogue_v2.py`: builds the super-catalogue from the cross-matched FITS files in `data/raw_catalogues/`. `scripts/legacy/` holds the deprecated v1 pipeline.
 - `tests/`: the test suite. `tests/synthetic.py` writes small v2 catalogues (all four surveys, both label sources) for end-to-end tests.
 - `examples/`: training configurations (`variant*.yaml`) and saliency scripts.
-- `docs/`: the documentation site (MkDocs, `mkdocs.yml`), published to https://joshspeagle.com/dorothy/. `docs/dev/` holds development notes, which the site excludes.
+- `docs/`: the documentation site (Sphinx with the Furo theme, Markdown pages through MyST, `docs/conf.py`), published to https://joshspeagle.com/dorothy/. `docs/figures/` holds its SVG figures, `docs/references.bib` its bibliography; `docs/dev/` holds development notes, which the site excludes.
 - `CHANGELOG.md`: user-visible changes since the last release.
 - `d5martin/`: the original notebooks (gitignored).
 
@@ -17,7 +17,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 - Set up: `pip install -e ".[dev]"`. Docs tools: `pip install --group docs` (pip 25.1 or later).
 - Test: `python -m pytest tests/ -q`. `tests/test_masking_performance.py` asserts wall-clock times and can fail on a loaded machine.
 - Lint and format check: `black --check dorothy tests scripts examples && ruff check dorothy tests scripts examples`.
-- Docs: `mkdocs build --strict` (also checks docstrings), `mkdocs serve` to preview.
+- Docs: `sphinx-build -W --keep-going docs docs/_build/html`. Warnings are errors, so a malformed docstring fails the build.
 - CI runs the lint check and the tests on Python 3.10 to 3.12 for every push and pull request to `main`, and builds the docs; pushes to `main` deploy them.
 
 ## Plan
@@ -69,7 +69,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 ## Numerics and data
 
 - Each of these has one implementation, which training, evaluation and prediction share: data selection and splits (`load_training_data`), spectral preprocessing (`normalize_spectra`), label normalization (`LabelNormalizer.transform_labels`), the predicted scatter (`losses.predicted_scatter`) and the model forward pass per label source (`forward_label_sources`). Never reimplement one of them in a caller.
-- Formats: spectra `(N, 3, n_wavelengths)` = [flux, sigma, mask]; labels `(N, 3, n_parameters)` = [values, errors, mask]; model outputs `(N, 2, n_parameters)` = [mu, ln_s] in normalized units. `docs/training.md` defines them.
+- Formats: spectra `(N, 3, n_wavelengths)` = [flux, sigma, mask]; labels `(N, 3, n_parameters)` = [values, errors, mask]; model outputs `(N, 2, n_parameters)` = [mu, ln_s] in normalized units. `docs/methods/preprocessing.md` defines them.
 - Masked entries can hold any value, including NaN and infinity. Select with the mask (`torch.where`, boolean indexing) before arithmetic; never multiply by the mask.
 - Parameter names and their number come from the catalogue's `parameter_names` attribute. Never hard-code 11 parameters.
 - Randomness comes from the configured seed: `numpy.random.RandomState(seed)` for the split, seeded generators for augmentation and initialization.
@@ -88,7 +88,8 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 
 - A public module has a docstring that starts with a one-line summary. A public class, function or method has a Google-style docstring: a one-line summary, the equation it implements if any, `Args:` and `Returns:` with shapes and units, `Raises:` for errors a caller can handle, and the cost when it is not obvious.
 - Private code needs no docstring; give it one only when its contract is not obvious from its name and signature. A comment explains only a non-obvious why, such as a numerical subtlety.
-- Docs state only what the code does now. Each fact has one home: the user guide in `docs/` explains concepts and workflows, the API reference is generated from docstrings, and `README.md` is a short introduction that links to the site. Why a change was made goes in its commit, issue or pull request.
+- Docs state only what the code does now. Each fact has one home: the pages in `docs/` explain the background, the methods and how to use the code, the API reference is generated from docstrings, and `README.md` is a short introduction that links to the site. Why a change was made goes in its commit, issue or pull request.
+- A docs page that explains a method shows its equations and, where a picture helps, an SVG figure in `docs/figures/` drawn with `currentColor` so it follows the light and dark themes. Cite papers with `{cite:p}` and entries in `docs/references.bib`.
 - Configuration fields are documented once, in their `Field` descriptions in `dorothy/config/schema.py`.
 
 ## Measurements

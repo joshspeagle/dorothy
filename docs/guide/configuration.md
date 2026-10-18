@@ -1,9 +1,10 @@
 # Configuration
 
 An experiment is one YAML file, loaded into
-[`ExperimentConfig`][dorothy.config.schema.ExperimentConfig]. The
-[configuration reference](api/config.md) lists every field with its type,
-default and allowed range. This page explains how the sections fit together.
+{py:class}`~dorothy.config.schema.ExperimentConfig`. The
+{py:mod}`configuration reference <dorothy.config.schema>` lists every field
+with its type, default and allowed range. This page explains how the sections
+fit together.
 
 ```yaml
 name: multi_survey_experiment
@@ -78,13 +79,13 @@ The files `examples/variant*.yaml` cover the supported setups:
     train/validation split. `max_flag_bits: 0` keeps only stars without any
     flagged parameter; `-1` keeps every unflagged label and masks the
     flagged ones individually. `normalize_spectra` applies the per-spectrum
-    flux normalization (see [Training](training.md#spectra)).
+    flux normalization (see [Preprocessing](../methods/preprocessing.md#spectra)).
 
 `model` or `multi_head_model`
 :   `model` is a plain MLP for one survey and one label source.
     `multi_head_model` is required for several surveys or label sources: one
     encoder per survey, a shared trunk and one output head per label source
-    (see [Training](training.md#models)). A single-survey configuration can
+    (see [Models](../methods/models.md)). A single-survey configuration can
     also use `multi_head_model`.
 
 `training`
@@ -96,4 +97,4 @@ The files `examples/variant*.yaml` cover the supported setups:
 `label_masking`, `input_masking`
 :   Training-time augmentation that randomly hides labels, label sources,
     spectral blocks and whole surveys (see
-    [Training](training.md#augmentation)).
+    [Training](../methods/training.md#augmentation)).

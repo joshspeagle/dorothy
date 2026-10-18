@@ -1537,10 +1537,9 @@ class Trainer:
                 which samples have data from that survey.
 
         Returns:
-            Dict mapping label source names to prediction arrays.
-            Each array has shape (n_samples, 2, n_params) where:
-                - [:, 0, :] contains predicted means
-                - [:, 1, :] contains predicted log-scatter
+            Dict mapping label source names to prediction arrays of shape
+            (n_samples, 2, n_params): predicted means in ``[:, 0, :]`` and
+            predicted log-scatter in ``[:, 1, :]``.
 
         Raises:
             TypeError: If model is not a MultiHeadMLP with multi-label support.
