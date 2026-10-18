@@ -7,10 +7,8 @@ followed by a normalization (`layernorm` {cite:p}`ba2016layernorm` or
 `(2, n_parameters)` per star: the predicted value μ and the log-scatter ln s
 of every parameter, in {term}`normalized units`.
 
-The last layer of both is a {py:class}`~dorothy.models.output.LabelAwareOutput`:
-μ is a linear function of the last hidden layer, and ln s comes from a small
-network that also reads the reported label errors, or the learned
-{term}`missing vector` without them
+The last layer of both is a {py:class}`~dorothy.models.output.LabelAwareOutput`,
+whose ln s also reads the reported label errors
 ([Scatter and label errors](training.md#scatter-and-label-errors)).
 
 ## MLP

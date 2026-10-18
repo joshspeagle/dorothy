@@ -42,9 +42,7 @@ mask
 
 missing vector
   The learned input of a head's log-scatter that stands in for a missing
-  label error. Masked labels and a random fraction of stars get it in
-  training; validation, evaluation and prediction always use it. See
-  [Training](../methods/training.md#scatter-and-label-errors).
+  label error. See [Training](../methods/training.md#scatter-and-label-errors).
 
 ivar
   The inverse variance of a flux measurement, 1/σ². A pixel with ivar = 0
