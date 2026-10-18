@@ -28,6 +28,8 @@
   predict, for each parameter. It needs no trained model.
   `plot_label_differences` plots the differences against Teff and [Fe/H].
 - `CatalogueLoader.load_spectrum` and `load_labels_for_index` load one star.
+  `CatalogueLoader.load_labels` loads one label source for every star,
+  matched by Gaia ID.
 - A documentation site (Sphinx), with background, methods, usage guides and an API reference.
 - The Dorothy logo in the README and on the documentation site.
 
