@@ -7,8 +7,9 @@ stellar parameters along with their uncertainties.
 
 Default architecture (DOROTHY standard):
     Input: (batch, 3, wavelengths) -> Flatten -> (batch, 3*wavelengths)
-    Hidden: 3*wavelengths -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100
-    Output: LabelAwareOutput, 100 -> (batch, 2, 11)
+    Hidden: 3*wavelengths -> 5000 -> 2000 -> 1000 -> 500 -> 200
+    Output: LabelAwareOutput, 200 -> (batch, 2, 11), with the layer of 100
+    in each of its two decoders
 
 Input tensor has shape (batch, 3, wavelengths) where:
     - input[:, 0, :] contains the flux values

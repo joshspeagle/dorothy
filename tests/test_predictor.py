@@ -282,7 +282,7 @@ class TestPredictorEmbeddings:
 
         embeddings = predictor.get_embeddings(simple_input)
 
-        # Should be (n_samples, last_hidden_dim)
+        # The input of the decoders, which take over the last hidden layer
         assert embeddings.shape[0] == 50
         assert embeddings.shape[1] > 0
 

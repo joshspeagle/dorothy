@@ -169,6 +169,12 @@
 
 ### Behaviour changes
 
+- The default embedding of a newly trained MLP
+  (`MLP.get_embeddings`, and so `AnomalyDetector`) is the input of its two
+  decoders, which take over the last hidden layer: the layer before it, for
+  example 256 values instead of 64 for `examples/variant1_boss_apogee.yaml`.
+  Old checkpoints keep the last hidden layer. Embeddings are always flat, so
+  `layer_index=-1` gives (batch, 2 n_parameters).
 - `load_merged_sparse` computes σ = 1/√ivar once, with the numpy code of the
   other loading paths, and sparse batches copy it. Before, each batch
   computed σ with `torch.sqrt`, which is not exactly rounded on the CPU, so σ

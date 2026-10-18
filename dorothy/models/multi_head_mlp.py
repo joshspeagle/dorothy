@@ -555,7 +555,10 @@ class MultiHeadMLP(nn.Module):
             Predictions of shape (batch, 2, n_parameters).
 
         Raises:
-            ValueError: If label_errors is given to a model built with
+            KeyError: If survey is not in the model's encoders.
+            ValueError: If x is a single tensor without survey on a
+                multi-survey model, or a dict without any of the model's
+                surveys; or if label_errors is given to a model built with
                 label_aware_uncertainty=False, or has the wrong shape.
         """
         return self.output_head(self._trunk_features(x, survey, has_data), label_errors)
@@ -620,8 +623,10 @@ class MultiHeadMLP(nn.Module):
 
         Raises:
             KeyError: If label_errors names a label source the model has no
-                head for.
-            ValueError: If label_errors is given to a model built with
+                head for, or survey is not in the model's encoders.
+            ValueError: If x is a single tensor without survey on a
+                multi-survey model, or a dict without any of the model's
+                surveys; or if label_errors is given to a model built with
                 label_aware_uncertainty=False, or has the wrong shape.
         """
         label_errors = label_errors or {}
