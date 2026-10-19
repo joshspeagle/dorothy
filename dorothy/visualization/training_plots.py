@@ -1,12 +1,8 @@
-"""
-Training visualization and report generation for DOROTHY.
+"""Plots of a training run, drawn from a ``TrainingHistory``.
 
-Generates comprehensive plots after training including:
-- Loss curves (train/val)
-- Grokking metrics (gradient norms, weight updates)
-- Per-parameter performance metrics
-- Z-score calibration histograms
-- Prediction vs truth scatter plots
+Each ``plot_*`` function writes one PNG into a directory and returns its path,
+or None when matplotlib is not installed or the history lacks the data.
+``generate_training_report`` calls them all.
 """
 
 from pathlib import Path
@@ -20,7 +16,7 @@ if TYPE_CHECKING:
     from dorothy.training.trainer import TrainingHistory
 
 
-# Display names for the standard 11 parameters
+# Display names of the standard parameters
 PARAM_DISPLAY_NAMES = [parameter_display_name(p) for p in STELLAR_PARAMETERS]
 
 
@@ -105,16 +101,20 @@ def plot_loss_curves(
     output_path: Path,
     title: str = "Training Progress",
 ) -> Path | None:
-    """
-    Plot training and validation loss curves.
+    """Plot the loss curves and the learning rate schedule.
+
+    The left panel shows the training and validation loss, the β-NLL warm-up
+    and the best epoch. The right panel shows the learning rate per epoch, or
+    per step when the history has one value per step.
 
     Args:
-        history: TrainingHistory object with loss data.
-        output_path: Directory to save the plot.
-        title: Plot title.
+        history: Training history with ``train_losses``.
+        output_path: Directory of the plot, written as ``loss_curves.png``.
+        title: Figure title.
 
     Returns:
-        Path to saved plot, or None if matplotlib unavailable.
+        Path of the plot, or None if matplotlib is missing or ``train_losses``
+        is empty.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -201,15 +201,17 @@ def plot_loss_components(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot per-parameter loss breakdown (mean vs scatter components).
+    """Plot the mean and scatter loss components per epoch.
+
+    Shows the first 6 parameters.
 
     Args:
-        history: TrainingHistory object with loss breakdown.
-        output_path: Directory to save the plot.
+        history: Training history with ``val_loss_breakdown``.
+        output_path: Directory of the plot, written as ``loss_components.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the breakdown
+        is empty or not of shape (n_epochs, n_params).
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -314,18 +316,20 @@ def plot_grokking_metrics(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot grokking-related metrics: gradient norms, weight norms, weight updates.
+    """Plot the gradient norm, weight norms and weight updates per epoch.
 
-    For multi-head models, weight norms and updates are grouped by component
-    (encoders, trunk, output heads) for better interpretability.
+    The weight panels show the mean over the layers of each component
+    (encoders per survey, trunk, output heads, plain layers). They appear only
+    when the history has ``weight_norms`` or ``weight_updates``.
 
     Args:
-        history: TrainingHistory object.
-        output_path: Directory to save the plot.
+        history: Training history with ``grad_norms``.
+        output_path: Directory of the plot, written as
+            ``grokking_metrics.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or ``grad_norms``
+        is empty.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -474,20 +478,20 @@ def plot_val_metrics(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot validation metrics per parameter (RMSE, Robust SD, Bias, MAE).
+    """Plot the validation RMSE, robust scatter, bias and MAE per parameter.
 
     The metrics are those of the best epoch, whose weights best_model.pth
-    holds. All metrics are in normalized space:
-    - Labels are standardized: (value - median) / IQR
-    - Teff is log10-transformed before standardization
+    holds, in normalized units: (value - median) / IQR, with Teff in log10.
+    Without ``robust_scatter`` the scatter panel shows ``sd``. Bias is
+    predicted minus true.
 
     Args:
-        history: TrainingHistory object with val_metrics.
-        output_path: Directory to save the plot.
+        history: Training history with ``val_metrics``.
+        output_path: Directory of the plot, written as ``val_metrics.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or ``rmse`` is
+        empty.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -615,18 +619,20 @@ def plot_zscore_calibration(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot z-score distribution to check uncertainty calibration.
+    """Plot the median and robust scatter of the z-scores per parameter.
 
-    Well-calibrated uncertainties should give z-scores ~ N(0, 1). The
-    z-scores are those of the best epoch, whose weights best_model.pth holds.
+    Calibrated uncertainties give z-scores with median 0 and robust scatter 1.
+    The values are those of the best epoch, whose weights best_model.pth holds.
 
     Args:
-        history: TrainingHistory object with val_metrics containing z-scores.
-        output_path: Directory to save the plot.
+        history: Training history with ``z_median`` and ``z_robust_scatter``
+            in ``val_metrics``.
+        output_path: Directory of the plot, written as
+            ``zscore_calibration.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or either metric
+        is empty.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -700,15 +706,19 @@ def plot_metrics_evolution(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot evolution of key metrics over training epochs.
+    """Plot the validation RMSE and z-score scatter per epoch.
+
+    Shows the first 3 parameters. Without z-score scatter for every epoch, the
+    right panel shows the validation loss.
 
     Args:
-        history: TrainingHistory object.
-        output_path: Directory to save the plot.
+        history: Training history with ``val_metrics``.
+        output_path: Directory of the plot, written as
+            ``metrics_evolution.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or ``rmse`` has
+        fewer than 2 epochs.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -782,19 +792,19 @@ def plot_per_survey_loss_curves(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot per-survey validation loss curves and relative performance.
+    """Plot the validation loss of each survey, absolute and relative.
 
-    For multi-survey training, shows:
-    - Left: Per-survey loss curves with overall loss for reference
-    - Right: Relative loss (survey loss / overall loss) to show survey difficulty
+    The left panel shows the loss of each survey and the overall loss. The
+    right panel shows the survey loss divided by the overall loss.
 
     Args:
-        history: TrainingHistory object with per_survey_val_losses.
-        output_path: Directory to save the plot.
+        history: Training history with ``per_survey_val_losses``.
+        output_path: Directory of the plot, written as
+            ``per_survey_loss_curves.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the history has
+        no per-survey losses.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -878,18 +888,19 @@ def plot_per_survey_metrics(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot the best epoch's validation metrics grouped by survey.
+    """Plot the validation metrics of each survey at the best epoch.
 
-    Creates a 2x2 grid of grouped bar charts comparing RMSE, Scatter, Bias, and MAE
-    across surveys for each parameter (matching the layout of val_metrics).
+    The 2x2 grid of grouped bars shows the RMSE, robust scatter, bias and MAE
+    per parameter, as in ``plot_val_metrics``, for the first 6 parameters.
 
     Args:
-        history: TrainingHistory object with per_survey_val_metrics.
-        output_path: Directory to save the plot.
+        history: Training history with ``per_survey_val_metrics``.
+        output_path: Directory of the plot, written as
+            ``per_survey_metrics.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the first
+        survey has no ``rmse``.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -1035,18 +1046,18 @@ def plot_per_survey_metrics_evolution(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot evolution of per-survey RMSE over training epochs for key parameters.
+    """Plot the validation RMSE of each survey per epoch.
 
-    Creates subplots for a few key parameters (Teff, logg, [Fe/H]) showing
-    how each survey's RMSE evolves over training.
+    One panel per parameter, for the first 3 parameters.
 
     Args:
-        history: TrainingHistory object with per_survey_val_metrics.
-        output_path: Directory to save the plot.
+        history: Training history with ``per_survey_val_metrics``.
+        output_path: Directory of the plot, written as
+            ``per_survey_metrics_evolution.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the first
+        survey has fewer than 2 epochs of ``rmse``.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -1118,19 +1129,19 @@ def plot_per_labelset_loss_curves(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot per-labelset validation loss curves and relative performance.
+    """Plot the validation loss of each label source, absolute and relative.
 
-    For multi-labelset training (multiple output heads), shows:
-    - Left: Per-labelset loss curves with overall loss for reference
-    - Right: Relative loss (labelset loss / overall loss) to show head difficulty
+    The left panel shows the loss of each output head and the overall loss.
+    The right panel shows the head loss divided by the overall loss.
 
     Args:
-        history: TrainingHistory object with per_labelset_val_losses.
-        output_path: Directory to save the plot.
+        history: Training history with ``per_labelset_val_losses``.
+        output_path: Directory of the plot, written as
+            ``per_labelset_loss_curves.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the history has
+        no per-label-source losses.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -1216,18 +1227,19 @@ def plot_per_labelset_metrics(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot the best epoch's validation metrics grouped by labelset (output head).
+    """Plot the validation metrics of each label source at the best epoch.
 
-    Creates a 2x2 grid of grouped bar charts comparing RMSE, Scatter, Bias, and MAE
-    across labelsets for each parameter (matching the layout of val_metrics).
+    The 2x2 grid of grouped bars shows the RMSE, robust scatter, bias and MAE
+    per parameter, as in ``plot_val_metrics``, for the first 6 parameters.
 
     Args:
-        history: TrainingHistory object with per_labelset_val_metrics.
-        output_path: Directory to save the plot.
+        history: Training history with ``per_labelset_val_metrics``.
+        output_path: Directory of the plot, written as
+            ``per_labelset_metrics.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the first label
+        source has no ``rmse``.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -1373,18 +1385,18 @@ def plot_per_labelset_metrics_evolution(
     history: "TrainingHistory",
     output_path: Path,
 ) -> Path | None:
-    """
-    Plot evolution of per-labelset RMSE over training epochs for key parameters.
+    """Plot the validation RMSE of each label source per epoch.
 
-    Creates subplots for a few key parameters (Teff, logg, [Fe/H]) showing
-    how each labelset's RMSE evolves over training.
+    One panel per parameter, for the first 3 parameters.
 
     Args:
-        history: TrainingHistory object with per_labelset_val_metrics.
-        output_path: Directory to save the plot.
+        history: Training history with ``per_labelset_val_metrics``.
+        output_path: Directory of the plot, written as
+            ``per_labelset_metrics_evolution.png``.
 
     Returns:
-        Path to saved plot, or None if data unavailable.
+        Path of the plot, or None if matplotlib is missing or the first label
+        source has fewer than 2 epochs of ``rmse``.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -1457,16 +1469,20 @@ def generate_training_report(
     output_dir: Path,
     experiment_name: str = "training",
 ) -> list[Path]:
-    """
-    Generate comprehensive training report with multiple plots.
+    """Write every training plot that the history supports.
+
+    The per-survey plots need ``survey_names`` and ``per_survey_val_losses``.
+    The per-label-source plots need ``label_source_names`` and
+    ``per_labelset_val_losses``. A plot that raises is skipped with a printed
+    warning.
 
     Args:
-        history: TrainingHistory object from training.
-        output_dir: Directory to save plots.
-        experiment_name: Name for the report title.
+        history: Training history.
+        output_dir: Directory of the plots, created if missing.
+        experiment_name: Used in the title of the loss curves.
 
     Returns:
-        List of paths to generated plots.
+        Paths of the plots written.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
