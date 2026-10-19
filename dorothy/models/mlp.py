@@ -91,7 +91,7 @@ class MLP(nn.Module):
 
         Args:
             input_features: Number of input features (channels * wavelength_bins).
-                Default is 15300 (2 channels * 7650 wavelengths).
+                Default is 15300 (3 channels * 5100 wavelengths).
             output_features: Number of output features. Should be 2 * n_parameters
                 to output both predictions and uncertainties. Default is 22.
             hidden_layers: List of hidden layer sizes. Default is the DOROTHY
