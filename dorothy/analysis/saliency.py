@@ -1,10 +1,11 @@
-"""
-Gradient-based saliency analysis for stellar parameter predictions.
+"""Gradient and ablation saliency of the predictions to the input spectrum.
 
-This module provides tools for computing and visualizing how sensitive
-model predictions are to changes in the input spectrum. It uses the
-Jacobian of the model outputs with respect to inputs and aggregates
-gradients using Fisher information weighting.
+``SaliencyAnalyzer`` takes the Jacobian of the predicted means and scatters
+with respect to the input and weights it by the Fisher information.
+``AblationSaliencyAnalyzer`` masks blocks of the spectrum and measures the
+change of the predictions. Both analyse one spectrum, as the model sees it
+(preprocessed, in normalized units), with the first output head of a
+``MultiHeadMLP`` and no label errors.
 
 Examples:
     >>> from dorothy.inference import Predictor
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from dorothy.data.normalizer import LabelNormalizer
 
 
-# Default parameter names (the standard 11; prefer passing the model's names)
+# Standard parameter names; prefer passing the catalogue's names
 DEFAULT_PARAMETER_NAMES = list(STELLAR_PARAMETERS)
 
 
@@ -54,31 +55,38 @@ def _default_parameter_names(model: nn.Module) -> list[str]:
 
 @dataclass
 class SaliencyResult:
-    """Container for saliency analysis results.
+    """Result of ``SaliencyAnalyzer.compute_saliency``.
+
+    Predictions, scatters and Jacobians are in normalized units, with the
+    input as the model sees it. The Jacobians and the Fisher importance are
+    zero at masked pixels.
 
     Attributes:
-        survey: Name of the survey this spectrum is from.
-        wavelength: Wavelength grid of shape (N,).
-        spectrum: Flux values of shape (N,).
-        spectrum_error: The error channel of the input, shape (N,): the
-            precision encoding ρ, or σ for checkpoints saved before it.
-        mask: Boolean mask of shape (N,) where True = valid, False = masked.
-        jacobian_mean_flux: Gradient of means w.r.t. flux, shape (n_params, N).
-        jacobian_mean_error: Gradient of means w.r.t. the error channel, shape
+        survey: Survey of the spectrum, "unknown" if not given.
+        wavelength: Wavelength grid in Å, shape (N,).
+        spectrum: Flux channel of the input, shape (N,).
+        spectrum_error: Error channel of the input, shape (N,): the precision
+            encoding ρ when ``data.precision_encoding`` is set, else σ.
+        mask: True where the pixel is valid, shape (N,).
+        jacobian_mean_flux: Gradient of the predicted means w.r.t. flux, shape
             (n_params, N).
+        jacobian_mean_error: Gradient of the means w.r.t. the error channel,
+            shape (n_params, N).
         jacobian_sigma_flux: Gradient of the predicted scatter σ w.r.t. flux,
             shape (n_params, N). σ is ``losses.predicted_scatter``, so the
             gradient is zero where ln s is clamped.
         jacobian_sigma_error: Gradient of σ w.r.t. the error channel, shape
             (n_params, N).
-        predictions: Predicted means of shape (n_params,).
-        uncertainties: Predicted uncertainties (sigma) of shape (n_params,).
-        fisher_importance_per_param: Per-parameter Fisher importance, shape (n_params, N).
-        fisher_importance: Total Fisher importance, shape (N,).
-        parameter_names: List of parameter names.
-        gaia_id: Optional Gaia DR3 source ID.
-        ra: Optional right ascension in degrees.
-        dec: Optional declination in degrees.
+        predictions: Predicted means, shape (n_params,).
+        uncertainties: Predicted scatters σ, shape (n_params,).
+        fisher_importance_per_param: Fisher importance of each parameter,
+            shape (n_params, N).
+        fisher_importance: Sum of ``fisher_importance_per_param`` over the
+            parameters, shape (N,).
+        parameter_names: Parameter names, length n_params.
+        gaia_id: Gaia DR3 source ID, if given.
+        ra: Right ascension in degrees, if given.
+        dec: Declination in degrees, if given.
     """
 
     survey: str
@@ -109,16 +117,16 @@ class SaliencyResult:
     dec: float | None = None
 
     def get_param_index(self, param_name: str) -> int:
-        """Get the index of a parameter by name.
+        """Index of a parameter in the parameter arrays.
 
         Args:
-            param_name: Parameter name (e.g., "teff", "fe_h").
+            param_name: Parameter name, such as "teff".
 
         Returns:
-            Index into the parameter arrays.
+            The index.
 
         Raises:
-            ValueError: If parameter name is not found.
+            ValueError: If ``param_name`` is not in ``parameter_names``.
         """
         try:
             return self.parameter_names.index(param_name)
@@ -131,44 +139,44 @@ class SaliencyResult:
 
 @dataclass
 class AblationSaliencyResult:
-    """Container for ablation-based saliency analysis results.
+    """Result of ``AblationSaliencyAnalyzer.compute_saliency``.
 
-    Ablation saliency computes importance by masking contiguous blocks
-    of the spectrum and measuring the change in predictions. Unlike
-    gradient-based saliency, ablation affects both flux and error
-    channels identically.
+    A block of the spectrum is ablated by setting its pixels to zero in the
+    flux, error and mask channels. The value at a pixel is the mean over the
+    ablated blocks that cover it, and zero at masked pixels. Ablation changes
+    flux and error together, so the result has no separate maps for them.
 
-    Sign convention (matches gradient saliency): delta_mu and delta_sigma are SIGNED.
-    - Positive delta_mu = ablating INCREASED the prediction (region was suppressing it)
-    - Negative delta_mu = ablating DECREASED the prediction (region was boosting it)
-    This matches gradient saliency where positive gradient means the input
-    positively correlates with the output.
+    The changes are signed like gradients. A positive ``delta_mu`` means that
+    ablating the region raised the prediction, so the region was lowering it.
+    Predictions and scatters are in normalized units.
 
     Attributes:
-        survey: Name of the survey this spectrum is from.
-        wavelength: Wavelength grid of shape (N,).
-        spectrum: Flux values of shape (N,).
-        spectrum_error: The error channel of the input, shape (N,): the
-            precision encoding ρ, or σ for checkpoints saved before it.
-        mask: Boolean mask of shape (N,) where True = valid, False = masked.
-        block_size: Block size used for ablation, or with the training
-            distribution one size per grid point (repeats included); the maps
-            are then the mean over these sizes.
-        delta_mu: Per-parameter signed change in mean (μ_ablated - μ₀), shape (n_params, N).
-            Positive = region suppressed prediction; negative = region boosted it.
-        delta_mu_total: Sum of signed changes across parameters, shape (N,).
-        delta_sigma: Per-parameter signed change in scatter (σ_ablated - σ₀), shape (n_params, N).
-            Positive = region decreased uncertainty; negative = region increased it.
-        delta_sigma_total: Sum of signed scatter changes across parameters, shape (N,).
-        fisher_weighted: Per-parameter Fisher-weighted change
-            ((Δμ)² + 2 (Δσ)²) / σ₀² (unsigned), shape (n_params, N).
-        fisher_weighted_total: Total Fisher metric, shape (N,).
-        predictions: Baseline predicted means of shape (n_params,).
-        uncertainties: Baseline predicted uncertainties (sigma) of shape (n_params,).
-        parameter_names: List of parameter names.
-        gaia_id: Optional Gaia DR3 source ID.
-        ra: Optional right ascension in degrees.
-        dec: Optional declination in degrees.
+        survey: Survey of the spectrum, "unknown" if not given.
+        wavelength: Wavelength grid in Å, shape (N,).
+        spectrum: Flux channel of the input, shape (N,).
+        spectrum_error: Error channel of the input, shape (N,): the precision
+            encoding ρ when ``data.precision_encoding`` is set, else σ.
+        mask: True where the pixel is valid, shape (N,).
+        block_size: Block size in pixels. With the training distribution, the
+            list of block sizes, one per grid point and with repeats; the maps
+            are the mean over them.
+        delta_mu: Change of the predicted mean, μ_ablated - μ₀, shape
+            (n_params, N).
+        delta_mu_total: Sum of ``delta_mu`` over the parameters, shape (N,).
+        delta_sigma: Change of the predicted scatter, σ_ablated - σ₀, shape
+            (n_params, N). Positive means that the region lowered σ.
+        delta_sigma_total: Sum of ``delta_sigma`` over the parameters, shape
+            (N,).
+        fisher_weighted: ((Δμ)² + 2 (Δσ)²) / σ₀², unsigned, shape
+            (n_params, N).
+        fisher_weighted_total: Sum of ``fisher_weighted`` over the parameters,
+            shape (N,).
+        predictions: Baseline predicted means μ₀, shape (n_params,).
+        uncertainties: Baseline predicted scatters σ₀, shape (n_params,).
+        parameter_names: Parameter names, length n_params.
+        gaia_id: Gaia DR3 source ID, if given.
+        ra: Right ascension in degrees, if given.
+        dec: Declination in degrees, if given.
     """
 
     survey: str
@@ -204,16 +212,16 @@ class AblationSaliencyResult:
     dec: float | None = None
 
     def get_param_index(self, param_name: str) -> int:
-        """Get the index of a parameter by name.
+        """Index of a parameter in the parameter arrays.
 
         Args:
-            param_name: Parameter name (e.g., "teff", "fe_h").
+            param_name: Parameter name, such as "teff".
 
         Returns:
-            Index into the parameter arrays.
+            The index.
 
         Raises:
-            ValueError: If parameter name is not found.
+            ValueError: If ``param_name`` is not in ``parameter_names``.
         """
         try:
             return self.parameter_names.index(param_name)
@@ -225,19 +233,24 @@ class AblationSaliencyResult:
 
 
 class SaliencyAnalyzer:
-    """Compute gradient-based saliency maps for stellar parameter predictions.
+    """Gradient saliency of the predictions to the input spectrum.
 
-    This analyzer computes the Jacobian of model outputs with respect to
-    input spectra, showing how sensitive predictions are to each wavelength.
+    The Jacobian holds the derivatives of the predicted means μ_p and
+    scatters σ_p with respect to the flux and error channels. The Fisher
+    information of N(μ, σ²) is 1/σ² for μ and 2/σ² for σ, so the importance
+    of pixel i for parameter p is
 
-    The Fisher information metric is used to aggregate gradients across
-    output dimensions, weighting by prediction uncertainty.
+        I_p(i) = [(∂μ_p/∂flux_i)² + (∂μ_p/∂err_i)²
+                  + 2 (∂σ_p/∂flux_i)² + 2 (∂σ_p/∂err_i)²] / σ_p².
+
+    The model uses the first output head of a ``MultiHeadMLP``, without label
+    errors.
 
     Attributes:
-        model: The neural network model.
-        device: Device for computation.
-        scatter_floor: Floor for uncertainty computation.
-        parameter_names: Names of the stellar parameters.
+        model: The model, on ``device`` and in eval mode.
+        device: Device of the computation.
+        scatter_floor: Scatter floor s_0 of ``losses.predicted_scatter``.
+        parameter_names: Parameter names.
     """
 
     def __init__(
@@ -247,14 +260,15 @@ class SaliencyAnalyzer:
         scatter_floor: float = 0.01,
         parameter_names: list[str] | None = None,
     ) -> None:
-        """Initialize the saliency analyzer.
+        """Move the model to the device and set it to eval mode.
 
         Args:
-            model: Trained MultiHeadMLP or MLP model.
-            device: Device for computation ("auto", "cuda", "cpu").
-            scatter_floor: Floor for uncertainty computation (default 0.01).
-            parameter_names: Names for the stellar parameters.
-                Default: standard names, sized to the model's outputs.
+            model: Trained ``MLP`` or ``MultiHeadMLP``. It is moved in place.
+            device: Device string as in ``dorothy.utils.resolve_device``.
+            scatter_floor: Scatter floor s_0 of the model's training
+                (``training.scatter_floor``).
+            parameter_names: Parameter names, one per model output. The
+                default is the standard names, sized to the model's outputs.
         """
         self.model = model
         self.scatter_floor = scatter_floor
@@ -275,19 +289,24 @@ class SaliencyAnalyzer:
         ra: float | None = None,
         dec: float | None = None,
     ) -> SaliencyResult:
-        """Compute saliency map for a single sample.
+        """Compute the saliency of one spectrum.
+
+        One forward pass and one batched backward pass over the 2 * n_params
+        outputs.
 
         Args:
-            X: Input spectrum of shape (3, N_wavelengths) - [flux, error, mask].
-                Masked pixels may hold any value, including NaN.
-            wavelength: Wavelength array of shape (N,).
-            survey: Survey name (required for MultiHeadMLP).
-            gaia_id: Optional Gaia DR3 source ID for metadata.
-            ra: Optional right ascension in degrees.
-            dec: Optional declination in degrees.
+            X: Model input, shape (3, N): [flux, error, mask], with the
+                preprocessing of training. A pixel is valid where the mask is
+                above 0.5; masked pixels may hold any value, including NaN.
+            wavelength: Wavelength in Å, shape (N,).
+            survey: Survey of the spectrum, required for a ``MultiHeadMLP``
+                with several surveys.
+            gaia_id: Gaia DR3 source ID, stored in the result.
+            ra: Right ascension in degrees, stored in the result.
+            dec: Declination in degrees, stored in the result.
 
         Returns:
-            SaliencyResult with Jacobians and Fisher importance.
+            The Jacobians, predictions and Fisher importance.
         """
         # Ensure X is on device
         X = X.to(self.device)
@@ -658,29 +677,30 @@ class _InputLayerShortcut:
 
 
 class AblationSaliencyAnalyzer:
-    """Compute ablation-based saliency maps for stellar parameter predictions.
+    """Ablation saliency of the predictions to the input spectrum.
 
-    This analyzer uses sliding window ablation - masking a contiguous block
-    and shifting one pixel at a time to compute per-pixel importance scores.
+    A window of ``block_size`` pixels slides over the spectrum in steps of one
+    pixel. Each window is zeroed in the flux, error and mask channels. Three
+    maps follow:
 
-    Three metrics are computed:
+    1. Delta-mu: the signed change of the predicted means.
+    2. Delta-sigma: the signed change of the predicted scatters.
+    3. Fisher-weighted: ((delta_mu)^2 + 2 (delta_sigma)^2) / sigma_0^2, the
+       Fisher quadratic form of N(mu, sigma^2) that gradient saliency uses.
 
-    1. Delta-mu: Signed change in predicted parameters when region is ablated
-    2. Delta-sigma: Signed change in predicted scatter
-    3. Fisher-weighted: ((delta_mu)^2 + 2*(delta_sigma)^2)/sigma_0^2, the
-       Fisher quadratic form of N(mu, sigma^2) that gradient saliency uses,
-       with finite changes
+    The model uses the first output head of a ``MultiHeadMLP``, without label
+    errors.
 
     When the spectrum reaches the output only through the model's first
     nn.Linear layer, the analyzer temporarily replaces that layer's forward
     method during a run. Do not call the model from another thread meanwhile.
 
     Attributes:
-        model: The neural network model.
-        device: Device for computation.
-        scatter_floor: Floor for uncertainty computation.
-        parameter_names: Names of the stellar parameters.
-        batch_size: Number of ablated versions to process at once.
+        model: The model, on ``device`` and in eval mode.
+        device: Device of the computation.
+        scatter_floor: Scatter floor s_0 of ``losses.predicted_scatter``.
+        parameter_names: Parameter names.
+        batch_size: Number of ablated spectra per forward pass.
     """
 
     def __init__(
@@ -691,14 +711,16 @@ class AblationSaliencyAnalyzer:
         parameter_names: list[str] | None = None,
         batch_size: int = 64,
     ) -> None:
-        """Initialize the ablation saliency analyzer.
+        """Move the model to the device and set it to eval mode.
 
         Args:
-            model: Trained MultiHeadMLP or MLP model.
-            device: Device for computation ("auto", "cuda", "cpu").
-            scatter_floor: Floor for uncertainty computation (default 0.01).
-            parameter_names: Names for the stellar parameters.
-            batch_size: Number of ablated versions to process at once for GPU efficiency.
+            model: Trained ``MLP`` or ``MultiHeadMLP``. It is moved in place.
+            device: Device string as in ``dorothy.utils.resolve_device``.
+            scatter_floor: Scatter floor s_0 of the model's training
+                (``training.scatter_floor``).
+            parameter_names: Parameter names, one per model output. The
+                default is the standard names, sized to the model's outputs.
+            batch_size: Number of ablated spectra per forward pass.
         """
         self.model = model
         self.scatter_floor = scatter_floor
@@ -725,27 +747,37 @@ class AblationSaliencyAnalyzer:
         ra: float | None = None,
         dec: float | None = None,
     ) -> AblationSaliencyResult:
-        """Compute ablation-based saliency map for a single sample.
+        """Compute the ablation saliency of one spectrum.
+
+        Each block size needs N - block_size + 1 forward passes, in batches
+        of ``batch_size``.
 
         Args:
-            X: Input spectrum of shape (3, N_wavelengths) - [flux, error, mask].
-                Masked pixels may hold any value, including NaN.
-            wavelength: Wavelength array of shape (N,).
-            survey: Survey name (required for MultiHeadMLP).
-            block_size: Fixed block size for ablation. If None, uses 5 pixels.
-            use_training_distribution: If True, ignore block_size and average
-                the maps of n_block_sizes block sizes ceil(N * f), with f
-                evenly spaced in log f from f_min to f_max (the log-uniform
-                sizes of training's input masking), each with equal weight.
-            n_block_sizes: Number of block sizes when using training distribution.
-            f_min: Minimum block fraction (default: 1/N_wavelengths).
-            f_max: Maximum block fraction when using training distribution.
-            gaia_id: Optional Gaia DR3 source ID for metadata.
-            ra: Optional right ascension in degrees.
-            dec: Optional declination in degrees.
+            X: Model input, shape (3, N): [flux, error, mask], with the
+                preprocessing of training. A pixel is valid where the mask is
+                above 0.5; masked pixels may hold any value, including NaN.
+            wavelength: Wavelength in Å, shape (N,).
+            survey: Survey of the spectrum, required for a ``MultiHeadMLP``
+                with several surveys.
+            block_size: Block size in pixels; None means 5. A block longer
+                than N gives zero maps.
+            use_training_distribution: If True, ignore ``block_size`` and
+                average the maps of ``n_block_sizes`` block sizes ceil(N * f),
+                with f evenly spaced in log f from ``f_min`` to ``f_max``
+                (the log-uniform sizes of the training input masking), each
+                with equal weight.
+            n_block_sizes: Number of block sizes with the training
+                distribution.
+            f_min: Smallest block fraction f with the training distribution;
+                None means 1/N.
+            f_max: Largest block fraction f with the training distribution.
+            gaia_id: Gaia DR3 source ID, stored in the result.
+            ra: Right ascension in degrees, stored in the result.
+            dec: Declination in degrees, stored in the result.
 
         Returns:
-            AblationSaliencyResult with per-pixel importance scores.
+            The per-pixel changes of the predictions and the Fisher-weighted
+            importance.
         """
         # Ensure X is on device
         X = X.to(self.device)
@@ -1095,31 +1127,31 @@ def plot_parameter_saliency(
     label_values: NDArray[np.float32] | None = None,
     label_errors: NDArray[np.float32] | None = None,
 ) -> Figure:
-    """Plot saliency map for a single stellar parameter.
+    """Plot the gradient saliency of one parameter along the spectrum.
 
-    Creates a 3-panel figure (vertically stacked), each panel containing:
-    - Main subplot: flux spectrum colored by gradient
-    - Smaller subplot below: error spectrum colored by gradient
-    - Masked wavelengths are grayed out
-
-    Panels:
-    1. Mean sensitivity (∂μ/∂x)
-    2. Scatter sensitivity (∂σ/∂x)
-    3. Fisher importance for this parameter
+    Three stacked panels show the sensitivity of the mean (∂μ/∂x), the
+    sensitivity of the scatter (∂σ/∂x) and the Fisher importance of the
+    parameter. Each panel has the flux spectrum above the error spectrum,
+    coloured by the panel's quantity at each pixel. Masked wavelengths are
+    grey. The colour scales span the 99th percentile of the valid pixels.
 
     Args:
-        result: SaliencyResult from compute_saliency().
-        param_name: Which parameter to visualize (e.g., "teff", "fe_h").
-        output_path: If provided, save figure to this path.
-        figsize: Figure size (width, height).
-        cmap: Colormap for gradient panels (diverging, red=negative, blue=positive).
-        cmap_fisher: Colormap for Fisher importance (sequential).
-        normalizer: Optional LabelNormalizer to show denormalized predictions.
-        label_values: Optional ground truth label values (physical units), shape (n_params,).
-        label_errors: Optional ground truth label errors (physical units), shape (n_params,).
+        result: Result of ``SaliencyAnalyzer.compute_saliency``.
+        param_name: Parameter to plot, such as "teff".
+        output_path: File to save the figure to; None saves nothing.
+        figsize: Figure size (width, height) in inches.
+        cmap: Colormap of the sensitivity panels (red is negative, blue
+            positive for the default).
+        cmap_fisher: Colormap of the Fisher panel.
+        normalizer: If given, the title shows the prediction in physical
+            units; otherwise in normalized units.
+        label_values: Catalogue labels in physical units, shape (n_params,),
+            shown in the title.
+        label_errors: Label errors in physical units, shape (n_params,), shown
+            with ``label_values``.
 
     Returns:
-        Matplotlib Figure.
+        The Matplotlib figure. The caller closes it.
 
     Raises:
         ValueError: If param_name is unknown or result.mask has no valid pixel.
@@ -1352,31 +1384,25 @@ def plot_saliency_heatmap(
     cmap_gradient: str = "RdBu",
     cmap_fisher: str = "Purples",
 ) -> Figure:
-    """Plot heatmap of gradients: wavelength × parameter.
+    """Plot the gradient saliency of all parameters as heatmaps.
 
-    Creates a 3-panel figure:
-    1. Mean sensitivity heatmap (∂μ/∂x) - normalized per component
-    2. Scatter sensitivity heatmap (∂σ/∂x) - normalized per component
-    3. Fisher importance heatmap - sequential colormap
-
-    Each heatmap has:
-    - Y-axis: parameters × 2 rows (flux gradient row, error gradient row)
-    - X-axis: wavelength
-    - Masked wavelengths are blocked out (grayed columns)
-    - Horizontal black lines between each parameter group
-
-    For gradient panels, each component (2 rows: flux + error) is normalized
-    to [-1, 1] to show relative importance within each parameter.
+    Three stacked panels show ∂μ/∂x, ∂σ/∂x and the Fisher importance. Each has
+    two rows per parameter (flux and error channel) and one column per pixel.
+    Masked wavelengths are grey. Each parameter's two rows are divided by their
+    largest absolute value over the valid pixels: the sensitivity panels
+    span [-1, 1] and the Fisher panel [0, 1]. The Fisher rows of a parameter
+    are the flux and error terms of its importance.
 
     Args:
-        result: SaliencyResult from compute_saliency().
-        output_path: If provided, save figure to this path.
-        figsize: Figure size (width, height).
-        cmap_gradient: Colormap for gradient panels (diverging, red=negative, blue=positive).
-        cmap_fisher: Colormap for Fisher importance (sequential).
+        result: Result of ``SaliencyAnalyzer.compute_saliency``.
+        output_path: File to save the figure to; None saves nothing.
+        figsize: Figure size (width, height) in inches.
+        cmap_gradient: Colormap of the sensitivity panels (red is negative,
+            blue positive for the default).
+        cmap_fisher: Colormap of the Fisher panel.
 
     Returns:
-        Matplotlib Figure with 3 heatmap panels.
+        The Matplotlib figure. The caller closes it.
 
     Raises:
         ValueError: If result.mask has no valid pixel.
@@ -1587,30 +1613,30 @@ def plot_ablation_parameter_saliency(
     label_values: NDArray[np.float32] | None = None,
     label_errors: NDArray[np.float32] | None = None,
 ) -> Figure:
-    """Plot ablation-based saliency map for a single stellar parameter.
+    """Plot the ablation saliency of one parameter along the spectrum.
 
-    Creates a 3-panel figure matching the gradient saliency layout. Since ablation
-    affects both flux and error channels identically, both spectrum lines within
-    each panel show the same importance coloring.
-
-    Panels (matching gradient saliency structure):
-    1. Mean Sensitivity Δμ - signed change in mean prediction (positive = boosted)
-    2. Scatter Sensitivity Δσ - signed change in scatter prediction
-    3. Fisher Importance - uncertainty-weighted metric for this parameter
+    The layout is that of ``plot_parameter_saliency``. The three panels show
+    Δμ, Δσ and the Fisher-weighted change of the parameter. Ablation changes
+    flux and error together, so the flux and error spectra of a panel have the
+    same colours. A positive Δμ means that ablating the region raised the
+    prediction.
 
     Args:
-        result: AblationSaliencyResult from compute_saliency().
-        param_name: Which parameter to visualize (e.g., "teff", "fe_h").
-        output_path: If provided, save figure to this path.
-        figsize: Figure size (width, height).
-        cmap: Colormap for signed panels (diverging, default "RdBu").
-        cmap_fisher: Colormap for Fisher importance (sequential, default "Purples").
-        normalizer: Optional LabelNormalizer to show denormalized predictions.
-        label_values: Optional ground truth label values (physical units), shape (n_params,).
-        label_errors: Optional ground truth label errors (physical units), shape (n_params,).
+        result: Result of ``AblationSaliencyAnalyzer.compute_saliency``.
+        param_name: Parameter to plot, such as "teff".
+        output_path: File to save the figure to; None saves nothing.
+        figsize: Figure size (width, height) in inches.
+        cmap: Colormap of the signed panels.
+        cmap_fisher: Colormap of the Fisher panel.
+        normalizer: If given, the title shows the prediction in physical
+            units; otherwise in normalized units.
+        label_values: Catalogue labels in physical units, shape (n_params,),
+            shown in the title.
+        label_errors: Label errors in physical units, shape (n_params,), shown
+            with ``label_values``.
 
     Returns:
-        Matplotlib Figure.
+        The Matplotlib figure. The caller closes it.
 
     Raises:
         ValueError: If param_name is unknown or result.mask has no valid pixel.
@@ -1844,31 +1870,23 @@ def plot_ablation_saliency_heatmap(
     cmap_signed: str = "RdBu",
     cmap_fisher: str = "Purples",
 ) -> Figure:
-    """Plot heatmap of ablation importance: wavelength × parameter.
+    """Plot the ablation saliency of all parameters as heatmaps.
 
-    Creates a 3-panel figure matching the gradient saliency heatmap structure:
-    1. Mean sensitivity heatmap Δμ - signed, normalized per parameter
-    2. Scatter sensitivity heatmap Δσ - signed, normalized per parameter
-    3. Fisher importance heatmap - non-negative, normalized per parameter
-
-    Each heatmap has:
-    - Y-axis: parameters × 2 rows (flux row, error row) - identical since ablation affects both
-    - X-axis: wavelength
-    - Masked wavelengths are blocked out (grayed columns)
-    - Horizontal black lines between each parameter group
-
-    Note: Unlike gradient saliency, ablation affects flux and error identically,
-    so both rows within each parameter show the same importance values.
+    The layout is that of ``plot_saliency_heatmap``. The three panels show Δμ,
+    Δσ and the Fisher-weighted change. Ablation changes flux and error
+    together, so the two rows of a parameter are equal. Each parameter is
+    divided by its largest absolute value over the valid pixels: the signed
+    panels span [-1, 1] and the Fisher panel [0, 1].
 
     Args:
-        result: AblationSaliencyResult from compute_saliency().
-        output_path: If provided, save figure to this path.
-        figsize: Figure size (width, height).
-        cmap_signed: Colormap for signed panels (diverging, default "RdBu").
-        cmap_fisher: Colormap for Fisher importance (sequential, default "Purples").
+        result: Result of ``AblationSaliencyAnalyzer.compute_saliency``.
+        output_path: File to save the figure to; None saves nothing.
+        figsize: Figure size (width, height) in inches.
+        cmap_signed: Colormap of the signed panels.
+        cmap_fisher: Colormap of the Fisher panel.
 
     Returns:
-        Matplotlib Figure with 3 heatmap panels.
+        The Matplotlib figure. The caller closes it.
 
     Raises:
         ValueError: If result.mask has no valid pixel.
