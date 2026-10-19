@@ -134,6 +134,16 @@ def plot_loss_curves(
     if len(history.val_losses) == n_epochs:
         ax.plot(epochs, history.val_losses, label="Validation", alpha=0.8)
 
+    # Epoch e covers e - 0.5 to e + 0.5, so the warm-up starts at 0.5
+    if history.nll_warmup_epochs > 0:
+        ax.axvspan(
+            0.5,
+            0.5 + history.nll_warmup_epochs,
+            color="gray",
+            alpha=0.2,
+            label="β-NLL warm-up",
+        )
+
     # Mark best epoch (best_epoch is 0-indexed, display as 1-indexed)
     if history.best_epoch is not None and history.best_epoch < n_epochs:
         best_epoch_display = history.best_epoch + 1
