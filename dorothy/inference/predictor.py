@@ -1,11 +1,7 @@
-"""
-Stellar parameter prediction from trained DOROTHY models.
+"""Predict stellar parameters and uncertainties with trained DOROTHY models.
 
-This module provides inference capabilities for trained models, including:
-- Loading trained model checkpoints
-- Chunk-based prediction for memory efficiency with large datasets
-- Denormalization of predictions to physical units
-- Calibrated uncertainties from heteroscedastic outputs
+:class:`Predictor` loads a checkpoint, predicts in chunks, denormalizes to
+physical units and applies the calibration factors to the predicted scatter.
 
 Examples:
     >>> predictor = Predictor.load("path/to/checkpoint")
@@ -46,12 +42,14 @@ class PredictionResult:
 
     Attributes:
         predictions: Predicted stellar parameters of shape (n_samples, n_params).
-        uncertainties: Predicted uncertainties of shape (n_samples, n_params).
+        uncertainties: Predicted scatter, scaled by the calibration factors
+            if ``calibrated``, of shape (n_samples, n_params).
         raw_output: Raw model output of shape (n_samples, 2, n_params) where
             raw_output[:, 0, :] contains predicted means and
             raw_output[:, 1, :] contains predicted log-scatter.
         parameter_names: List of parameter names in order.
-        is_normalized: Whether predictions are in normalized space.
+        is_normalized: Whether predictions and uncertainties are in normalized
+            units (False: physical units).
         calibrated: Whether the uncertainties are scaled by calibration
             factors.
     """
@@ -74,7 +72,12 @@ class PredictionResult:
         return self.predictions.shape[1]
 
     def to_dict(self) -> dict[str, NDArray[np.float32]]:
-        """Convert to dictionary mapping parameter names to values."""
+        """Convert to columns by parameter name.
+
+        Returns:
+            Dict with ``<name>`` (prediction) and ``<name>_err`` (uncertainty)
+            for each parameter, each of shape (n_samples,).
+        """
         result = {}
         for i, name in enumerate(self.parameter_names):
             result[name] = self.predictions[:, i]
@@ -138,7 +141,8 @@ class Predictor:
             normalizer: Label normalizer for denormalization.
             device: Device for inference ("auto", "cpu", "cuda", "mps" or
                 torch.device).
-            parameter_names: Names of parameters in prediction order.
+            parameter_names: Names of parameters in prediction order. None uses
+                the normalizer's names, else the first ``STELLAR_PARAMETERS``.
             scatter_floor: Scatter floor (s_0) the model was trained with.
             survey: For a MultiHeadMLP, the survey of single-array inputs.
             label_source: For a MultiHeadMLP, which output head to use
@@ -146,6 +150,10 @@ class Predictor:
             calibration: Calibration factor per parameter name of that head,
                 which scales the predicted scatter; None reports the raw
                 scatter.
+
+        Raises:
+            ValueError: If survey or label_source is not one of the model's,
+                or is set for an MLP.
         """
         self.model = model
         self.normalizer = normalizer
@@ -198,9 +206,8 @@ class Predictor:
         """
         Load a predictor from a checkpoint directory.
 
-        The model is rebuilt from the checkpoint's ``config.yaml`` (MLP or
-        MultiHeadMLP with the trained normalization/activation); checkpoints
-        without a config fall back to inferring an MLP from the weights.
+        See :func:`~dorothy.inference.checkpoint.load_checkpoint` for how the
+        model is rebuilt.
 
         Args:
             checkpoint_path: Path to checkpoint directory.
@@ -216,9 +223,10 @@ class Predictor:
             Configured Predictor instance.
 
         Raises:
-            FileNotFoundError: If required files are not found.
+            FileNotFoundError: If the weights file does not exist.
             ValueError: If a checkpoint without config.yaml holds a model with
-                label-aware uncertainty.
+                label-aware uncertainty, or survey or label_source is invalid
+                for the model.
         """
         ckpt = load_checkpoint(checkpoint_path, model_file, normalizer_file, device)
         calibration = None
@@ -252,7 +260,10 @@ class Predictor:
             checkpoint_path: Path to checkpoint (uses config default if None).
 
         Returns:
-            Configured Predictor instance.
+            Configured Predictor instance, on ``config.device``.
+
+        Raises:
+            FileNotFoundError: If the weights file does not exist.
         """
         if checkpoint_path is None:
             checkpoint_path = config.get_checkpoint_path()
@@ -303,7 +314,8 @@ class Predictor:
             X: Input spectra of shape (n_samples, 3, n_wavelengths), or for a
                 MultiHeadMLP a dict mapping survey names to such arrays.
             batch_size: Batch size for inference.
-            denormalize: Whether to denormalize predictions.
+            denormalize: Convert predictions and uncertainties to physical
+                units. Without a normalizer they stay normalized.
             has_data: For dict inputs, survey name -> (n_samples,) bool array
                 of which stars have that survey (default: all).
 
@@ -311,6 +323,10 @@ class Predictor:
             PredictionResult containing predictions and uncertainties: the
             predicted scatter, times the calibration factors if the predictor
             has them.
+
+        Raises:
+            ValueError: If the calibration factors do not cover the parameter
+                names.
         """
 
         def as_tensor(a):
@@ -444,6 +460,10 @@ class Predictor:
 
         Returns:
             Embeddings array of shape (n_samples, embedding_dim).
+
+        Raises:
+            ValueError: If the model is a MultiHeadMLP with several surveys
+                and ``survey`` is not set.
         """
         if isinstance(X, np.ndarray):
             X = torch.as_tensor(X, dtype=torch.float32)
@@ -481,10 +501,11 @@ def predict_from_fits(
     """
     Predict stellar parameters for every spectrum in a FITS file.
 
-    Spectra are preprocessed exactly as in training: per-spectrum flux
-    normalization when the checkpoint's ``data.normalize_spectra`` is set,
-    the 3-channel [flux, sigma, mask] input format, and the precision
-    encoding of sigma when ``data.precision_encoding`` is set.
+    Spectra are preprocessed as in training: per-spectrum flux normalization
+    when the checkpoint's ``data.normalize_spectra`` is set, the 3-channel
+    input format, and the precision encoding of sigma when
+    ``data.precision_encoding`` is set. Without a config.yaml, spectra are
+    normalized and not encoded.
 
     Args:
         fits_path: Path to input FITS file (SPECTRA / SPEC_IVAR extensions).
@@ -506,7 +527,8 @@ def predict_from_fits(
         PredictionResult if output_path is None, otherwise None.
 
     Raises:
-        ValueError: If the spectra don't match the model's wavelength grid.
+        ValueError: If the spectra do not match the model's wavelength grid,
+            or the model has several surveys and survey is not set.
     """
     from dorothy.data import FITSLoader, encode_precision
 
