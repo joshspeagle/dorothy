@@ -1261,7 +1261,7 @@ class Trainer:
         labelset_losses, labelset_metrics = {}, {}
         if len(keys) > 1:
             for k in keys:
-                has_labels = targets[k][:, 2, :].sum() > 0
+                has_labels = (targets[k][:, 2, :] > 0).any()
                 labelset_losses[k] = (
                     self.loss_fn(outputs[k], targets[k]).item()
                     if has_labels

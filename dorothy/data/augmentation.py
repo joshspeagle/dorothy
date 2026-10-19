@@ -195,7 +195,7 @@ class DynamicLabelMasking:
         )
         for i, name in enumerate(labelsets):
             mask = y_dict[name][:, 2, :]  # (batch, n_params)
-            labelset_available[:, i] = mask.any(dim=1)  # Has at least one valid label
+            labelset_available[:, i] = (mask > 0).any(dim=1)
 
         # Check if any samples have available labelsets
         any_labelset_available = labelset_available.any(dim=1)  # (batch,)

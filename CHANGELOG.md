@@ -85,6 +85,10 @@
 - The catalogue loaders raised h5py's `KeyError`, not `ValueError`, for a
   catalogue without a `labels` group.
 - `ReduceLROnPlateau` crashed in every multi-survey training mode.
+- Every reader of a label mask now treats entries > 0 as valid.
+  `LabelNormalizer.fit`, `Evaluator.evaluate` and the evaluation plots
+  counted negative and NaN entries as valid. The loaders write masks of 0
+  and 1, so results on catalogue data do not change.
 - Masked labels could produce NaN losses (for example log10(0) for a masked
   Teff with `max_flag_bits: -1`).
 - Sparse multi-label validation selected the best epoch from the APOGEE head

@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from dorothy.data.normalizer import LabelNormalizer, ParameterStats
+from dorothy.inference.evaluator import Evaluator
 
 
 class TestParameterStats:
@@ -562,3 +563,21 @@ class TestLabelNormalizerMasking:
         assert normalizer.stats["teff"].log_median == pytest.approx(
             expected_log_median, rel=0.01
         )
+
+
+def test_only_label_mask_entries_above_zero_are_valid():
+    """Mask entries -1, NaN and 0 are invalid; 0.5 and 1 are valid."""
+    mask = np.array([-1.0, np.nan, 0.0, 0.5, 1.0])[:, None]
+    values = np.array([np.nan, np.nan, np.nan, 1.0, 3.0])[:, None]
+
+    normalizer = LabelNormalizer(parameters=["logg"]).fit(values, mask=mask)
+    assert normalizer.stats["logg"].median == 2.0
+
+    labels = np.stack([values, np.ones_like(values), mask], axis=1)
+    np.testing.assert_array_equal(normalizer.transform_labels(labels)[:3, :2], 0.0)
+
+    result = Evaluator(parameter_names=["logg"]).evaluate(
+        values + 1.0, values, mask=mask
+    )
+    assert result.metrics["logg"].n_samples == 2
+    assert result.metrics["logg"].bias == 1.0
