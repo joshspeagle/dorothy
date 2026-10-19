@@ -1,10 +1,11 @@
-"""
-Test-set evaluation plots for DOROTHY.
+"""Test-set evaluation plots.
 
 All functions take arrays in physical units, shaped (n_samples, n_params):
 predictions, true labels, predicted model scatter, label errors and a validity
 mask (1 = label valid). Grids are sized to the number of parameters, and axis
-ranges default to robust percentiles of the data.
+ranges default to percentiles of the data. A plot function
+writes a PNG into a directory and returns its path, or None when matplotlib is
+not installed.
 
 Adapted from evaluation plots by Diego (d5martin).
 """
@@ -121,7 +122,10 @@ def plot_pred_vs_truth(
         filename: Output file name.
 
     Returns:
-        Path to the saved plot, or None if matplotlib is unavailable.
+        Path of the plot, or None if matplotlib is missing.
+
+    Raises:
+        ValueError: If the arrays differ in shape.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -184,7 +188,10 @@ def plot_residuals(
         filename: Output file name.
 
     Returns:
-        Path to the saved plot, or None if matplotlib is unavailable.
+        Path of the plot, or None if matplotlib is missing.
+
+    Raises:
+        ValueError: If the arrays differ in shape.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -264,7 +271,10 @@ def plot_histograms(
         filename: Output file name.
 
     Returns:
-        Path to the saved plot, or None if matplotlib is unavailable.
+        Path of the plot, or None if matplotlib is missing.
+
+    Raises:
+        ValueError: If the arrays differ in shape.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -306,17 +316,18 @@ def plot_zscore_histograms(
 ) -> Path | None:
     """Per-parameter z-score histograms against a unit Gaussian.
 
-    z = (predicted - true) / sqrt(pred_unc^2 + label_err^2), as in the
-    Evaluator. Each panel reports the median and robust scatter
-    ((p84 - p16) / 2); a calibrated parameter has median ~0 and scatter ~1.
-    Scatter > 1 means overconfident, < 1 underconfident.
+    z = (predicted - true) / sqrt(pred_unc^2 + label_err^2), as in
+    ``Evaluator``. Each panel reports the median and the robust scatter
+    (P84 - P16) / 2. A calibrated parameter has median 0 and scatter 1.
+    Scatter above 1 means overconfident, below 1 underconfident. Values
+    outside [-z_max, z_max] fall in the end bins.
 
     Args:
         output_path: Directory to save the plot.
         preds: Predicted values, shape (n_samples, n_params).
         true: True label values, same shape.
-        pred_unc: Predicted model scatter (including the scatter floor).
-        label_err: Label measurement errors, or None to use pred_unc only.
+        pred_unc: Predicted model scatter, same shape.
+        label_err: Label errors, same shape, or None to use pred_unc only.
         mask: Label validity mask (1 = valid), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in the title.
@@ -324,7 +335,10 @@ def plot_zscore_histograms(
         filename: Output file name.
 
     Returns:
-        Path to the saved plot, or None if matplotlib is unavailable.
+        Path of the plot, or None if matplotlib is missing.
+
+    Raises:
+        ValueError: If the arrays differ in shape.
     """
     plt = _try_import_matplotlib()
     if plt is None:
@@ -383,12 +397,29 @@ def generate_evaluation_plots(
     label_source: str | None = None,
     ranges: dict[str, Range] | None = None,
 ) -> list[Path]:
-    """Generate all evaluation plots for one label source.
+    """Write the four evaluation plots for one label source.
 
-    Files are prefixed with the label source name when one is given.
+    The files are ``pred_vs_truth.png``, ``residuals.png``,
+    ``histograms.png`` and ``zscore_histograms.png``, each prefixed with
+    ``<label_source>_`` when a label source is given.
+
+    Args:
+        output_dir: Directory of the plots, created if missing.
+        preds: Predicted values, shape (n_samples, n_params).
+        true: True label values, same shape.
+        pred_unc: Predicted model scatter, same shape.
+        label_err: Label errors, same shape, or None to use pred_unc only.
+        mask: Label validity mask (1 = valid), same shape.
+        parameter_names: Parameter names (length n_params).
+        label_source: Label source name, used in titles and file names.
+        ranges: Optional per-parameter (min, max) ranges for the first three
+            plots, keyed by name.
 
     Returns:
-        Paths of the plots that were written.
+        Paths of the plots written; empty if matplotlib is missing.
+
+    Raises:
+        ValueError: If the arrays differ in shape.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
