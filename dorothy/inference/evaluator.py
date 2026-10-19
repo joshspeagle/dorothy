@@ -1033,7 +1033,8 @@ def evaluate_predictions(
         mask: Optional mask, same shape; nonzero entries are valid labels.
 
     Returns:
-        EvaluationResult with per-parameter metrics, including "log_teff".
+        EvaluationResult with per-parameter metrics, plus "log_teff" when
+        a valid "teff" sample exists.
 
     Raises:
         ValueError: As :meth:`Evaluator.evaluate`.
