@@ -114,32 +114,14 @@ class DataConfig(_ConfigModel):
     Loads data from the super-catalogue HDF5 file which contains multiple
     surveys with cross-matched labels from APOGEE and/or GALAH.
 
-    Attributes:
-        catalogue_path: Path to HDF5 super-catalogue.
-        surveys: List of input surveys to load (e.g., ['boss', 'lamost_lrs']).
-            If a single survey, loads that survey only.
-            If multiple surveys, creates merged dataset with outer join.
-        label_sources: List of label sources to use for training targets.
-            e.g., ['apogee'] for single-source, ['apogee', 'galah'] for multi-target.
-        train_ratio: Fraction of data for training (default 0.7).
-        val_ratio: Fraction of data for validation (default 0.2).
-        max_flag_bits: Maximum allowed flag bits (0=highest quality).
-        duplicate_labels: Dict mapping target label source to source label source.
-            Used for testing multi-labelset training when some label sources don't exist.
-            e.g., {'galah': 'apogee'} copies APOGEE labels to create "fake" GALAH labels.
-        parameter_names: Names of the label parameters, in catalogue order.
-            Auto-populated from the catalogue by ``dorothy train``; when None,
-            the standard 11 ``STELLAR_PARAMETERS`` are assumed.
-        normalize_spectra: Apply per-spectrum median/IQR normalization to the
-            input flux (and rescale ivar to match). Must match between training
-            and inference; it is saved with the checkpoint config.
     """
 
     catalogue_path: Path = Field(description="Path to HDF5 super-catalogue")
     surveys: list[str] = Field(
         default=["boss"],
         min_length=1,
-        description="List of input surveys to load (e.g., ['boss', 'lamost_lrs'])",
+        description="List of input surveys to load (e.g., ['boss', 'lamost_lrs']). "
+        "Several surveys give a merged dataset (outer join).",
     )
     label_sources: list[str] = Field(
         default=["apogee"],
@@ -159,28 +141,33 @@ class DataConfig(_ConfigModel):
     )
     duplicate_labels: dict[str, str] | None = Field(
         default=None,
-        description="Map target label source to source (e.g., {'galah': 'apogee'})",
+        description="Map target label source to source, to test multi-labelset "
+        "training when a label source does not exist (e.g., {'galah': 'apogee'} "
+        "copies the APOGEE labels as GALAH labels)",
     )
     use_dense_loading: bool = Field(
         default=False,
-        description="Use dense loading for spectra (higher memory, ~40GB vs ~7GB sparse)",
+        description="Use dense loading for spectra (more memory than sparse loading)",
     )
     parameter_names: list[str] | None = Field(
         default=None,
         min_length=1,
-        description="Label parameter names in catalogue order (auto-populated)",
+        description="Label parameter names in catalogue order. dorothy train fills "
+        "them from the catalogue; when None, the first n STELLAR_PARAMETERS "
+        "(n from the model section) are used.",
     )
     normalize_spectra: bool = Field(
         default=True,
-        description="Per-spectrum median/IQR flux normalization (train and inference)",
+        description="Per-spectrum median/IQR flux normalization, with ivar rescaled "
+        "to match. Training and inference must agree; the checkpoint config "
+        "stores it.",
     )
     precision_encoding: bool = Field(
         default=True,
         description="Replace the sigma channel of the model inputs with "
         "log(1 + 1/sigma) at valid pixels and 0 at masked pixels, after "
-        "normalization (encode_precision). False keeps sigma, as checkpoints "
-        "saved before this option did, and exists only to load them; training "
-        "rejects it.",
+        "normalization (encode_precision). False keeps sigma and exists only to "
+        "load checkpoints trained with it; training rejects it.",
     )
 
     @property
@@ -203,8 +190,10 @@ class DataConfig(_ConfigModel):
     def accept_singular_keys(cls, values: Any) -> Any:
         """Accept ``survey`` / ``label_source`` as aliases of the list fields.
 
-        Older docs used the singular forms, which were silently ignored (so
-        the defaults were used instead).
+        A string becomes a one-element list.
+
+        Raises:
+            ValueError: If a singular key and its plural are both given.
         """
         if not isinstance(values, dict):
             return values
@@ -243,8 +232,8 @@ _LABEL_AWARE_DESCRIPTION = (
     "Predict ln s with an error decoder, parallel to the label decoder, from "
     "the head's input and the reported label errors, or a learned missing "
     "vector, so that s includes the label noise (see LabelAwareOutput). False "
-    "builds the output layers of checkpoints saved before this option and "
-    "exists only to load them; training rejects it."
+    "builds the output layers of checkpoints trained without it and exists "
+    "only to load them; training rejects it."
 )
 
 
@@ -252,7 +241,8 @@ class ModelConfig(_ConfigModel):
     """Configuration for the neural network architecture.
 
     The default architecture follows the standard DOROTHY MLP:
-    15300 -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100 -> 22
+    input_features -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100 -> output_features
+    (15300 and 22 by default).
     """
 
     hidden_layers: list[int] = Field(
@@ -440,49 +430,57 @@ class MultiHeadModelConfig(_ConfigModel):
 
 
 class SchedulerConfig(_ConfigModel):
-    """Configuration for learning rate schedulers.
-
-    Attributes:
-        type: The scheduler type to use.
-        base_lr: Minimum learning rate (for cyclic schedulers).
-        max_lr: Maximum learning rate (for cyclic/one_cycle schedulers).
-        step_size_up: Steps to increase from base_lr to max_lr (cyclic).
-        step_size_down: Steps to decrease from max_lr to base_lr (cyclic).
-        gamma: Multiplicative factor for exp_range mode (cyclic).
-        patience: Epochs to wait before reducing LR (for ReduceOnPlateau).
-        factor: Factor to reduce LR by (for ReduceOnPlateau).
-        pct_start: Fraction of cycle spent increasing LR (one_cycle).
-        div_factor: Initial LR = max_lr / div_factor (one_cycle).
-        final_div_factor: Final LR = initial_lr / final_div_factor (one_cycle).
-        anneal_strategy: Annealing strategy for one_cycle ('cos' or 'linear').
-    """
+    """Configuration for learning rate schedulers."""
 
     type: SchedulerType = Field(
         default=SchedulerType.ONE_CYCLE, description="Scheduler type"
     )
-    base_lr: float = Field(default=1e-6, gt=0, description="Base learning rate")
-    max_lr: float = Field(default=1e-3, gt=0, description="Maximum learning rate")
-    step_size_up: int = Field(default=250, ge=1, description="Steps to reach max_lr")
+    base_lr: float = Field(
+        default=1e-6, gt=0, description="Minimum learning rate (cyclic)"
+    )
+    max_lr: float = Field(
+        default=1e-3, gt=0, description="Maximum learning rate (cyclic, one_cycle)"
+    )
+    step_size_up: int = Field(
+        default=250, ge=1, description="Steps to rise from base_lr to max_lr (cyclic)"
+    )
     step_size_down: int = Field(
-        default=650, ge=1, description="Steps to descend to base_lr"
+        default=650, ge=1, description="Steps to fall from max_lr to base_lr (cyclic)"
     )
     gamma: float = Field(
-        default=0.9995, gt=0, le=1.0, description="Exp range decay factor"
+        default=0.9995,
+        gt=0,
+        le=1.0,
+        description="Multiplicative factor of the exp_range mode (cyclic)",
     )
-    patience: int = Field(default=10, ge=1, description="Patience for ReduceOnPlateau")
-    factor: float = Field(default=0.5, gt=0, lt=1.0, description="LR reduction factor")
+    patience: int = Field(
+        default=10,
+        ge=1,
+        description="Epochs to wait before reducing the LR (reduce_on_plateau)",
+    )
+    factor: float = Field(
+        default=0.5,
+        gt=0,
+        lt=1.0,
+        description="Factor to reduce the LR by (reduce_on_plateau)",
+    )
     # OneCycleLR parameters
     pct_start: float = Field(
-        default=0.3, gt=0, lt=1.0, description="Fraction of cycle spent increasing LR"
+        default=0.3,
+        gt=0,
+        lt=1.0,
+        description="Fraction of the cycle spent increasing the LR (one_cycle)",
     )
     div_factor: float = Field(
-        default=25.0, ge=1.0, description="Initial LR = max_lr / div_factor"
+        default=25.0, ge=1.0, description="Initial LR = max_lr / div_factor (one_cycle)"
     )
     final_div_factor: float = Field(
-        default=1e4, ge=1.0, description="Final LR = initial_lr / final_div_factor"
+        default=1e4,
+        ge=1.0,
+        description="Final LR = initial LR / final_div_factor (one_cycle)",
     )
     anneal_strategy: Literal["cos", "linear"] = Field(
-        default="cos", description="Annealing strategy for one_cycle"
+        default="cos", description="Annealing strategy (one_cycle)"
     )
 
     @model_validator(mode="after")
@@ -665,13 +663,6 @@ class LabelMaskingConfig(_ConfigModel):
 
     A guaranteed keeper mechanism ensures at least one labelset and one label
     per labelset are always kept, preventing complete masking.
-
-    Attributes:
-        enabled: Whether to apply label masking during training.
-        p_labelset_min: Minimum probability of keeping each labelset.
-        p_labelset_max: Maximum probability of keeping each labelset.
-        p_label_min: Minimum probability of keeping each label within kept sets.
-        p_label_max: Maximum probability of keeping each label within kept sets.
     """
 
     enabled: bool = Field(
@@ -693,13 +684,15 @@ class LabelMaskingConfig(_ConfigModel):
         default=0.3,
         ge=0.0,
         le=1.0,
-        description="Minimum probability of keeping each label (sampled per batch)",
+        description="Minimum probability of keeping each label within kept labelsets "
+        "(sampled per batch)",
     )
     p_label_max: float = Field(
         default=1.0,
         ge=0.0,
         le=1.0,
-        description="Maximum probability of keeping each label (sampled per batch)",
+        description="Maximum probability of keeping each label within kept labelsets "
+        "(sampled per batch)",
     )
 
     @model_validator(mode="after")
@@ -733,16 +726,6 @@ class InputMaskingConfig(_ConfigModel):
 
     A guaranteed keeper mechanism ensures at least one survey and one block
     per survey are always kept, preventing complete masking.
-
-    Attributes:
-        enabled: Whether to apply input masking during training.
-        p_survey_min: Minimum probability of keeping each survey.
-        p_survey_max: Maximum probability of keeping each survey.
-        f_min_override: Optional override for minimum block size fraction.
-            If None, defaults to 1/N_wavelengths (single pixel).
-        f_max: Maximum block size as fraction of spectrum (default 0.5).
-        p_block_min: Minimum probability of keeping each block.
-        p_block_max: Maximum probability of keeping each block.
     """
 
     enabled: bool = Field(
@@ -845,21 +828,9 @@ class ExperimentConfig(_ConfigModel):
     This is the main configuration class that combines all sub-configurations
     and provides the complete specification for training a model.
 
-    For single-survey training, use the `model` config (standard MLP).
-    For multi-survey training, use `multi_head_model` config (MultiHeadMLP).
+    For single-survey training, use the ``model`` config (MLP). For
+    multi-survey training, use the ``multi_head_model`` config (MultiHeadMLP).
 
-    Attributes:
-        name: Unique name for this experiment.
-        description: Human-readable description of the experiment.
-        data: Data loading and preprocessing configuration.
-        model: Standard MLP configuration (for single-survey training).
-        multi_head_model: Multi-head MLP configuration (for multi-survey training).
-        training: Training process configuration.
-        label_masking: Dynamic label masking configuration for robustness.
-        input_masking: Dynamic input masking configuration for robustness.
-        output_dir: Directory for saving outputs (checkpoints, logs).
-        seed: Random seed for reproducibility.
-        device: Device to use for training ("cuda", "mps", "cpu", or "auto").
     """
 
     name: str = Field(min_length=1, max_length=100, description="Experiment name")
@@ -885,7 +856,10 @@ class ExperimentConfig(_ConfigModel):
         default_factory=InputMaskingConfig,
         description="Dynamic input masking configuration",
     )
-    output_dir: Path = Field(default=Path("./outputs"), description="Output directory")
+    output_dir: Path = Field(
+        default=Path("./outputs"),
+        description="Directory for outputs (checkpoints, logs)",
+    )
     seed: int = Field(default=42, ge=0, description="Random seed")
     device: Literal["cuda", "cpu", "mps", "auto"] = Field(
         default="auto", description="Compute device (mps for Apple Silicon)"
@@ -901,7 +875,8 @@ class ExperimentConfig(_ConfigModel):
         """Names of the predicted parameters, in model output order.
 
         Uses ``data.parameter_names`` when set (populated from the catalogue),
-        otherwise the first n ``STELLAR_PARAMETERS``.
+        otherwise the first n ``STELLAR_PARAMETERS``, followed by ``param_<i>``
+        for each output beyond that list.
         """
         if self.data.parameter_names is not None:
             return list(self.data.parameter_names)
@@ -993,17 +968,22 @@ class ExperimentConfig(_ConfigModel):
         return self
 
     def get_output_path(self) -> Path:
-        """Get the full output path for this experiment."""
+        """Get the output directory of this experiment.
+
+        Returns:
+            ``output_dir / name``.
+        """
         return self.output_dir / self.name
 
     def get_checkpoint_path(self, epoch: int | None = None) -> Path:
-        """Get path for a checkpoint file.
+        """Get the directory of a checkpoint.
 
         Args:
-            epoch: Epoch number, or None for final/best model.
+            epoch: Epoch number, or None for the final checkpoint.
 
         Returns:
-            Path to the checkpoint file.
+            ``<output path>/epoch_<epoch>``, or ``<output path>/<name>_final``
+            when epoch is None.
         """
         base = self.get_output_path()
         if epoch is None:
@@ -1044,24 +1024,26 @@ class ExperimentConfig(_ConfigModel):
 
         Unlike :meth:`load_yaml`, this accepts the Python-specific tags (e.g.
         tuples) written by :meth:`save_yaml`, and fills in defaults that keep
-        older checkpoints reproducible. Checkpoints saved before
-        ``data.normalize_spectra`` existed were trained on un-normalized
-        catalogue spectra, so the flag defaults to False for them -- except
-        configs from the ``dorothy_update`` branch, recognizable by a
+        older checkpoints reproducible. A config without
+        ``data.normalize_spectra`` was trained on un-normalized catalogue
+        spectra, so the flag defaults to False, except for configs from the
+        ``dorothy_update`` branch, recognizable by a
         ``multi_head_model.head_dropout`` entry or 20 predicted parameters,
         whose sparse and single-survey loaders already normalized spectra. A
         warning is issued either way. A model section without
         ``label_aware_uncertainty``, a multi-head model section without
-        ``residual_stream``, and a data section without
-        ``precision_encoding``, predate that option, so the flag defaults to
-        False there. Settings this version no longer has are ignored with a
-        warning.
+        ``residual_stream`` and a data section without ``precision_encoding``
+        get False for that flag. Settings this version no longer has are
+        ignored with a warning.
 
         Args:
             path: Path to the checkpoint's ``config.yaml``.
 
         Returns:
             ExperimentConfig instance.
+
+        Raises:
+            pydantic.ValidationError: If the settings are invalid.
         """
         import yaml
 
