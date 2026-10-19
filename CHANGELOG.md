@@ -210,6 +210,12 @@
 
 ### Behaviour changes
 
+- `training.learning_rate` is removed; `training.scheduler.max_lr` sets the
+  learning rate of every schedule. The `none`, `reduce_on_plateau` and
+  `cosine_annealing` schedules start at `max_lr`, so they change only where
+  `learning_rate` differed from `max_lr`; both defaulted to 1e-3. A config
+  with `training.learning_rate` is an error that names `scheduler.max_lr`;
+  checkpoint configs that have it load with a warning.
 - A new multi-head model has a residual stream
   (`multi_head_model.residual_stream: true`). Its trunk and heads have more
   parameters with the default widths, and its trunk embeddings have

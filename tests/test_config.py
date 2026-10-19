@@ -219,7 +219,6 @@ class TestTrainingConfig:
 
         assert config.epochs == 300
         assert config.batch_size == 1024
-        assert config.learning_rate == 1e-3
         assert config.loss == LossType.HETEROSCEDASTIC
         assert config.gradient_clip == 10.0
         assert config.scatter_floor == 0.01
@@ -499,6 +498,14 @@ class TestUnknownKeys:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             ExperimentConfig(name="t", **kwargs)
 
+    def test_training_learning_rate_rejected_with_its_replacement(self):
+        with pytest.raises(ValidationError, match="training.scheduler.max_lr"):
+            ExperimentConfig(
+                name="t",
+                data={"catalogue_path": "a.h5"},
+                training={"learning_rate": 1e-3},
+            )
+
     def test_checkpoint_config_ignores_removed_keys(self, tmp_path):
         """Saved configs from older versions still load (obsolete keys dropped)."""
         import yaml
@@ -512,11 +519,17 @@ class TestUnknownKeys:
         raw["masking"] = {"enabled": True}
         raw["data"]["smart_deduplicate"] = True
         raw["training"]["optimizer"]["old_option"] = 1
+        raw["training"]["learning_rate"] = 1e-3
         path.write_text(yaml.dump(raw))
         with pytest.warns(UserWarning, match="doesn't use") as record:
             loaded = ExperimentConfig.load_checkpoint_config(path)
         message = str(record[0].message)
-        for key in ["masking", "data.smart_deduplicate", "optimizer.old_option"]:
+        for key in [
+            "masking",
+            "data.smart_deduplicate",
+            "optimizer.old_option",
+            "training.learning_rate",
+        ]:
             assert key in message
         assert loaded.data.surveys == ["desi"]
         assert loaded.training.optimizer == config.training.optimizer

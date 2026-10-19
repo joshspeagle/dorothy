@@ -60,7 +60,6 @@ def simple_config():
         training=TrainingConfig(
             epochs=5,
             batch_size=16,
-            learning_rate=1e-3,
             loss=LossType.HETEROSCEDASTIC,
             gradient_clip=10.0,
             scatter_floor=0.01,
@@ -282,16 +281,17 @@ class TestTrainerSchedulers:
         # LR should vary (not constant)
         assert max(history.learning_rates) > min(history.learning_rates)
 
-    def test_no_scheduler(self, simple_config, training_data):
-        """Test training without scheduler."""
-        simple_config.training.scheduler = SchedulerConfig(type=SchedulerType.NONE)
+    def test_no_scheduler_trains_at_max_lr(self, simple_config, training_data):
+        simple_config.training.scheduler = SchedulerConfig(
+            type=SchedulerType.NONE, max_lr=2e-3
+        )
         trainer = Trainer(simple_config)
         X, y = training_data
 
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
 
-        # Should still complete training
         assert len(history.train_losses) == 5
+        assert set(history.learning_rates) == {2e-3}
 
 
 class TestTrainerEarlyStopping:
@@ -2009,7 +2009,6 @@ class TestLabelAwareTraining:
             training=TrainingConfig(
                 epochs=30,
                 batch_size=128,
-                learning_rate=3e-3,
                 scheduler=SchedulerConfig(max_lr=3e-3),
             ),
         )

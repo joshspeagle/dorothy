@@ -439,7 +439,10 @@ class SchedulerConfig(_ConfigModel):
         default=1e-6, gt=0, description="Minimum learning rate (cyclic)"
     )
     max_lr: float = Field(
-        default=1e-3, gt=0, description="Maximum learning rate (cyclic, one_cycle)"
+        default=1e-3,
+        gt=0,
+        description="Learning rate: the peak of one_cycle and cyclic, and the "
+        "initial rate of none, reduce_on_plateau and cosine_annealing",
     )
     step_size_up: int = Field(
         default=250, ge=1, description="Steps to rise from base_lr to max_lr (cyclic)"
@@ -530,14 +533,6 @@ class TrainingConfig(_ConfigModel):
 
     epochs: int = Field(default=300, ge=1, le=10000, description="Number of epochs")
     batch_size: int = Field(default=1024, ge=1, le=65536, description="Batch size")
-    learning_rate: float = Field(
-        default=1e-3,
-        gt=0,
-        le=1.0,
-        description="Initial learning rate of the none, reduce_on_plateau and "
-        "cosine_annealing schedulers. one_cycle and cyclic set the learning "
-        "rate from their own fields.",
-    )
     loss: LossType = Field(
         default=LossType.HETEROSCEDASTIC, description="Loss function"
     )
@@ -639,6 +634,20 @@ class TrainingConfig(_ConfigModel):
             if w < 0:
                 raise ValueError(f"label_source_weights['{source}'] must be >= 0")
         return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_learning_rate(cls, values: Any) -> Any:
+        """Point a removed ``learning_rate`` key to ``scheduler.max_lr``.
+
+        Raises:
+            ValueError: If ``learning_rate`` is given.
+        """
+        if isinstance(values, dict) and "learning_rate" in values:
+            raise ValueError(
+                "training.learning_rate was removed; set training.scheduler.max_lr"
+            )
+        return values
 
     @model_validator(mode="after")
     def validate_ema(self) -> TrainingConfig:
