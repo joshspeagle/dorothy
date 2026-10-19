@@ -1101,7 +1101,7 @@ class Trainer:
         sums, counts, weights = [], [], []
         for key, target in targets.items():
             sums.append(self.loss_fn.element_losses(outputs[key], target, beta).sum())
-            counts.append(target[:, 2, :].sum())
+            counts.append((target[:, 2, :] > 0).sum())
             weights.append(training.label_source_weights.get(key, 1.0))
 
         if training.label_source_weighting == "per_label":

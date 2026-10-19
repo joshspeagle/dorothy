@@ -177,8 +177,9 @@ class HeteroscedasticLoss(nn.Module):
         variance = self.get_predicted_scatter(output) ** 2
 
         nll = (mu - y) ** 2 / variance + torch.log(variance)
-        weight = mask * variance.detach() ** beta
-        return torch.where(mask > 0, nll * weight, torch.zeros_like(nll))
+        return torch.where(
+            mask > 0, nll * variance.detach() ** beta, torch.zeros_like(nll)
+        )
 
     def forward(
         self,
@@ -210,7 +211,7 @@ class HeteroscedasticLoss(nn.Module):
         elif self.reduction == "sum":
             return loss_per_element.sum()
         else:  # mean over valid elements only
-            return loss_per_element.sum() / target[:, 2, :].sum().clamp(min=1)
+            return loss_per_element.sum() / (target[:, 2, :] > 0).sum().clamp(min=1)
 
     def get_predicted_scatter(self, output: torch.Tensor) -> torch.Tensor:
         """
@@ -269,12 +270,12 @@ class HeteroscedasticLoss(nn.Module):
         # Mask with torch.where so non-finite masked entries cannot leak NaN
         valid = mask > 0
         zeros = torch.zeros_like(mean_component)
-        masked_mean = torch.where(valid, mean_component * mask, zeros)
-        masked_scatter = torch.where(valid, scatter_component * mask, zeros)
+        masked_mean = torch.where(valid, mean_component, zeros)
+        masked_scatter = torch.where(valid, scatter_component, zeros)
         loss_per_element = masked_mean + masked_scatter
 
         # Average over batch for each parameter, counting only valid samples
-        valid_counts = mask.sum(dim=0).clamp(min=1)  # (n_params,)
+        valid_counts = (mask > 0).sum(dim=0).clamp(min=1)  # (n_params,)
         mean_component_avg = masked_mean.sum(dim=0) / valid_counts
         scatter_component_avg = masked_scatter.sum(dim=0) / valid_counts
 
@@ -283,7 +284,7 @@ class HeteroscedasticLoss(nn.Module):
         elif self.reduction == "sum":
             total_loss = loss_per_element.sum()
         else:  # mean
-            total_loss = loss_per_element.sum() / mask.sum().clamp(min=1)
+            total_loss = loss_per_element.sum() / (mask > 0).sum().clamp(min=1)
 
         return {
             "loss": total_loss,
@@ -338,7 +339,7 @@ class MaskedMSELoss(nn.Module):
             )
         y, mask = _safe_targets(output[:, 0, :], target)
         sq = (output[:, 0, :] - y) ** 2
-        return torch.where(mask > 0, sq * mask, torch.zeros_like(sq))
+        return torch.where(mask > 0, sq, torch.zeros_like(sq))
 
     def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         loss = self.element_losses(output, target)
@@ -346,14 +347,14 @@ class MaskedMSELoss(nn.Module):
             return loss
         if self.reduction == "sum":
             return loss.sum()
-        return loss.sum() / target[:, 2, :].sum().clamp(min=1)
+        return loss.sum() / (target[:, 2, :] > 0).sum().clamp(min=1)
 
     def forward_detailed(
         self, output: torch.Tensor, target: torch.Tensor
     ) -> dict[str, torch.Tensor]:
         """Per-parameter MSE as the mean component (scatter component is 0)."""
         loss = self.element_losses(output, target)
-        valid_counts = target[:, 2, :].sum(dim=0).clamp(min=1)
+        valid_counts = (target[:, 2, :] > 0).sum(dim=0).clamp(min=1)
         mean_component = loss.sum(dim=0) / valid_counts
         return {
             "loss": self.forward(output, target),
