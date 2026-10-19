@@ -1088,6 +1088,27 @@ class TestTrainerMaskingAndAugmentation:
         assert all(np.isfinite(history.train_losses))
         assert all(np.isfinite(history.val_losses))
 
+    def test_masked_runs_with_one_seed_are_identical_after_global_draws(
+        self, full_masking_config, training_data
+    ):
+        """Masking and label error dropout draw from the configured seed, not
+        the global generators."""
+        from dorothy.config.schema import LabelMaskingConfig
+
+        config = full_masking_config.model_copy(
+            update={"label_masking": LabelMaskingConfig(enabled=True)}
+        )
+        assert config.training.label_error_dropout == 0.5
+        X, y = training_data
+
+        def train_losses(global_draws: int) -> list[float]:
+            trainer = Trainer(config)
+            np.random.rand(global_draws)
+            torch.rand(global_draws)
+            return trainer.fit(X[:80], y[:80], X[80:], y[80:]).train_losses
+
+        assert train_losses(0) == train_losses(1)
+
 
 class TestTrainerMultiSurvey:
     """Tests for multi-survey training with fit_multi_survey()."""
@@ -1136,10 +1157,13 @@ class TestTrainerMultiSurvey:
         )
         trainer = Trainer(config)
         trainer._input_masking = DynamicInputMasking(
-            p_survey_min=0.5, p_survey_max=0.5, p_block_min=0.0, p_block_max=0.0
+            p_survey_min=0.5,
+            p_survey_max=0.5,
+            p_block_min=0.0,
+            p_block_max=0.0,
+            seed=0,
         )
         trainer._survey_wavelengths = {"boss": 100, "lamost": 80}
-        torch.manual_seed(0)
         n = 64
         X = {
             "boss": torch.ones(n, 3, 100),
@@ -1967,7 +1991,6 @@ class TestLabelAwareTraining:
         simple_config.training.label_error_dropout = 0.3
         trainer = Trainer(simple_config)
         n = 4000
-        torch.manual_seed(0)
         errors = trainer._label_errors(
             {"a": torch.ones(n, 3, 3), "b": torch.ones(n, 3, 3)}
         )

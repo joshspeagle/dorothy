@@ -50,6 +50,7 @@ from dorothy.config.schema import (
 from dorothy.data.augmentation import (
     DynamicInputMasking,
     DynamicLabelMasking,
+    _Random,
 )
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.data.normalizer import LabelNormalizer
@@ -288,6 +289,15 @@ class TrainingHistory:
         }
 
 
+def _stream_seeds(seed: int) -> list[int]:
+    """Seeds of the label masking, input masking and label error dropout.
+
+    Child seeds give streams independent of each other and of the batch
+    shuffle, which uses the configured seed itself.
+    """
+    return [int(c.generate_state(1)[0]) for c in np.random.SeedSequence(seed).spawn(3)]
+
+
 def _is_weight_matrix(param: torch.Tensor) -> bool:
     """Whether weight decay and the grokking metrics apply to a parameter.
 
@@ -489,6 +499,7 @@ class Trainer:
         # Dynamic masking for hierarchical label/input augmentation
         self._label_masking: DynamicLabelMasking | None = None
         self._input_masking: DynamicInputMasking | None = None
+        self._label_error_random = _Random(_stream_seeds(config.seed)[2])
         self._survey_wavelengths: dict[str, int] | None = None
         self._evaluator: Evaluator | None = None
 
@@ -1033,6 +1044,7 @@ class Trainer:
         self, survey_wavelengths: dict[str, int], multi_survey: bool = False
     ) -> None:
         """Create the label/input masking augmentations from the config."""
+        label_seed, input_seed, _ = _stream_seeds(self.config.seed)
         lm = self.config.label_masking
         self._label_masking = (
             DynamicLabelMasking(
@@ -1040,6 +1052,7 @@ class Trainer:
                 p_labelset_max=lm.p_labelset_max,
                 p_label_min=lm.p_label_min,
                 p_label_max=lm.p_label_max,
+                seed=label_seed,
             )
             if lm.enabled
             else None
@@ -1058,6 +1071,7 @@ class Trainer:
                 f_max=im.f_max,
                 p_block_min=im.p_block_min,
                 p_block_max=im.p_block_max,
+                seed=input_seed,
             )
             self._survey_wavelengths = dict(survey_wavelengths)
             logger.info(f"Created input masking: {self._input_masking}")
@@ -1100,7 +1114,10 @@ class Trainer:
         p = self.config.training.label_error_dropout
         errors = {}
         for key, target in y.items():
-            dropped = torch.rand(target.shape[0], 1, device=target.device) < p
+            draws = self._label_error_random.rand(
+                target.shape[0], 1, device=target.device, dtype=torch.float32
+            )
+            dropped = draws < p
             keep = (target[:, 2, :] > 0) & ~dropped
             errors[key] = torch.where(keep, target[:, 1, :], 0.0)
         return errors

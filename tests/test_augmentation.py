@@ -97,8 +97,7 @@ class TestDynamicLabelMaskingSingleTensor:
 
     def test_guaranteed_keeper(self):
         """Test that at least one label is always kept per sample."""
-        torch.manual_seed(42)
-        masking = DynamicLabelMasking(p_label_min=0.0, p_label_max=0.1)
+        masking = DynamicLabelMasking(p_label_min=0.0, p_label_max=0.1, seed=42)
         y = torch.ones(100, 3, 11)
 
         y_out = masking(y)
@@ -122,8 +121,7 @@ class TestDynamicLabelMaskingSingleTensor:
 
     def test_values_zeroed_at_masked_positions(self):
         """Test that values and errors are zeroed where mask becomes 0."""
-        torch.manual_seed(42)
-        masking = DynamicLabelMasking(p_label_min=0.3, p_label_max=0.5)
+        masking = DynamicLabelMasking(p_label_min=0.3, p_label_max=0.5, seed=42)
         y = torch.ones(10, 3, 11)
 
         y_out = masking(y)
@@ -197,8 +195,7 @@ class TestDynamicLabelMaskingDict:
 
     def test_guaranteed_keeper_labelset(self):
         """Test that at least one labelset is always kept per sample."""
-        torch.manual_seed(42)
-        masking = DynamicLabelMasking(p_labelset_min=0.0, p_labelset_max=0.1)
+        masking = DynamicLabelMasking(p_labelset_min=0.0, p_labelset_max=0.1, seed=42)
         y_dict = {
             "apogee": torch.ones(100, 3, 11),
             "galah": torch.ones(100, 3, 11),
@@ -217,8 +214,7 @@ class TestDynamicLabelMaskingDict:
 
     def test_single_labelset_no_labelset_masking(self):
         """Test that single labelset doesn't do labelset-level masking."""
-        torch.manual_seed(42)
-        masking = DynamicLabelMasking(p_labelset_min=0.0, p_labelset_max=0.1)
+        masking = DynamicLabelMasking(p_labelset_min=0.0, p_labelset_max=0.1, seed=42)
         y_dict = {"apogee": torch.ones(50, 3, 11)}
 
         y_out = masking(y_dict)
@@ -270,11 +266,9 @@ class TestDynamicLabelMaskingEdgeCases:
             for s, v in y.items():
                 filled[s] = v.clone()
                 filled[s][:, :2] = torch.where(v[:, 2:] == 0, fill, v[:, :2])
-            np.random.seed(0)
-            torch.manual_seed(0)
             if as_dict:
-                return DynamicLabelMasking()(filled)
-            return {"apogee": DynamicLabelMasking()(filled["apogee"])}
+                return DynamicLabelMasking(seed=0)(filled)
+            return {"apogee": DynamicLabelMasking(seed=0)(filled["apogee"])}
 
         out, out_bad = masked(0.0), masked(value)
         for s in out:
@@ -282,8 +276,7 @@ class TestDynamicLabelMaskingEdgeCases:
 
     def test_high_keep_probability(self):
         """Test with high keep probability (should keep most labels)."""
-        torch.manual_seed(42)
-        masking = DynamicLabelMasking(p_label_min=0.9, p_label_max=1.0)
+        masking = DynamicLabelMasking(p_label_min=0.9, p_label_max=1.0, seed=42)
         y = torch.ones(100, 3, 11)
 
         y_out = masking(y)
@@ -383,9 +376,7 @@ class TestDynamicInputMaskingSingleSurvey:
 
     def test_guaranteed_keeper_block(self):
         """Test that at least one block is always kept per sample."""
-        torch.manual_seed(42)
-        np.random.seed(42)
-        masking = DynamicInputMasking(p_block_min=0.0, p_block_max=0.1)
+        masking = DynamicInputMasking(p_block_min=0.0, p_block_max=0.1, seed=42)
         X = {"boss": torch.ones(100, 3, 1000)}
         n_wavelengths = {"boss": 1000}
 
@@ -411,9 +402,7 @@ class TestDynamicInputMaskingSingleSurvey:
 
     def test_flux_and_error_zeroed(self):
         """Test that flux and error are zeroed at masked positions."""
-        torch.manual_seed(42)
-        np.random.seed(42)
-        masking = DynamicInputMasking(p_block_min=0.3, p_block_max=0.5)
+        masking = DynamicInputMasking(p_block_min=0.3, p_block_max=0.5, seed=42)
         X = {"boss": torch.ones(10, 3, 500)}
         n_wavelengths = {"boss": 500}
 
@@ -448,9 +437,7 @@ class TestDynamicInputMaskingMultiSurvey:
 
     def test_guaranteed_keeper_survey(self):
         """Test that at least one survey is always kept per sample."""
-        torch.manual_seed(42)
-        np.random.seed(42)
-        masking = DynamicInputMasking(p_survey_min=0.0, p_survey_max=0.1)
+        masking = DynamicInputMasking(p_survey_min=0.0, p_survey_max=0.1, seed=42)
         X = {
             "boss": torch.ones(100, 3, 1000),
             "desi": torch.ones(100, 3, 1000),
@@ -488,28 +475,9 @@ class TestDynamicInputMaskingMultiSurvey:
 class TestDynamicInputMaskingBlockSize:
     """Tests for block size sampling."""
 
-    def test_block_size_varies(self):
-        """Test that block size varies across batches (log-uniform)."""
-        np.random.seed(42)
-
-        # Call block masking multiple times and check block sizes vary
-        block_sizes = []
-        for _ in range(50):
-            # Reset random state to get different samples
-            f_min = 1.0 / 1000
-            log_f = np.random.uniform(np.log(f_min), np.log(0.5))
-            f = np.exp(log_f)
-            block_size = max(1, int(np.ceil(f * 1000)))
-            block_sizes.append(block_size)
-
-        # Should have variety in block sizes
-        unique_sizes = len(set(block_sizes))
-        assert unique_sizes > 10, f"Expected variety in block sizes, got {unique_sizes}"
-
     def test_f_min_override(self):
         """Test that f_min_override is respected."""
-        np.random.seed(42)
-        masking = DynamicInputMasking(f_min_override=0.1, f_max=0.5)
+        masking = DynamicInputMasking(f_min_override=0.1, f_max=0.5, seed=42)
         X = {"survey": torch.ones(10, 3, 100)}
         n_wavelengths = {"survey": 100}
 
@@ -579,9 +547,9 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_varies_across_calls(self):
         """Test that random offset produces varying block boundaries."""
-        np.random.seed(42)
-        torch.manual_seed(42)
-        masking = DynamicInputMasking(p_block_min=0.5, p_block_max=0.5, f_max=0.1)
+        masking = DynamicInputMasking(
+            p_block_min=0.5, p_block_max=0.5, f_max=0.1, seed=42
+        )
         X = {"survey": torch.ones(1, 3, 100)}
         n_wavelengths = {"survey": 100}
 
@@ -597,12 +565,11 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_produces_partial_blocks_at_edges(self):
         """Test that offset creates partial blocks at spectrum edges."""
-        np.random.seed(123)
-        torch.manual_seed(123)
-
         # Use parameters that force a specific block structure
         # With p_block=1.0, all blocks should be kept
-        masking = DynamicInputMasking(p_block_min=1.0, p_block_max=1.0, f_max=0.5)
+        masking = DynamicInputMasking(
+            p_block_min=1.0, p_block_max=1.0, f_max=0.5, seed=123
+        )
         X = {"survey": torch.ones(1, 3, 100)}
         n_wavelengths = {"survey": 100}
 
@@ -615,11 +582,8 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_guaranteed_keeper_with_offset(self):
         """Test that guaranteed keeper works correctly with random offset."""
-        np.random.seed(42)
-        torch.manual_seed(42)
-
         # Very aggressive masking - should still keep at least one block
-        masking = DynamicInputMasking(p_block_min=0.0, p_block_max=0.05)
+        masking = DynamicInputMasking(p_block_min=0.0, p_block_max=0.05, seed=42)
         X = {"survey": torch.ones(50, 3, 100)}
         n_wavelengths = {"survey": 100}
 
@@ -632,10 +596,7 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_does_not_change_mean_coverage(self):
         """Test that random offset doesn't significantly change mean coverage."""
-        np.random.seed(42)
-        torch.manual_seed(42)
-
-        masking = DynamicInputMasking(p_block_min=0.4, p_block_max=0.6)
+        masking = DynamicInputMasking(p_block_min=0.4, p_block_max=0.6, seed=42)
         X = {"survey": torch.ones(100, 3, 200)}
         n_wavelengths = {"survey": 200}
 
@@ -656,10 +617,7 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_with_partial_natural_mask(self):
         """Test offset works correctly when some wavelengths are naturally masked."""
-        np.random.seed(42)
-        torch.manual_seed(42)
-
-        masking = DynamicInputMasking(p_block_min=0.5, p_block_max=0.5)
+        masking = DynamicInputMasking(p_block_min=0.5, p_block_max=0.5, seed=42)
         X = {"survey": torch.ones(10, 3, 100)}
         # Mask first and last 10 wavelengths naturally
         X["survey"][:, 2, :10] = 0
@@ -678,10 +636,7 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_with_very_small_spectrum(self):
         """Test that offset works with very small spectra (edge case)."""
-        np.random.seed(42)
-        torch.manual_seed(42)
-
-        masking = DynamicInputMasking()
+        masking = DynamicInputMasking(seed=42)
         X = {"survey": torch.ones(5, 3, 5)}  # Only 5 wavelengths
         n_wavelengths = {"survey": 5}
 
@@ -695,11 +650,8 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_with_large_block_size(self):
         """Test offset when block size is large relative to spectrum."""
-        np.random.seed(42)
-        torch.manual_seed(42)
-
         # Force large blocks (up to 50% of spectrum)
-        masking = DynamicInputMasking(f_min_override=0.4, f_max=0.5)
+        masking = DynamicInputMasking(f_min_override=0.4, f_max=0.5, seed=42)
         X = {"survey": torch.ones(10, 3, 50)}
         n_wavelengths = {"survey": 50}
 
@@ -719,23 +671,25 @@ class TestDynamicInputMaskingRandomOffset:
 def _reference_block_masking(masking, X, N):
     """Straightforward version of the block masking algorithm.
 
-    Draws the same random numbers in the same order as DynamicInputMasking.
+    Draws the same random numbers in the same order as DynamicInputMasking,
+    from ``masking._random``.
     """
+    rng = masking._random.numpy
     f_min = masking.f_min_override if masking.f_min_override is not None else 1 / N
-    f_min = max(f_min, 1.0 / N)
-    f = np.exp(np.random.uniform(np.log(f_min), np.log(masking.f_max)))
+    f_min = min(max(f_min, 1.0 / N), masking.f_max)
+    f = np.exp(rng.uniform(np.log(f_min), np.log(masking.f_max)))
     block_size = max(1, int(np.ceil(f * N)))
-    offset = np.random.randint(0, block_size)
+    offset = int(rng.integers(block_size))
     n_blocks = int(np.ceil((offset + N) / block_size))
     post_pad = n_blocks * block_size - (offset + N)
-    p_keep = np.random.uniform(masking.p_block_min, masking.p_block_max)
+    p_keep = rng.uniform(masking.p_block_min, masking.p_block_max)
     mask = X[:, 2, :]
     padded = torch.nn.functional.pad(mask, (offset, post_pad), value=0)
     available = padded.view(len(X), n_blocks, block_size).any(dim=2)
     any_available = available.any(dim=1)
     if not any_available.any():
         return X
-    rand = torch.rand(len(X), n_blocks, dtype=X.dtype)
+    rand = masking._random.rand(len(X), n_blocks, device=X.device, dtype=X.dtype)
     guaranteed = rand.clone()
     guaranteed[~available] = -float("inf")
     keep = (rand < p_keep) & available
@@ -748,7 +702,7 @@ def _reference_block_masking(masking, X, N):
 def _reference_input_masking(masking, X, n_wavelengths):
     """Straightforward version of DynamicInputMasking.__call__."""
     surveys = list(X)
-    p_keep = np.random.uniform(masking.p_survey_min, masking.p_survey_max)
+    p_keep = masking._random.numpy.uniform(masking.p_survey_min, masking.p_survey_max)
     if len(surveys) == 1:
         return {
             surveys[0]: _reference_block_masking(
@@ -758,7 +712,9 @@ def _reference_input_masking(masking, X, n_wavelengths):
     batch = len(X[surveys[0]])
     available = torch.stack([X[s][:, 2, :].any(dim=1) for s in surveys], dim=1)
     any_available = available.any(dim=1)
-    rand = torch.rand(batch, len(surveys))
+    rand = masking._random.rand(
+        batch, len(surveys), device=X[surveys[0]].device, dtype=X[surveys[0]].dtype
+    )
     guaranteed = rand.clone()
     guaranteed[~available] = -float("inf")
     keep = (rand < p_keep) & available
@@ -801,24 +757,26 @@ class TestDynamicInputMaskingExact:
         ],
     )
     def test_matches_reference(self, seed, inplace, waves, coverage):
-        masking = DynamicInputMasking(p_survey_min=0.2, p_block_min=0.2)
+        def make():
+            return DynamicInputMasking(p_survey_min=0.2, p_block_min=0.2, seed=seed)
+
+        masking, reference = make(), make()
         X = _spectra(32, waves, coverage, seed)
         n_wave = {s: x.shape[2] for s, x in X.items()}
 
-        np.random.seed(seed)
-        torch.manual_seed(seed)
         expected = _reference_input_masking(
-            masking, {s: x.clone() for s, x in X.items()}, n_wave
+            reference, {s: x.clone() for s, x in X.items()}, n_wave
         )
-        rng_np, rng_torch = np.random.get_state()[1].copy(), torch.get_rng_state()
-
-        np.random.seed(seed)
-        torch.manual_seed(seed)
         inputs = {s: x.clone() for s, x in X.items()}
         out = masking(inputs, n_wave, inplace=inplace)
 
-        assert np.array_equal(np.random.get_state()[1], rng_np)
-        assert torch.equal(torch.get_rng_state(), rng_torch)
+        # Both drew the same random numbers
+        assert masking._random.numpy.random() == reference._random.numpy.random()
+        cpu = torch.device("cpu")
+        assert torch.equal(
+            masking._random.rand(4, device=cpu, dtype=torch.float32),
+            reference._random.rand(4, device=cpu, dtype=torch.float32),
+        )
         for s in X:
             assert torch.equal(out[s], expected[s]), s
             if inplace:
@@ -835,18 +793,17 @@ class TestDynamicInputMaskingExact:
         self, value, inplace, waves, coverage
     ):
         """Masked entries may hold any value; the ones masking drops become 0."""
-        masking = DynamicInputMasking(p_survey_min=0.2, p_block_min=0.2)
+
+        def make():
+            return DynamicInputMasking(p_survey_min=0.2, p_block_min=0.2, seed=0)
+
         X = _spectra(32, waves, coverage, seed=0)
         for x in X.values():
             x[:, :2] = torch.where(x[:, 2:] == 0, value, x[:, :2])
         n_wave = {s: x.shape[2] for s, x in X.items()}
 
-        np.random.seed(0)
-        torch.manual_seed(0)
-        expected = _reference_input_masking(masking, X, n_wave)
-        np.random.seed(0)
-        torch.manual_seed(0)
-        out = masking({s: x.clone() for s, x in X.items()}, n_wave, inplace=inplace)
+        expected = _reference_input_masking(make(), X, n_wave)
+        out = make()({s: x.clone() for s, x in X.items()}, n_wave, inplace=inplace)
 
         for s in X:
             torch.testing.assert_close(
@@ -857,7 +814,6 @@ class TestDynamicInputMaskingExact:
 def test_label_set_with_only_negative_mask_entries_is_not_available():
     """A label set whose mask holds only -1 has no valid label, so the
     guaranteed keeper always keeps the other set."""
-    torch.manual_seed(0)
     n = 64
     valid = torch.stack([torch.ones(n, 2), torch.ones(n, 2), torch.ones(n, 2)], 1)
     invalid = valid.clone()
@@ -867,3 +823,53 @@ def test_label_set_with_only_negative_mask_entries_is_not_available():
     )
     out = masking({"apogee": valid, "galah": invalid})
     assert torch.equal(out["apogee"], valid)
+
+
+# ============================================================================
+# Seeded random draws
+# ============================================================================
+
+
+def _masks_of_three_batches(kind: str, seed: int | None) -> list[torch.Tensor]:
+    """Masks from three consecutive calls of one masking with this seed."""
+    if kind == "label":
+        masking = DynamicLabelMasking(p_labelset_min=0.5, p_label_min=0.5, seed=seed)
+        y = {s: torch.ones(64, 3, 6) for s in ("apogee", "galah")}
+        outs = [masking(y) for _ in range(3)]
+    else:
+        masking = DynamicInputMasking(p_survey_min=0.5, p_block_min=0.5, seed=seed)
+        X = _spectra(64, {"boss": 45, "desi": 76}, [1.0, 1.0], seed=0)
+        outs = [masking(X, {"boss": 45, "desi": 76}) for _ in range(3)]
+    return [torch.cat([o[:, 2] for o in out.values()], dim=1) for out in outs]
+
+
+@pytest.mark.parametrize("kind", ["label", "input"])
+class TestSeededMasking:
+    """Masking draws from its own generators, seeded by its seed argument."""
+
+    def test_equal_seeds_give_equal_masks(self, kind):
+        first, second = (_masks_of_three_batches(kind, 7) for _ in range(2))
+        for a, b in zip(first, second, strict=True):
+            assert torch.equal(a, b)
+
+    def test_different_seeds_give_different_masks(self, kind):
+        a = _masks_of_three_batches(kind, 7)[0]
+        b = _masks_of_three_batches(kind, 8)[0]
+        assert not torch.equal(a, b)
+
+    def test_masking_leaves_the_global_generators_unchanged(self, kind):
+        np.random.seed(0)
+        torch.manual_seed(0)
+        expected_np, expected_torch = np.random.rand(), torch.rand(1)
+        np.random.seed(0)
+        torch.manual_seed(0)
+        _masks_of_three_batches(kind, None)
+        assert np.random.rand() == expected_np
+        assert torch.equal(torch.rand(1), expected_torch)
+
+
+@pytest.mark.parametrize("masking_class", [DynamicLabelMasking, DynamicInputMasking])
+@pytest.mark.parametrize("seed", [-1, 1.5, True, "0"])
+def test_seed_that_is_not_a_non_negative_int_is_rejected(masking_class, seed):
+    with pytest.raises(ValueError, match="seed"):
+        masking_class(seed=seed)

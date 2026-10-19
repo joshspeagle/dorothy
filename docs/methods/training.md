@@ -99,9 +99,10 @@ which tends to ln ε for small label errors and to u + ½ ln a for large ones.
 
 In training, masked labels always get m. A fraction
 `training.label_error_dropout` of the stars (0.5 by default), drawn afresh for
-every batch and head, also get m for all their parameters, so the model learns
-to predict without the errors. Validation, evaluation and prediction always
-use m, so the best epoch is the best one for the reported uncertainties.
+every batch and head from a generator seeded by `seed`, also get m for all
+their parameters, so the model learns to predict without the errors.
+Validation, evaluation and prediction always use m, so the best epoch is the
+best one for the reported uncertainties.
 
 The predicted scatter s is therefore the expected scatter between the
 prediction and the label source's measurement of the star, the source's label
@@ -259,6 +260,8 @@ afresh for every batch from the configured ranges.
 Each star always keeps at least one survey, one block, one label source and
 one label. Masking teaches the model to predict from incomplete inputs, as it
 must for stars observed by only some surveys.
+The masks come from generators seeded by `seed`, so runs with the same seed on
+the same device mask the same entries.
 
 ## Checkpoints
 
