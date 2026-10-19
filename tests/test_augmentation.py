@@ -890,3 +890,10 @@ class TestSeededMasking:
         _masks_of_three_batches(kind, None)
         assert np.random.rand() == expected_np
         assert torch.equal(torch.rand(1), expected_torch)
+
+
+@pytest.mark.parametrize("masking_class", [DynamicLabelMasking, DynamicInputMasking])
+@pytest.mark.parametrize("seed", [-1, 1.5, True, "0"])
+def test_seed_that_is_not_a_non_negative_int_is_rejected(masking_class, seed):
+    with pytest.raises(ValueError, match="seed"):
+        masking_class(seed=seed)
