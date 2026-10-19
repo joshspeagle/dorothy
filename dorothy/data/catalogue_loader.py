@@ -1,12 +1,9 @@
-"""
-Loader for the DOROTHY super-catalogue HDF5 format.
+"""Load the DOROTHY super-catalogue HDF5 file.
 
-This module provides utilities to load the unified multi-survey super-catalogue,
-enabling training across multiple surveys with consistent label handling.
-
-Each survey in the catalogue has its own independent row structure and
-corresponding labels. The loader automatically maps surveys to their
-appropriate label sources.
+:class:`CatalogueLoader` reads spectra of one or several surveys and the
+labels of one or several label sources, and builds the model inputs of the
+trainer. Catalogues from ``scripts/build_catalogue_v2.py`` have one row per
+star, aligned across surveys and label sources.
 
 Examples:
     >>> loader = CatalogueLoader("/path/to/super_catalogue.h5")
@@ -335,13 +332,15 @@ class CatalogueData:
         ivar: Inverse variance, shape (N, wavelength_bins).
         wavelength: Wavelength grid, shape (wavelength_bins,).
         snr: Signal-to-noise ratio for each spectrum.
-        labels: Stellar parameter values, shape (N, 11).
-        label_errors: Uncertainties on labels, shape (N, 11).
-        label_flags: Per-parameter quality flags, shape (N, 11).
+        labels: Stellar parameter values, shape (N, n_params).
+        label_errors: Uncertainties on labels, shape (N, n_params).
+        label_flags: Per-parameter quality flags, shape (N, n_params).
         survey_name: Name of the survey (for single-survey loading).
         label_source: Name of the label source used.
-        has_spectrum: Boolean mask for stars with valid spectra.
-        has_labels: Boolean mask for stars with valid labels.
+        has_spectrum: Boolean mask for stars with valid spectra. If empty, any
+            ivar > 0.
+        has_labels: Boolean mask for stars with valid labels. If empty, any
+            label error > 0.
     """
 
     gaia_ids: np.ndarray
@@ -387,7 +386,12 @@ class CatalogueData:
         return int((self.has_spectrum & self.has_labels).sum())
 
     def filter_complete(self) -> CatalogueData:
-        """Return a new CatalogueData with only complete (spectra + labels) stars."""
+        """Keep the stars with a valid spectrum and valid labels.
+
+        Returns:
+            A new CatalogueData with the stars where has_spectrum and
+            has_labels are both True.
+        """
         mask = self.has_spectrum & self.has_labels
         return CatalogueData(
             gaia_ids=self.gaia_ids[mask],
@@ -411,8 +415,8 @@ class CatalogueData:
         Filter stars based on label quality flags.
 
         Args:
-            max_flag_bits: Maximum number of set bits allowed in flags.
-                0 = only stars with no flags set (highest quality).
+            max_flag_bits: Maximum number of set flag bits allowed, summed over
+                the parameters of a star. 0 keeps only stars with no flag set.
 
         Returns:
             New CatalogueData with filtered stars.
@@ -453,9 +457,11 @@ class MergedCatalogueData:
             Each entry contains: 'flux', 'ivar', 'wavelength', 'snr', 'labels',
             'label_errors', 'label_flags', 'has_data' (bool mask).
         label_source: Label source used (typically 'apogee').
-        primary_labels: Primary labels array, shape (N, 11), from best available source.
-        primary_errors: Primary label errors array, shape (N, 11).
-        primary_flags: Primary label flags array, shape (N, 11).
+        primary_labels: Primary labels, shape (N, n_params). Each star takes
+            the labels of the first survey, in loading order, whose label
+            errors are not all zero.
+        primary_errors: Primary label errors, shape (N, n_params).
+        primary_flags: Primary label flags, shape (N, n_params).
 
     Examples:
         >>> merged = loader.load_merged(surveys=["boss", "lamost_lrs"])
@@ -486,13 +492,22 @@ class MergedCatalogueData:
         return list(self.surveys.keys())
 
     def get_coverage_stats(self) -> dict[str, int]:
-        """Get the number of stars with data from each survey."""
+        """Get the number of stars with data from each survey.
+
+        Returns:
+            Survey name -> number of stars.
+        """
         return {
             survey: int(data["has_data"].sum()) for survey, data in self.surveys.items()
         }
 
     def get_overlap_matrix(self) -> dict[tuple[str, str], int]:
-        """Get pairwise overlap counts between surveys."""
+        """Get pairwise overlap counts between surveys.
+
+        Returns:
+            (survey_a, survey_b) -> number of stars with data from both, for
+            each pair in loading order.
+        """
         overlaps = {}
         survey_list = list(self.surveys.keys())
         for i, s1 in enumerate(survey_list):
@@ -503,14 +518,16 @@ class MergedCatalogueData:
 
     def filter_by_surveys(self, required_surveys: list[str]) -> MergedCatalogueData:
         """
-        Return a new MergedCatalogueData with only stars that have data
-        from all specified surveys.
+        Keep only the stars that have data from all specified surveys.
 
         Args:
             required_surveys: List of survey names that must have data.
 
         Returns:
-            Filtered MergedCatalogueData.
+            A new MergedCatalogueData; the wavelength grids are shared.
+
+        Raises:
+            ValueError: If a required survey is not in the merged data.
         """
         mask = np.ones(self.n_stars, dtype=bool)
         for survey in required_surveys:
@@ -547,9 +564,7 @@ class SparseMergedData:
     actual data for each survey. Index mappings allow efficient lookup
     between global star indices and survey-local indices.
 
-    This reduces memory usage significantly for surveys with low coverage:
-    - DESI: 0.8% coverage → stores only 1.3K rows instead of 155K
-    - BOSS: 7.4% coverage → stores only 11K rows instead of 155K
+    A survey with low coverage stores only its rows with data.
 
     Attributes:
         flux: Per-survey sparse spectra. Maps survey name to array of shape
@@ -572,7 +587,7 @@ class SparseMergedData:
         dec: Declination in degrees (n_total,).
         surveys: List of survey names.
         n_total: Total number of unique stars across all surveys.
-        n_params: Number of stellar parameters (typically 11).
+        n_params: Number of stellar parameters.
         labels_dict: Per label source, labels (n_total, 3, n_params), when
             several sources are loaded.
         has_labels_dict: Per label source, whether each star has at least one
@@ -600,7 +615,7 @@ class SparseMergedData:
     parameter_names: list[str] | None = None  # Label parameter names (n_params,)
 
     def has_data(self, survey: str) -> np.ndarray:
-        """Return boolean mask of which global indices have data for survey."""
+        """Return the boolean mask, shape (n_total,), of stars with data for survey."""
         return self.global_to_local[survey] >= 0
 
     def coverage(self, survey: str) -> float:
@@ -616,7 +631,13 @@ class SparseMergedData:
         return {survey: self.n_with_data(survey) for survey in self.surveys}
 
     def memory_usage_mb(self) -> dict[str, float]:
-        """Estimate memory usage in MB for each component."""
+        """Report the size in MB (1e6 bytes) of the main arrays.
+
+        Returns:
+            Dict with ``<survey>_flux`` and ``<survey>_sigma`` per survey,
+            ``labels``, ``gaia_ids`` and their sum, ``total``. Index maps and
+            ``labels_dict`` are not counted.
+        """
         usage = {}
         for survey in self.surveys:
             flux_mb = self.flux[survey].nbytes / 1e6
@@ -629,13 +650,14 @@ class SparseMergedData:
         return usage
 
     def get_labels_for_source(self, source: str) -> np.ndarray:
-        """Get labels for a specific source (or primary if single-source).
+        """Get the labels of a label source.
 
         Args:
             source: Label source name (e.g., 'apogee', 'galah').
 
         Returns:
-            Labels array of shape (n_total, 3, n_params).
+            Labels array of shape (n_total, 3, n_params). The primary labels
+            if ``labels_dict`` is None or does not hold source.
         """
         if self.labels_dict is not None and source in self.labels_dict:
             return self.labels_dict[source]
@@ -667,13 +689,25 @@ class SparseMergedData:
         return np.any(self.labels[:, 2, :] > 0, axis=1)
 
     def is_multi_label(self) -> bool:
-        """Check if this data has multiple label sources."""
+        """Return whether more than one label source is loaded."""
         return self.label_sources is not None and len(self.label_sources) > 1
 
 
 @dataclass
 class CatalogueInfo:
-    """Summary information about a catalogue."""
+    """Summary information about a catalogue.
+
+    Attributes:
+        n_stars: Number of stars (rows).
+        parameter_names: Label parameter names, in column order.
+        survey_names: Survey names from the catalogue attributes.
+        creation_date: Creation date from the catalogue attributes.
+        version: Catalogue version.
+        surveys: Survey name -> dict with ``wavelength_bins``,
+            ``n_with_data`` (stars with snr > 0) and ``wavelength_range``.
+        labels: Label source -> dict with ``n_with_data`` (stars with a label
+            error > 0).
+    """
 
     n_stars: int
     parameter_names: list[str]
@@ -688,21 +722,22 @@ class CatalogueLoader:
     """
     Loader for DOROTHY super-catalogue HDF5 files.
 
-    This class provides methods to inspect and load data from the unified
-    super-catalogue format. It supports loading from single or multiple
-    surveys and selecting between APOGEE and GALAH labels.
+    Inspects the catalogue and loads one survey (:meth:`load`), several
+    surveys (:meth:`load_multi`, :meth:`load_merged`,
+    :meth:`load_merged_sparse`) or training inputs (:meth:`load_for_training`,
+    :meth:`load_merged_for_training`), with APOGEE or GALAH labels.
 
     Examples:
         >>> loader = CatalogueLoader("super_catalogue.h5")
         >>> loader.info()
 
         >>> # Load DESI spectra with APOGEE labels
-        >>> data = loader.load(surveys="desi", label_source="apogee")
+        >>> data = loader.load(survey="desi", label_source="apogee")
         >>> complete = data.filter_complete()  # Only stars with both
         >>> print(f"Training set: {complete.n_stars} stars")
 
         >>> # Load multiple surveys
-        >>> data = loader.load(surveys=["desi", "boss"], label_source="apogee")
+        >>> data = loader.load_multi(["desi", "boss"])
     """
 
     def __init__(self, catalogue_path: str | Path):
@@ -722,6 +757,8 @@ class CatalogueLoader:
     def get_info(self) -> CatalogueInfo:
         """
         Get summary information about the catalogue.
+
+        Reads the snr and error arrays of every survey and label group.
 
         Returns:
             CatalogueInfo object with catalogue metadata.
@@ -808,22 +845,25 @@ class CatalogueLoader:
         """
         Load data from a single survey in the catalogue.
 
-        Each survey has its own independent row structure with row-aligned labels.
-        The label source is automatically determined from the survey name unless
-        explicitly overridden.
+        Spectra and labels are row-aligned. All rows of the survey are
+        returned, including rows without data.
 
         Args:
             survey: Survey name to load (e.g., "boss", "lamost_lrs", "desi").
-                If None, loads from first available survey.
-            label_source: Label source to use. If None, automatically determined
-                from survey name (e.g., "lamost_lrs" -> "apogee_lamost_lrs").
+                If None, loads the first survey with data.
+            label_source: Label group to use. If None, the first of
+                ``SURVEY_LABEL_MAP[survey]``, "apogee", "galah" and
+                "apogee_<survey>" that the catalogue has. A name that is not a
+                group falls back to "<label_source>_<survey>".
             require_complete: If True, only return stars with both spectra and labels.
 
         Returns:
             CatalogueData object with loaded data.
 
         Raises:
-            ValueError: If specified survey or label source not in catalogue.
+            ValueError: If the survey or label source is not in the catalogue,
+                no survey has data, the catalogue has no labels group, the
+                survey has no spectra, or the arrays differ in length.
 
         Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
@@ -952,13 +992,16 @@ class CatalogueLoader:
         """
         Load data ready for training in unified 3-channel format.
 
-        This is a convenience method that loads complete, high-quality data
-        and returns it in the format expected by the DOROTHY trainer.
+        Loads the stars with a spectrum and labels, drops the stars with more
+        set flag bits than ``max_flag_bits``, and masks each label with a
+        nonzero flag or a non-positive error.
 
         Args:
             survey: Survey to load from.
-            label_source: Label source to use. If None, auto-determined from survey.
-            max_flag_bits: Maximum flag bits allowed (0 = highest quality).
+            label_source: Label source to use; see :meth:`load`.
+            max_flag_bits: Maximum number of set flag bits of a star, summed
+                over its parameters. Stars with more are dropped. A negative
+                value drops none.
             normalize_spectra: Apply per-spectrum median/IQR normalization to
                 flux (and rescale ivar) before building the model inputs.
                 Training and inference must use the same setting.
@@ -969,12 +1012,16 @@ class CatalogueLoader:
             Tuple of (X, y) where:
                 - X: Spectral data, shape (N, 3, wavelength_bins)
                     Channel 0: flux values
-                    Channel 1: sigma (std dev), converted from ivar
+                    Channel 1: sigma = 1/sqrt(ivar), or log(1 + 1/sigma) with
+                    precision_encoding
                     Channel 2: mask (1=valid, 0=invalid wavelength)
                 - y: Labels, shape (N, 3, n_params)
                     Channel 0: label values
                     Channel 1: label errors (uncertainties)
                     Channel 2: mask (1=valid, 0=masked parameter)
+
+        Raises:
+            ValueError: As :meth:`load`.
         """
         data = self.load(
             survey=survey, label_source=label_source, require_complete=True
@@ -1026,21 +1073,25 @@ class CatalogueLoader:
         return result
 
     def list_surveys(self) -> list[str]:
-        """List available surveys in the catalogue."""
+        """List the survey names in the catalogue."""
         with h5py.File(self.path, "r") as f:
             if "surveys" in f:
                 return list(f["surveys"].keys())
             return []
 
     def list_label_sources(self) -> list[str]:
-        """List available label sources in the catalogue."""
+        """List the label group names in the catalogue."""
         with h5py.File(self.path, "r") as f:
             if "labels" in f:
                 return list(f["labels"].keys())
             return []
 
     def get_label_source_for_survey(self, survey: str) -> str | None:
-        """Get the default label source for a given survey."""
+        """Get the label group that ``SURVEY_LABEL_MAP`` assigns to a survey.
+
+        Returns:
+            The group name, or None if the survey is not in the map.
+        """
         return SURVEY_LABEL_MAP.get(survey)
 
     def load_multi(
@@ -1052,23 +1103,26 @@ class CatalogueLoader:
         """
         Load data from multiple surveys.
 
-        This method loads data from multiple surveys and returns them as a
-        dictionary. In "intersection" mode, only stars with data (snr > 0) in
-        ALL specified surveys are returned (useful for cross-survey
-        comparisons). In "union" mode, all stars from all surveys are returned.
+        Each survey is loaded with :meth:`load` and its default label source.
 
         Args:
             surveys: List of survey names to load.
-            mode: How to combine surveys:
-                - "union": Return all stars from all surveys (default)
-                - "intersection": Return only stars with data in every survey
-            deduplicate: If True (default), keep only one observation per star
-                (the first occurrence). If False, keep all observations.
+            mode: "union" returns all rows of every survey. "intersection"
+                returns the first row with data (snr > 0) of each star that
+                has data in every survey. Any other value acts as
+                "intersection".
+            deduplicate: In "union" mode, keep only the first row of each Gaia
+                ID, and every row with an ID <= 0. Ignored in
+                "intersection" mode.
 
         Returns:
             Dictionary mapping survey names to CatalogueData objects.
             In "intersection" mode, all CatalogueData objects are filtered
             to the same set of stars (ordered consistently by Gaia ID).
+
+        Raises:
+            ValueError: In "intersection" mode, if no star is in every survey,
+                or as :meth:`load`.
 
         Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
@@ -1418,6 +1472,7 @@ class CatalogueLoader:
         2. Second pass: Load spectra selectively using HDF5 indexed access
 
         Stars that don't appear in a survey have ivar=0 (natural masking).
+        Prints the coverage of each survey.
 
         Note:
             This method needs one row per star, as catalogues built by
@@ -1428,7 +1483,8 @@ class CatalogueLoader:
             label_source: Primary label source to use for combined labels.
 
         Returns:
-            MergedCatalogueData with outer join structure.
+            MergedCatalogueData with outer join structure. Dense arrays of
+            shape (n_stars, wavelength_bins) per survey.
 
         Raises:
             ValueError: If duplicate observations are found in the catalogue,
@@ -1577,11 +1633,7 @@ class CatalogueLoader:
 
         Unlike load_merged() which stores dense arrays (with zeros for missing
         stars), this method stores only stars that have actual data per survey.
-        This reduces memory usage by 60-80% for multi-survey datasets.
-
-        Memory comparison for 155K total stars:
-        - Dense (load_merged): ~28 GB for spectra
-        - Sparse (this method): ~7 GB for spectra
+        Prints progress.
 
         Note:
             This method needs one row per star, as catalogues built by
@@ -1589,12 +1641,16 @@ class CatalogueLoader:
 
         Args:
             surveys: List of survey names to load and merge.
-            label_source: Primary label source to use for combined labels.
-            max_flag_bits: Maximum flag bits allowed (0 = highest quality).
-            label_sources: Optional list of label sources for multi-label training.
-                If provided, labels_dict and has_labels_dict will be populated
-                with labels from each source. The primary `labels` array uses
-                the first source in the list (or label_source if not provided).
+            label_source: Label source of the primary ``labels`` array.
+            max_flag_bits: Largest number of set flag bits, summed over the
+                parameters of a star, for its labels to count; the labels of
+                a star with more are masked. A negative value masks none. A
+                label with a nonzero flag or a non-positive error is always
+                masked.
+            label_sources: Optional list of label sources for multi-label
+                training. With more than one, ``labels_dict``,
+                ``has_labels_dict`` and ``label_sources`` are set, with the
+                labels of each source.
             normalize_spectra: Apply per-spectrum median/IQR normalization to
                 flux (and rescale ivar) before building the model inputs.
                 Training and inference must use the same setting.
@@ -1607,7 +1663,8 @@ class CatalogueLoader:
 
         Raises:
             ValueError: If duplicate observations are found in the catalogue,
-                the primary label group's ``gaia_id`` differs from
+                a label source is not in the catalogue, the primary label
+                group's ``gaia_id`` differs from
                 ``metadata/gaia_id``, or another label group in
                 ``label_sources`` has no ``gaia_id``.
 
@@ -1853,7 +1910,17 @@ class CatalogueLoader:
         )
 
     def get_survey_wavelengths(self, survey: str) -> np.ndarray:
-        """Get the wavelength grid for a survey (LAMOST MRS: blue then red arm)."""
+        """Get the wavelength grid for a survey (LAMOST MRS: blue then red arm).
+
+        Args:
+            survey: Survey name.
+
+        Returns:
+            Wavelengths, shape (wavelength_bins,).
+
+        Raises:
+            ValueError: If the survey is not in the catalogue.
+        """
         with h5py.File(self.path, "r") as f:
             if survey not in f["surveys"]:
                 raise ValueError(f"Survey '{survey}' not in catalogue")
@@ -1880,7 +1947,12 @@ class CatalogueLoader:
 
         Returns:
             Tuple of (X, wavelength, gaia_id) where X has shape (3, n_wave)
-            with channels [flux, sigma, mask], matching the training inputs.
+            with channels [flux, sigma, mask], matching the training inputs
+            (sigma is replaced by its encoding with precision_encoding),
+            wavelength is float32, and gaia_id is -1 without metadata/gaia_id.
+
+        Raises:
+            ValueError: If the survey is not in the catalogue.
         """
         with h5py.File(self.path, "r") as f:
             if survey not in f["surveys"]:
@@ -1971,7 +2043,16 @@ class CatalogueLoader:
             )
 
     def get_parameter_names(self) -> list[str]:
-        """Get the label parameter names, in catalogue column order."""
+        """Get the label parameter names, in catalogue column order.
+
+        Returns:
+            The ``parameter_names`` attribute of the catalogue. Without it,
+            the first names of ``STELLAR_PARAMETERS``, one per label column.
+
+        Raises:
+            ValueError: If the attribute is missing and there are more label
+                columns than ``STELLAR_PARAMETERS``.
+        """
         with h5py.File(self.path, "r") as f:
             return _read_parameter_names(f)
 
@@ -1992,13 +2073,9 @@ class CatalogueLoader:
         """
         Load merged multi-survey data ready for training with MultiHeadMLP.
 
-        This method loads data from multiple surveys using outer join alignment
-        and returns it in the unified 3-channel format expected by the trainer.
-
-        Supports multi-labelset training where different stars may have labels
-        from different sources (e.g., APOGEE vs GALAH). When label_sources is
-        provided, returns labels and masks for each source, enabling union-style
-        training with per-source loss masking.
+        Loads the surveys with :meth:`load_merged` (outer join) and returns
+        the 3-channel format of the trainer. With label_sources, returns the
+        labels and a mask for each source, for per-source loss masking.
 
         Note:
             This method needs one row per star, as catalogues built by
@@ -2008,7 +2085,9 @@ class CatalogueLoader:
             surveys: List of survey names to load and merge.
             label_source: Primary label source to use for combined labels.
                 Used when label_sources is None (single-source mode).
-            max_flag_bits: Maximum flag bits allowed (0 = highest quality).
+            max_flag_bits: Largest number of set flag bits, summed over the
+                parameters of a star, for its labels to count; the labels of
+                a star with more are masked. A negative value masks none.
             label_sources: List of label sources for multi-labelset training.
                 If None, uses single-source mode with label_source parameter.
                 If provided, returns y_dict and has_labels_dict instead of y.
@@ -2023,7 +2102,7 @@ class CatalogueLoader:
                 - X_dict: Dict mapping survey name to spectral data array
                     Each array has shape (N, 3, wavelength_bins) with:
                     - Channel 0: flux values
-                    - Channel 1: sigma (std dev), converted from ivar
+                    - Channel 1: sigma, or its precision encoding
                     - Channel 2: mask (1=valid, 0=invalid wavelength)
                 - y: Labels. In single-source mode (label_sources=None):
                     Array of shape (N, 3, n_params) with:
@@ -2041,23 +2120,24 @@ class CatalogueLoader:
 
         Raises:
             ValueError: If duplicate observations are found in the catalogue,
-                it has no Gaia IDs, or a label group in ``label_sources``
-                other than ``label_source`` has no ``gaia_id``.
+                it has no Gaia IDs, a label source is not in the catalogue, or
+                a label group in ``label_sources`` other than ``label_source``
+                has no ``gaia_id``.
 
         Example (single-source):
             >>> loader = CatalogueLoader("super_catalogue.h5")
             >>> X_dict, y, has_data, _ = loader.load_merged_for_training(
             ...     surveys=["boss", "lamost_lrs"]
             ... )
-            >>> # y.shape = (N, 3, 11)
+            >>> # y.shape = (N, 3, n_params)
 
         Example (multi-source):
             >>> X_dict, y_dict, has_data, has_labels = loader.load_merged_for_training(
             ...     surveys=["boss", "lamost_lrs"],
             ...     label_sources=["apogee", "galah"]
             ... )
-            >>> # y_dict["apogee"].shape = (N, 3, 11)
-            >>> # y_dict["galah"].shape = (N, 3, 11)
+            >>> # y_dict["apogee"].shape = (N, 3, n_params)
+            >>> # y_dict["galah"].shape = (N, 3, n_params)
             >>> # has_labels["apogee"] = boolean array of shape (N,)
         """
         # Load merged data
@@ -2122,13 +2202,14 @@ class CatalogueLoader:
         """
         Get the number of wavelength bins for each survey.
 
-        This is useful for initializing MultiHeadMLP with correct input sizes.
-
         Args:
             surveys: List of survey names.
 
         Returns:
             Dictionary mapping survey name to number of wavelength bins.
+
+        Raises:
+            ValueError: If a survey is not in the catalogue.
 
         Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
