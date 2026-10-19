@@ -1,11 +1,13 @@
 """Shared utilities for neural network model building.
 
 This module provides common functions used across different model architectures,
-including activation and normalization layer factories.
+including activation and normalization layer factories and the residual
+block of the multi-head model's residual stream.
 """
 
 from __future__ import annotations
 
+import torch
 import torch.nn as nn
 
 
@@ -100,3 +102,60 @@ def hidden_blocks(
             modules.append(nn.Dropout(p=dropout))
         input_dim = size
     return modules
+
+
+class ResidualBlock(nn.Module):
+    """A pre-norm residual block of constant width.
+
+    For an input x of size width::
+
+        x <- x + W_2 act(W_1 norm(x))
+
+    W_1 maps width to hidden and W_2 maps hidden back to width, both with a
+    bias. When dropout > 0, Dropout follows the activation.
+
+    Attributes:
+        update: The layers that compute the update added to x.
+    """
+
+    def __init__(
+        self,
+        width: int,
+        hidden: int,
+        normalization: str,
+        activation: str,
+        dropout: float,
+    ) -> None:
+        """Initialize the block.
+
+        Args:
+            width: Size of the input and output (the stream width).
+            hidden: Size of the hidden layer.
+            normalization: Normalization type ("batchnorm" or "layernorm").
+            activation: Activation function ("gelu", "relu" or "silu").
+            dropout: Dropout probability.
+
+        Raises:
+            ValueError: If the normalization or activation is not recognized.
+        """
+        super().__init__()
+        layers = [
+            get_normalization(normalization)(width),
+            nn.Linear(width, hidden),
+            get_activation(activation)(),
+        ]
+        if dropout > 0:
+            layers.append(nn.Dropout(p=dropout))
+        layers.append(nn.Linear(hidden, width))
+        self.update = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Add the block's update to x.
+
+        Args:
+            x: Input of shape (batch, width).
+
+        Returns:
+            Output of shape (batch, width).
+        """
+        return x + self.update(x)

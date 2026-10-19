@@ -61,11 +61,51 @@ predict from any one of them:
 `model(X, survey="boss")` for a single-survey input, or a dict of surveys with
 `has_data`.
 
+## Residual stream
+
+`multi_head_model.residual_stream: true` replaces the plain trunk and the
+hidden layers of the heads with a residual stream of width d = `latent_dim`.
+It is experimental and off by default.
+
+The stream starts at the combined encodings. In `concat` mode with several
+surveys, a linear map takes them from `n_surveys × latent_dim` numbers to d;
+otherwise they have d numbers already. Each entry h of `trunk_hidden` adds one
+pre-norm residual block {cite:p}`he2016identity`,
+
+$$
+x \leftarrow x + W_2 \, \mathrm{act}\left(W_1 \, \mathrm{norm}(x)\right),
+$$
+
+where W₁ maps d to h numbers and W₂ maps them back to d, and a final
+normalization closes the stream. The normalization is the configured one,
+`layernorm` by default. Every block reads and writes the same vector, so the
+stream is one representation that can be probed at every depth.
+
+Each head's two decoders read the closed stream. Each decoder adds one
+residual block of hidden size h for each entry h of `output_hidden`, then a
+normalization and a linear map to one output per parameter. The error
+decoder adds a linear map of the log label errors u (see
+[Scatter and label errors](training.md#scatter-and-label-errors)) to its copy
+of the stream instead of concatenating u:
+
+$$
+\mu = D_\mu(z), \qquad \ln s = D_s(z + W_u u),
+$$
+
+where z is the closed stream and W_u has no bias. Its residual block makes
+ln s a nonlinear function of u.
+
+The block count follows the hidden layer sizes, not the parameter count. With
+the defaults, the residual trunk and heads have more parameters than the
+plain ones: 472,737 against 316,513 for one survey and one label source. The
+survey encoders hold most of the parameters in either case.
+
 ## Embeddings
 
 {py:meth}`~dorothy.models.multi_head_mlp.MultiHeadMLP.get_embeddings` returns
 a survey encoder's vector (`level="encoder"`) or the trunk output
-(`level="trunk"`). Trunk embeddings place stars from different surveys in one
-space; [anomaly detection](analysis.md#anomaly-detection) uses them. For the
+(`level="trunk"`), which for a residual stream is the closed stream. Trunk
+embeddings place stars from different surveys in one space;
+[anomaly detection](analysis.md#anomaly-detection) uses them. For the
 MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns the input of
 the decoders by default.

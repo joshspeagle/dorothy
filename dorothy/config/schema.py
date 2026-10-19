@@ -413,6 +413,19 @@ class MultiHeadModelConfig(_ConfigModel):
         default=True,
         description=_LABEL_AWARE_DESCRIPTION,
     )
+    residual_stream: bool = Field(
+        default=False,
+        description="Replace the plain trunk and the output heads' hidden layers "
+        "with a residual stream of width latent_dim. The combined encodings, "
+        "linearly mapped to latent_dim when combination_mode is concat with "
+        "several surveys, pass through one pre-norm residual block per "
+        "trunk_hidden size (its hidden size) and a closing normalization. Each "
+        "head's decoders read the result through one residual block per "
+        "output_hidden size, and the error decoder adds a linear map of the log "
+        "label errors instead of concatenating them. Needs "
+        "label_aware_uncertainty. Experimental; False, the plain blocks, is the "
+        "default.",
+    )
 
     @field_validator("head_dropout")
     @classmethod

@@ -485,9 +485,11 @@ def cmd_info(args: argparse.Namespace) -> int:
                 print("  Architecture: MultiHeadMLP")
                 print(f"    Surveys (wavelength bins): {dict(mh.survey_wavelengths)}")
                 print(f"    Output heads: {mh.label_sources}")
+                blocks = "residual blocks" if mh.residual_stream else "plain blocks"
                 print(
                     f"    Encoder {list(mh.encoder_hidden)} -> latent {mh.latent_dim}, "
-                    f"trunk {list(mh.trunk_hidden)}, head {list(mh.output_hidden)}"
+                    f"trunk {list(mh.trunk_hidden)}, head {list(mh.output_hidden)} "
+                    f"({blocks})"
                 )
             else:
                 print("  Architecture: MLP")

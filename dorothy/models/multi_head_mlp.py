@@ -20,6 +20,11 @@ Architecture:
         and the log label errors -> Hidden layers of the same sizes -> ln s
         Output: (batch, 2, n_params) = [mu, ln s]
 
+    With residual_stream, the trunk and the decoders' hidden layers are
+    pre-norm residual blocks of width latent_dim, and the error decoder adds
+    a projection of the log label errors to the trunk output (see
+    SharedTrunk and LabelAwareOutput).
+
 For multi-survey training:
     - Each sample may have data from one or more surveys
     - Encoders only process surveys with valid data (indicated by has_data mask)
@@ -34,7 +39,7 @@ import torch
 import torch.nn as nn
 
 from dorothy.models.output import output_modules
-from dorothy.models.utils import get_activation, get_normalization
+from dorothy.models.utils import ResidualBlock, get_activation, get_normalization
 
 if TYPE_CHECKING:
     from dorothy.config.schema import MultiHeadModelConfig
@@ -136,7 +141,11 @@ class SharedTrunk(nn.Module):
     """Shared trunk network that processes combined survey embeddings.
 
     Takes latent representations from survey encoders and produces
-    features for the output head.
+    features for the output head. The plain trunk is one hidden block
+    (Linear, normalization, activation) per hidden layer, then a block to
+    output_dim. The residual trunk is a stream of width output_dim: a linear
+    map from input_dim when the sizes differ, one pre-norm ResidualBlock per
+    hidden layer, whose hidden size it is, then a normalization.
 
     Attributes:
         input_dim: Input dimension (latent_dim for single survey or
@@ -152,16 +161,19 @@ class SharedTrunk(nn.Module):
         normalization: str = "layernorm",
         activation: str = "gelu",
         dropout: float = 0.0,
+        residual: bool = False,
     ) -> None:
         """Initialize the shared trunk.
 
         Args:
             input_dim: Input dimension from encoder(s).
-            output_dim: Output dimension for output head.
+            output_dim: Output dimension for output head, and the stream
+                width of a residual trunk.
             hidden_layers: Hidden layer sizes. Default: [512, 256].
             normalization: Normalization type.
             activation: Activation function.
             dropout: Dropout probability.
+            residual: Build the residual trunk.
         """
         super().__init__()
 
@@ -173,6 +185,20 @@ class SharedTrunk(nn.Module):
 
         activation_fn = get_activation(activation)
         norm_class = get_normalization(normalization)
+
+        if residual:
+            projection = (
+                [nn.Linear(input_dim, output_dim)] if input_dim != output_dim else []
+            )
+            self.trunk = nn.Sequential(
+                *projection,
+                *[
+                    ResidualBlock(output_dim, size, normalization, activation, dropout)
+                    for size in hidden_layers
+                ],
+                norm_class(output_dim),
+            )
+            return
 
         layers: list[nn.Module] = []
         prev_size = input_dim
@@ -226,6 +252,7 @@ class OutputHead(nn.Module):
         activation: str = "gelu",
         dropout: float = 0.0,
         label_aware_uncertainty: bool = True,
+        residual: bool = False,
     ) -> None:
         """Initialize the output head.
 
@@ -239,10 +266,13 @@ class OutputHead(nn.Module):
             label_aware_uncertainty: Make the head a LabelAwareOutput
                 (default); False builds the hidden layers and the
                 AdditiveOutput of old checkpoints.
+            residual: Make the decoders residual, for a residual stream input
+                (see LabelAwareOutput).
 
         Raises:
             ValueError: If label_aware_uncertainty is True and hidden_layers
-                is empty.
+                is empty, or residual is True and label_aware_uncertainty is
+                False.
         """
         super().__init__()
 
@@ -262,6 +292,7 @@ class OutputHead(nn.Module):
                 activation,
                 dropout,
                 label_aware_uncertainty,
+                residual,
             )
         )
 
@@ -320,6 +351,8 @@ class MultiHeadMLP(nn.Module):
         output_head: Output prediction head.
         label_aware_uncertainty: Whether the heads are LabelAwareOutputs
             (True) or end in an AdditiveOutput.
+        residual_stream: Whether the trunk and the heads' decoders form a
+            residual stream of width latent_dim (True) or are plain blocks.
         encode_present_rows_only: With multi-survey input, run each encoder
             only on the rows that have that survey's data (default True).
             The rows without data are discarded either way, so this changes
@@ -359,6 +392,7 @@ class MultiHeadMLP(nn.Module):
         label_sources: list[str] | None = None,
         head_dropout: dict[str, float] | None = None,
         label_aware_uncertainty: bool = True,
+        residual_stream: bool = False,
     ) -> None:
         """Initialize the multi-head MLP.
 
@@ -386,10 +420,19 @@ class MultiHeadMLP(nn.Module):
             label_aware_uncertainty: Make every head a LabelAwareOutput
                 (default); False builds the heads of old checkpoints, which
                 end in an AdditiveOutput.
+            residual_stream: Replace the plain trunk and the heads' hidden
+                blocks with a residual stream of width latent_dim: the
+                combined encodings (linearly mapped to latent_dim in concat
+                mode with several surveys) pass through one ResidualBlock per
+                trunk_hidden size and a normalization, and each decoder has
+                one ResidualBlock per output_hidden size. Default False, the
+                plain blocks.
 
         Raises:
             ValueError: If survey_configs is empty.
             ValueError: If combination_mode is invalid.
+            ValueError: If residual_stream is True and
+                label_aware_uncertainty is False.
         """
         super().__init__()
 
@@ -406,6 +449,7 @@ class MultiHeadMLP(nn.Module):
         self.latent_dim = latent_dim
         self.combination_mode = combination_mode
         self.label_aware_uncertainty = label_aware_uncertainty
+        self.residual_stream = residual_stream
 
         # Label sources for multi-output heads
         self.label_sources = label_sources if label_sources else ["default"]
@@ -434,11 +478,12 @@ class MultiHeadMLP(nn.Module):
         # Create shared trunk
         self.trunk = SharedTrunk(
             input_dim=trunk_input_dim,
-            output_dim=128,  # Fixed trunk output
+            output_dim=latent_dim if residual_stream else 128,
             hidden_layers=trunk_hidden,
             normalization=normalization,
             activation=activation,
             dropout=dropout,
+            residual=residual_stream,
         )
 
         # Create output head(s) - one per label source
@@ -455,6 +500,7 @@ class MultiHeadMLP(nn.Module):
                     activation=activation,
                     dropout=head_dropout.get(source, dropout),
                     label_aware_uncertainty=label_aware_uncertainty,
+                    residual=residual_stream,
                 )
             # Backward compatibility: also set output_head to first source
             self.output_head = self.output_heads[self.label_sources[0]]
@@ -467,6 +513,7 @@ class MultiHeadMLP(nn.Module):
                 activation=activation,
                 dropout=head_dropout.get(self.label_sources[0], dropout),
                 label_aware_uncertainty=label_aware_uncertainty,
+                residual=residual_stream,
             )
             self.output_heads = nn.ModuleDict({self.label_sources[0]: self.output_head})
             self.register_load_state_dict_pre_hook(_rename_default_head)
@@ -495,6 +542,7 @@ class MultiHeadMLP(nn.Module):
             label_sources=config.label_sources,
             head_dropout=config.head_dropout,
             label_aware_uncertainty=config.label_aware_uncertainty,
+            residual_stream=config.residual_stream,
         )
 
     def forward_single(
@@ -843,11 +891,14 @@ class MultiHeadMLP(nn.Module):
             survey: Name of the survey.
             level: "encoder" for the survey encoder's latent vector, or
                 "trunk" for the shared trunk features (comparable across
-                surveys, and the input to every output head).
+                surveys, and the input to every output head). With
+                residual_stream, the trunk features are the stream after its
+                closing normalization.
 
         Returns:
             Embeddings of shape (batch, latent_dim) for "encoder" or
-            (batch, trunk output dim) for "trunk".
+            (batch, trunk output dim) for "trunk": 128, or latent_dim with
+            residual_stream.
         """
         if level == "trunk":
             return self._forward_single_to_trunk(x, survey)
@@ -892,4 +943,6 @@ class MultiHeadMLP(nn.Module):
         )
         if self.is_multi_label:
             repr_str += f", label_sources={self.label_sources}"
+        if self.residual_stream:
+            repr_str += ", residual_stream=True"
         return repr_str

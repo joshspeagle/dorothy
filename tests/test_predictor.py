@@ -551,6 +551,7 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     del raw["data"]["precision_encoding"]
     if multi_head:
         del raw["multi_head_model"]["label_sources"]
+        del raw["multi_head_model"]["residual_stream"]
     (path / "config.yaml").write_text(yaml.dump(raw))
 
     X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
@@ -573,6 +574,38 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     np.testing.assert_array_equal(
         result.uncertainties, predicted_scatter(expected[:, 1], 0.01).numpy()
     )
+
+
+def test_residual_stream_checkpoint_predicts_as_its_model(tmp_path):
+    """multi_head_model.residual_stream survives the saved config, so the
+    checkpoint loads into the residual model and predicts as it does."""
+    config = ExperimentConfig(
+        name="residual",
+        device="cpu",
+        data=DataConfig(catalogue_path=tmp_path / "c.h5", surveys=["boss"]),
+        multi_head_model={
+            "survey_wavelengths": {"boss": 20},
+            "n_parameters": 3,
+            "latent_dim": 16,
+            "encoder_hidden": [24],
+            "trunk_hidden": [16],
+            "output_hidden": [8],
+            "residual_stream": True,
+        },
+    )
+    torch.manual_seed(0)
+    model = build_model(config).eval()
+    path = tmp_path / "ckpt"
+    path.mkdir()
+    torch.save(model.state_dict(), path / "best_model.pth")
+    config.save_yaml(path / "config.yaml")
+
+    X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
+    predictor = Predictor.load(path, device="cpu")
+    assert predictor.model.residual_stream
+    with torch.no_grad():
+        expected = model(X, survey="boss").numpy()
+    np.testing.assert_array_equal(predictor.predict(X).raw_output, expected)
 
 
 CALIBRATION = {
