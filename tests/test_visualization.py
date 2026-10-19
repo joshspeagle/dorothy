@@ -412,6 +412,31 @@ def test_metric_bar_charts_show_the_best_epoch(plot, tmp_path, monkeypatch):
     np.testing.assert_array_equal(heights, best + 1.0)
 
 
+@pytest.mark.skipif(_try_import_matplotlib() is None, reason="matplotlib not available")
+@pytest.mark.parametrize("warmup", [2.4, 0.0])
+def test_loss_plot_shades_the_warmup_only_when_there_is_one(
+    warmup, basic_history, tmp_path, monkeypatch
+):
+    """Epoch e is drawn at x = e, so a warm-up of 2.4 epochs covers 0.5 to 2.9."""
+    import matplotlib.pyplot as plt
+
+    basic_history.nll_warmup_epochs = warmup
+    figures = []
+    close = plt.close
+    monkeypatch.setattr(plt, "close", lambda fig: (figures.append(fig), close(fig)))
+
+    plot_loss_curves(basic_history, tmp_path)
+
+    ax = figures[0].axes[0]
+    spans = [p for p in ax.patches if p.get_label() == "β-NLL warm-up"]
+    if warmup == 0:
+        assert spans == []
+    else:
+        assert len(spans) == 1
+        left, width = spans[0].get_x(), spans[0].get_width()
+        assert (left, left + width) == pytest.approx((0.5, 2.9))
+
+
 # =============================================================================
 # Report Generation Tests
 # =============================================================================

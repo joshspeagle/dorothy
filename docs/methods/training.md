@@ -168,7 +168,7 @@ Early stopping and `reduce_on_plateau` count only the epochs that end after the
 warm-up. During the warm-up the model trains on $\mathcal{L}_\beta$, so a
 plateau of $\mathcal{L}$ does not show convergence. The training losses in the
 history are those of $\mathcal{L}_\beta$, so during the warm-up they are not
-comparable with the validation losses.
+comparable with the validation losses. The loss plot shades the warm-up.
 
 ## Optimization
 
