@@ -1,8 +1,4 @@
-"""
-Evaluation metrics for DOROTHY stellar parameter predictions.
-
-This module provides tools for computing per-parameter evaluation metrics
-and comparing predictions against ground truth values.
+"""Per-parameter evaluation metrics for DOROTHY stellar parameter predictions.
 
 Metrics computed:
     Mean-based (outlier-sensitive):
@@ -144,7 +140,11 @@ class ParameterMetrics:
     pred_unc_p84: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary."""
+        """Convert to a dict with one entry per field.
+
+        Returns:
+            Field name -> value; unset optional fields are None.
+        """
         return {
             "name": self.name,
             "n_samples": self.n_samples,
@@ -177,7 +177,7 @@ class EvaluationResult:
     survey_name: str | None = None
 
     def __getitem__(self, param_name: str) -> ParameterMetrics:
-        """Get metrics for a specific parameter."""
+        """Return the metrics of one parameter, by name."""
         return self.metrics[param_name]
 
     def summary(self, format: str = "text", include_zscore: bool = True) -> str:
@@ -291,7 +291,11 @@ class EvaluationResult:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, dict[str, Any]]:
-        """Convert all metrics to a dictionary."""
+        """Convert all metrics to a dictionary.
+
+        Returns:
+            Parameter name -> :meth:`ParameterMetrics.to_dict`.
+        """
         return {name: m.to_dict() for name, m in self.metrics.items()}
 
 
@@ -315,7 +319,7 @@ class SurveyEvaluationResult:
     survey_sample_counts: dict[str, int] = field(default_factory=dict)
 
     def __getitem__(self, survey_name: str) -> EvaluationResult:
-        """Get metrics for a specific survey."""
+        """Return the result of one survey, by name."""
         return self.by_survey[survey_name]
 
     def summary(
@@ -326,7 +330,9 @@ class SurveyEvaluationResult:
         Args:
             format: Output format ("text" or "markdown").
             include_zscore: Whether to include z-score metrics if available.
-            compact: If True, show abbreviated per-survey table instead of full details.
+            compact: If True, show a per-survey table of the RMSE of the first
+                four parameters (text) or omit the per-survey details
+                (markdown), instead of full details.
 
         Returns:
             Formatted summary string.
@@ -466,7 +472,12 @@ class SurveyEvaluationResult:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert all metrics to a dictionary."""
+        """Convert all metrics to a dictionary.
+
+        Returns:
+            Dict with ``overall``, ``by_survey``, ``survey_names`` and
+            ``survey_sample_counts``.
+        """
         return {
             "overall": self.overall.to_dict(),
             "by_survey": {name: r.to_dict() for name, r in self.by_survey.items()},
@@ -478,9 +489,8 @@ class SurveyEvaluationResult:
 class Evaluator:
     """Evaluator for stellar parameter predictions.
 
-    Computes per-parameter metrics for comparing predictions against
-    ground truth values. Handles special cases like Teff evaluation
-    in both linear and log space.
+    Computes per-parameter metrics of predictions against ground truth. With
+    ``teff_in_log``, a parameter named "teff" also gets a "log_teff" entry.
 
     Attributes:
         parameter_names: Names of parameters to evaluate.
@@ -507,9 +517,9 @@ class Evaluator:
                 default ["teff", "logg", "fe_h"].
             teff_in_log: Whether to also evaluate Teff in log10 space,
                 adding a "log_teff" entry to the metrics.
-            scatter_floor: Scatter floor used by the model. Kept for reference;
-                ``pred_scatter`` passed to evaluate() must already include it
-                (as returned by the loss / Predictor).
+            scatter_floor: Scatter floor used by the model. Stored for
+                reference only: ``pred_scatter`` passed to evaluate() must
+                already include it.
         """
         if parameter_names is None:
             parameter_names = ["teff", "logg", "fe_h"]
@@ -531,19 +541,24 @@ class Evaluator:
         Args:
             y_pred: Predicted values of shape (n_samples, n_parameters).
             y_true: Ground truth values of shape (n_samples, n_parameters).
-            pred_scatter: Predicted scatter (s) from the model, shape (n_samples, n_parameters).
-            label_errors: Label measurement errors (sigma_label), shape (n_samples, n_parameters).
-                With them, z-scores divide by sqrt(sigma_label^2 + s^2) instead
-                of s.
-            mask: Optional mask of shape (n_samples, n_parameters). Values of 1 indicate
-                valid labels, 0 indicates masked labels. When provided, only valid samples
-                contribute to metrics for each parameter.
+            pred_scatter: Predicted scatter s, shape (n_samples, n_parameters).
+                None skips the z-score and scatter statistics.
+            label_errors: Label errors sigma_label, shape (n_samples,
+                n_parameters). With pred_scatter, z-scores divide by
+                sqrt(sigma_label^2 + s^2) instead of s.
+            mask: Optional mask of shape (n_samples, n_parameters). Nonzero
+                entries are valid labels. Only valid samples contribute to
+                the metrics of each parameter.
 
         Returns:
-            EvaluationResult containing per-parameter metrics.
+            EvaluationResult with one entry per parameter, plus "log_teff"
+            if teff_in_log is set and a "teff" column (any case) has valid
+            samples with positive predicted and true values.
 
         Raises:
-            ValueError: If input shapes don't match.
+            ValueError: If y_pred and y_true differ in shape, y_pred has
+                other than len(parameter_names) columns, or an optional array
+                differs in shape from y_pred.
         """
         if y_pred.shape != y_true.shape:
             raise ValueError(
@@ -654,21 +669,25 @@ class Evaluator:
                 - List of survey names (one per sample)
                 Ignored if has_data is provided.
             survey_names: List of survey names corresponding to survey indices.
-                Required if survey_ids is integer array. If survey_ids is strings,
-                this is inferred from unique values. Ignored if has_data is provided.
-            pred_scatter: Predicted scatter (s) from the model.
-            label_errors: Label measurement errors (sigma_label).
-            mask: Optional mask of shape (n_samples, n_parameters).
-            has_data: Dict mapping survey names to boolean arrays indicating which
-                samples have data from that survey (non-exclusive mode). Takes
-                precedence over survey_ids if both are provided.
+                If None, string ids give their sorted unique values and
+                integer ids give "survey_<id>". String ids not in survey_names
+                and integer ids out of range are excluded from the per-survey
+                results, with a warning. Ignored if has_data is provided.
+            pred_scatter: Predicted scatter s, shape (n_samples, n_parameters).
+            label_errors: Label errors sigma_label, shape (n_samples,
+                n_parameters).
+            mask: Optional mask of shape (n_samples, n_parameters); see
+                :meth:`evaluate`.
+            has_data: Survey name -> boolean array of shape (n_samples,),
+                True where the sample has data from that survey
+                (non-exclusive mode). Takes precedence over survey_ids.
 
         Returns:
             SurveyEvaluationResult with overall and per-survey metrics.
 
         Raises:
             ValueError: If neither survey_ids nor has_data is provided, or if
-                input shapes don't match.
+                the shapes of the arrays do not match, as in :meth:`evaluate`.
 
         Example (exclusive mode):
             >>> evaluator = Evaluator(["teff", "logg", "fe_h"])
@@ -1003,19 +1022,23 @@ def evaluate_predictions(
     parameter_names: list[str] | None = None,
     mask: NDArray[np.float32] | None = None,
 ) -> EvaluationResult:
-    """Convenience function to evaluate predictions.
+    """Evaluate predictions with a default :class:`Evaluator`.
 
     Args:
-        y_pred: Predicted values.
-        y_true: Ground truth values.
-        pred_scatter: Predicted scatter (s) from the model.
-        label_errors: Label measurement errors (sigma_label).
-        parameter_names: Optional list of parameter names.
-        mask: Optional mask of shape (n_samples, n_parameters). Values of 1 indicate
-            valid labels, 0 indicates masked labels.
+        y_pred: Predicted values, shape (n_samples, n_parameters).
+        y_true: Ground truth values, same shape.
+        pred_scatter: Predicted scatter s, same shape.
+        label_errors: Label errors sigma_label, same shape.
+        parameter_names: Parameter names, one per column. None uses
+            ["teff", "logg", "fe_h"].
+        mask: Optional mask, same shape; nonzero entries are valid labels.
 
     Returns:
-        EvaluationResult with per-parameter metrics.
+        EvaluationResult with per-parameter metrics, plus "log_teff" as in
+        :meth:`Evaluator.evaluate`.
+
+    Raises:
+        ValueError: As :meth:`Evaluator.evaluate`.
     """
     evaluator = Evaluator(parameter_names=parameter_names)
     return evaluator.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
@@ -1032,27 +1055,27 @@ def evaluate_predictions_by_survey(
     mask: NDArray[np.float32] | None = None,
     has_data: dict[str, NDArray[np.bool_]] | None = None,
 ) -> SurveyEvaluationResult:
-    """Convenience function to evaluate predictions with per-survey breakdown.
-
-    Supports two modes:
-    1. **Exclusive mode** (survey_ids): Each sample belongs to exactly one survey.
-    2. **Non-exclusive mode** (has_data): Samples can belong to multiple surveys.
+    """Evaluate predictions per survey with a default :class:`Evaluator`.
 
     Args:
-        y_pred: Predicted values.
-        y_true: Ground truth values.
-        survey_ids: Survey membership for each sample (integer indices or strings).
-            Used for exclusive mode. Ignored if has_data is provided.
-        survey_names: List of survey names (required if survey_ids is integers).
-        pred_scatter: Predicted scatter (s) from the model.
-        label_errors: Label measurement errors (sigma_label).
-        parameter_names: Optional list of parameter names.
-        mask: Optional mask of shape (n_samples, n_parameters).
-        has_data: Dict mapping survey names to boolean arrays (non-exclusive mode).
-            Takes precedence over survey_ids if both are provided.
+        y_pred: Predicted values, shape (n_samples, n_parameters).
+        y_true: Ground truth values, same shape.
+        survey_ids: Survey of each sample, shape (n_samples,), integer
+            indices or names (exclusive mode). Ignored if has_data is given.
+        survey_names: Survey names; see :meth:`Evaluator.evaluate_by_survey`.
+        pred_scatter: Predicted scatter s, same shape as y_pred.
+        label_errors: Label errors sigma_label, same shape as y_pred.
+        parameter_names: Parameter names, one per column. None uses
+            ["teff", "logg", "fe_h"].
+        mask: Optional mask, same shape as y_pred.
+        has_data: Survey name -> boolean array of shape (n_samples,)
+            (non-exclusive mode). Takes precedence over survey_ids.
 
     Returns:
         SurveyEvaluationResult with overall and per-survey metrics.
+
+    Raises:
+        ValueError: As :meth:`Evaluator.evaluate_by_survey`.
     """
     evaluator = Evaluator(parameter_names=parameter_names)
     return evaluator.evaluate_by_survey(

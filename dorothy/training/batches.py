@@ -6,7 +6,7 @@ multi-labelset) is expressed as a :class:`BatchSource` that yields
 :class:`Batch` objects with the same structure, so the trainer runs a single
 train/validation loop:
 
-- ``X``: survey name -> spectra (batch, 3, n_wavelengths) = [flux, sigma, mask]
+- ``X``: survey name -> spectra (batch, 3, n_wavelengths) = [flux, rho, mask]
 - ``has_data``: survey name -> (batch,) bool, which stars have that survey
 - ``y``: label source name -> labels (batch, 3, n_params) = [values, errors,
   mask]; stars without labels from a source have an all-zero mask.
@@ -50,6 +50,10 @@ class TensorBatchSource:
         y: Label source name -> labels tensor (n_samples, 3, n_params).
         has_data: Survey name -> (n_samples,) bool tensor. Defaults to all True.
         device: Device batches are moved to.
+
+    Raises:
+        ValueError: If a tensor of X, y or has_data has a different number of
+            samples than y.
     """
 
     def __init__(
@@ -82,7 +86,16 @@ class TensorBatchSource:
     def batches(
         self, batch_size: int, rng: np.random.Generator | None = None
     ) -> Iterator[Batch]:
-        """Yield batches, shuffled with ``rng`` if given, else in order."""
+        """Yield batches, shuffled with ``rng`` if given, else in order.
+
+        Args:
+            batch_size: Number of samples per batch; the last batch may be
+                smaller.
+            rng: Generator for the shuffle. None keeps the sample order.
+
+        Yields:
+            Batches of tensors on ``self.device``.
+        """
         order = (
             rng.permutation(self.n_samples)
             if rng is not None
@@ -173,9 +186,15 @@ class SparseBatchSource:
     def build_batch(self, global_indices: np.ndarray) -> Batch:
         """Assemble a dense batch for the given global star indices.
 
-        Each survey gives X (batch, 3, n_wavelengths) = [flux, sigma, mask]
-        with mask = 1 where sigma > 0, and all-zero rows for stars without
+        Each survey gives X (batch, 3, n_wavelengths) = [flux, rho, mask]
+        with mask = 1 where rho > 0, and all-zero rows for stars without
         that survey.
+
+        Args:
+            global_indices: Global star indices of the batch, shape (batch,).
+
+        Returns:
+            The batch, with y from ``self.labels`` at these indices.
         """
         n = len(global_indices)
         X, has_data = {}, {}
@@ -208,7 +227,17 @@ class SparseBatchSource:
     def batches(
         self, batch_size: int, rng: np.random.Generator | None = None
     ) -> Iterator[Batch]:
-        """Yield batches, shuffled with ``rng`` if given, else in order."""
+        """Yield batches, shuffled with ``rng`` if given, else in order.
+
+        Args:
+            batch_size: Number of stars per batch; the last batch may be
+                smaller.
+            rng: Generator for the shuffle. None keeps the order of
+                ``indices``.
+
+        Yields:
+            Batches built by :meth:`build_batch`.
+        """
         order = (
             self.indices[rng.permutation(self.n_samples)]
             if rng is not None

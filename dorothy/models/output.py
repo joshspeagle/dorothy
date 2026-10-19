@@ -166,9 +166,9 @@ class LabelAwareOutput(nn.Module):
 
 
 class AdditiveOutput(nn.Linear):
-    """The last layer of checkpoints saved before label-aware uncertainty.
+    """The last layer of a model without label-aware uncertainty.
 
-    One linear map from h to [mu, ln s]. These models add the label errors
+    One linear map from h to [mu, ln s]. Such models add the label errors
     to s outside the network, as sqrt(sigma_y^2 + s^2).
     """
 
@@ -224,8 +224,7 @@ def output_modules(
         activation: Activation function ("gelu", "relu" or "silu").
         dropout: Dropout probability of the hidden blocks.
         label_aware: Build a LabelAwareOutput; False builds the hidden blocks
-            and the AdditiveOutput of checkpoints saved before label-aware
-            uncertainty.
+            and an AdditiveOutput.
         residual: Read a residual stream: the hidden layers are residual
             blocks of width input_dim (see LabelAwareOutput).
 

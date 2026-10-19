@@ -1,10 +1,9 @@
-"""
-Data augmentation for spectral data.
+"""Training augmentations that mask labels and input spectra.
 
-This module implements augmentation techniques used during training to improve
-model robustness:
-- DynamicLabelMasking: Hierarchical label masking for missing label robustness
-- DynamicInputMasking: Hierarchical input masking for missing data robustness
+- :class:`DynamicLabelMasking`: hierarchical label masking.
+- :class:`DynamicInputMasking`: hierarchical input masking.
+
+Both draw their random numbers from the global numpy and torch generators.
 """
 
 from __future__ import annotations
@@ -24,8 +23,8 @@ class DynamicLabelMasking:
     All probabilities are sampled fresh per batch from configurable uniform
     ranges to ensure the model sees diverse masking conditions during training.
 
-    A guaranteed keeper mechanism ensures at least one labelset and one label
-    per labelset are always kept, preventing complete masking.
+    For each star, one valid labelset and one valid label per labelset are
+    always kept. Stars without a valid label are unchanged.
 
     Attributes:
         p_labelset_min: Minimum probability of keeping each labelset.
@@ -55,7 +54,7 @@ class DynamicLabelMasking:
             p_label_max: Maximum probability of keeping each label.
 
         Raises:
-            ValueError: If probability ranges are invalid.
+            ValueError: If a range does not satisfy 0 <= min <= max <= 1.
         """
         if not 0 <= p_labelset_min <= p_labelset_max <= 1:
             raise ValueError(
@@ -78,15 +77,18 @@ class DynamicLabelMasking:
         Apply hierarchical label masking to label tensor(s).
 
         Args:
-            y: Either a single tensor of shape (batch, 3, n_params) containing:
-                - Channel 0: Label values
-                - Channel 1: Label uncertainties
-                - Channel 2: Mask (1=valid, 0=masked)
-               Or a dict mapping labelset names to such tensors.
+            y: Either a single tensor of shape (batch, 3, n_params) with
+                channels [values, errors, mask], where mask > 0 is valid, or
+                a dict mapping labelset names to such tensors. Not modified.
 
         Returns:
-            Same structure as input with channel 2 (mask) modified.
-            Values and uncertainties are zeroed where mask becomes 0.
+            Same structure as y. Values, errors and mask are zeroed for each
+            dropped label; a dropped labelset is zeroed whole. A single
+            tensor without any valid label is returned as is.
+
+        Raises:
+            ValueError: If y is a tensor, or a one-entry dict of tensors, not
+                of shape (batch, 3, n_params).
         """
         # Sample probabilities fresh for this batch
         p_keep_labelset = np.random.uniform(self.p_labelset_min, self.p_labelset_max)
@@ -281,8 +283,9 @@ class DynamicInputMasking:
     from single pixels up to large spectral regions. All probabilities are
     sampled fresh per batch from configurable uniform ranges.
 
-    A guaranteed keeper mechanism ensures at least one survey and one block
-    per survey are always kept, preventing complete masking.
+    For each star, one valid survey and one valid block per survey are always
+    kept. Stars without a valid pixel are unchanged. A dropped block or survey
+    has flux, error and mask zeroed.
 
     Attributes:
         p_survey_min: Minimum probability of keeping each survey.
@@ -312,14 +315,17 @@ class DynamicInputMasking:
         Args:
             p_survey_min: Minimum probability of keeping each survey.
             p_survey_max: Maximum probability of keeping each survey.
-            f_min_override: Optional override for minimum block size fraction.
-                If None, defaults to 1/N_wavelengths (single pixel).
+            f_min_override: Minimum block size as a fraction of the spectrum,
+                raised to 1/N_wavelengths (one pixel) if smaller. None uses
+                one pixel.
             f_max: Maximum block size as fraction of spectrum.
             p_block_min: Minimum probability of keeping each block.
             p_block_max: Maximum probability of keeping each block.
 
         Raises:
-            ValueError: If probability or fraction ranges are invalid.
+            ValueError: If a probability range does not satisfy
+                0 <= min <= max <= 1, f_max is not in (0, 1], or
+                f_min_override is not in (0, f_max].
         """
         if not 0 <= p_survey_min <= p_survey_max <= 1:
             raise ValueError(
@@ -354,14 +360,19 @@ class DynamicInputMasking:
 
         Args:
             X: Dict mapping survey names to tensors of shape (batch, 3, N_wavelengths).
-                Each tensor has channels [flux, error, mask].
-            n_wavelengths: Dict mapping survey names to number of wavelengths.
+                Each tensor has channels [flux, error, mask]; mask != 0 is
+                valid.
+            n_wavelengths: Survey name -> N_wavelengths, which must equal
+                X[name].shape[2].
             inplace: Mask the tensors in X in place instead of returning
                 masked copies (the result is identical). Saves a copy of
                 every spectrum when the caller owns X.
 
         Returns:
             Dict with same keys, with masking applied to each survey.
+
+        Raises:
+            ValueError: If a tensor is not of shape (batch, 3, N_wavelengths).
         """
         surveys = list(X.keys())
         n_surveys = len(surveys)

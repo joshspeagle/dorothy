@@ -2,18 +2,18 @@
 Multi-layer perceptron (MLP) architecture for stellar parameter inference.
 
 This module implements the configurable MLP architecture used by DOROTHY models.
-The network takes 3-channel spectral data (flux, sigma, mask) as input and predicts
+The network takes 3-channel spectral data (flux, rho, mask) as input and predicts
 stellar parameters along with their uncertainties.
 
 Default architecture (DOROTHY standard):
     Input: (batch, 3, wavelengths) -> Flatten -> (batch, 3*wavelengths)
     Hidden: 3*wavelengths -> 5000 -> 2000 -> 1000 -> 500 -> 200
-    Output: LabelAwareOutput, 200 -> (batch, 2, 11), with the layer of 100
+    Output: LabelAwareOutput, 200 -> (batch, 2, n_params), with the layer of 100
     in each of its two decoders
 
 Input tensor has shape (batch, 3, wavelengths) where:
     - input[:, 0, :] contains the flux values
-    - input[:, 1, :] contains the sigma (uncertainty) values
+    - input[:, 1, :] contains rho = log(1 + 1/sigma), the encoded uncertainty
     - input[:, 2, :] contains the mask (1=valid, 0=invalid)
 
 Output tensor has shape (batch, 2, n_params) where:
@@ -39,12 +39,6 @@ class MLP(nn.Module):
     """
     Configurable multi-layer perceptron for stellar parameter prediction.
 
-    This network follows the DOROTHY architecture with configurable:
-    - Hidden layer sizes
-    - Normalization type (BatchNorm or LayerNorm)
-    - Activation function (GELU, ReLU, or SiLU)
-    - Dropout probability
-
     The network flattens 3D input tensors (batch, 3, wavelengths) to 2D
     before processing through the hidden layers. The last module, a
     LabelAwareOutput, takes over the last hidden layer: its label decoder is
@@ -54,7 +48,7 @@ class MLP(nn.Module):
 
     Input format (3-channel):
         - Channel 0: flux values
-        - Channel 1: sigma (uncertainty) values
+        - Channel 1: rho = log(1 + 1/sigma), the encoded uncertainty
         - Channel 2: mask (1=valid, 0=invalid)
 
     Attributes:
@@ -71,7 +65,7 @@ class MLP(nn.Module):
         >>> config = ModelConfig(hidden_layers=[1000, 500, 100])
         >>> model = MLP.from_config(config)
         >>> x = torch.randn(32, 3, 4506)  # batch of 3-channel spectra
-        >>> output = model(x)  # shape: (32, 2, 11)
+        >>> output = model(x)  # shape: (32, 2, n_parameters)
         >>> means = output[:, 0, :]  # predicted means
         >>> log_scatter = output[:, 1, :]  # predicted log-scatter
     """
@@ -91,9 +85,10 @@ class MLP(nn.Module):
 
         Args:
             input_features: Number of input features (channels * wavelength_bins).
-                Default is 15300 (2 channels * 7650 wavelengths).
+                Default is 15300 (3 channels * 5100 wavelengths).
             output_features: Number of output features. Should be 2 * n_parameters
-                to output both predictions and uncertainties. Default is 22.
+                to output both predictions and uncertainties. Default is 22 (11
+                parameters).
             hidden_layers: List of hidden layer sizes. Default is the DOROTHY
                 standard: [5000, 2000, 1000, 500, 200, 100].
             normalization: Type of normalization layer. One of:
@@ -104,8 +99,8 @@ class MLP(nn.Module):
                 - "relu": Rectified Linear Unit
                 - "silu": Sigmoid Linear Unit (Swish)
             dropout: Dropout probability. Default is 0.0 (no dropout).
-            label_aware_uncertainty: End in a LabelAwareOutput (default);
-                False ends in the AdditiveOutput of old checkpoints.
+            label_aware_uncertainty: End in a LabelAwareOutput (True) or an
+                AdditiveOutput (False).
 
         Raises:
             ValueError: If normalization or activation type is invalid.
@@ -154,7 +149,7 @@ class MLP(nn.Module):
                 pre-flattened (batch_size, input_features), where:
 
                 - x[:, 0, :] contains the flux values
-                - x[:, 1, :] contains the sigma (uncertainty) values
+                - x[:, 1, :] contains rho = log(1 + 1/sigma)
                 - x[:, 2, :] contains the mask (1=valid, 0=invalid)
             label_errors: Reported label errors of shape
                 (batch_size, n_parameters), in normalized units, for the
@@ -226,7 +221,7 @@ class MLP(nn.Module):
         )
 
     def count_parameters(self) -> int:
-        """Count the total number of trainable parameters."""
+        """Count the trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def extra_repr(self) -> str:

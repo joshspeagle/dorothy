@@ -1,14 +1,10 @@
-"""
-Command-line interface for DOROTHY.
-
-This module provides the main CLI entry point for training models,
-making predictions, and managing experiments.
+"""The ``dorothy`` command-line interface.
 
 Commands:
     train     - Train a model from a configuration file
-    predict   - Make predictions on new spectral data
+    predict   - Predict parameters for the spectra in a FITS file
     info      - Display information about a checkpoint
-    evaluate  - Evaluate model on held-out test set
+    evaluate  - Evaluate a checkpoint on its test set
 
 Examples:
     ```bash
@@ -29,7 +25,12 @@ from dorothy import __version__
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser for the CLI."""
+    """Create the argument parser of the ``dorothy`` command.
+
+    Returns:
+        The parser, with the subcommands ``train``, ``predict``, ``info`` and
+        ``evaluate``.
+    """
     parser = argparse.ArgumentParser(
         prog="dorothy",
         description="DOROTHY: Deep learning for stellar parameter inference",
@@ -192,7 +193,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=None,
-        help="Path to save evaluation results (JSON or Markdown)",
+        help="File for the results, in the --format format",
     )
     evaluate_parser.add_argument(
         "--format",
@@ -259,7 +260,18 @@ def _generate_training_plots(history, checkpoint_path: Path, name: str) -> None:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    """Execute the train command."""
+    """Run ``dorothy train``.
+
+    Loads the configuration, trains, saves the checkpoint and the data split,
+    and writes the training plots. A plotting error only prints a warning.
+
+    Args:
+        args: Parsed arguments of the ``train`` subcommand.
+
+    Returns:
+        0 on success, 1 after printing an error (missing or invalid
+        configuration, unusable data or resume checkpoint).
+    """
     import yaml
 
     from dorothy.config.schema import ExperimentConfig
@@ -403,7 +415,15 @@ def cmd_train(args: argparse.Namespace) -> int:
 
 
 def cmd_predict(args: argparse.Namespace) -> int:
-    """Execute the predict command."""
+    """Run ``dorothy predict``.
+
+    Args:
+        args: Parsed arguments of the ``predict`` subcommand.
+
+    Returns:
+        0 on success, 1 after printing an error (missing checkpoint or input,
+        or a failed prediction).
+    """
     from dorothy.inference import predict_from_fits
 
     checkpoint_path = args.checkpoint
@@ -446,7 +466,18 @@ def cmd_predict(args: argparse.Namespace) -> int:
 
 
 def cmd_info(args: argparse.Namespace) -> int:
-    """Execute the info command."""
+    """Run ``dorothy info``.
+
+    Prints what the checkpoint directory holds: model files, configuration,
+    training history, normalizer, calibration factors and learning rates. A
+    file that cannot be read prints an error line and the command goes on.
+
+    Args:
+        args: Parsed arguments of the ``info`` subcommand.
+
+    Returns:
+        0 on success, 1 if the checkpoint directory does not exist.
+    """
     import pickle
 
     import torch
@@ -611,7 +642,20 @@ def _calibration_table(head, fmt: str) -> str:
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
-    """Execute the evaluate command."""
+    """Run ``dorothy evaluate``.
+
+    Evaluates the checkpoint on its saved test split (recreated from the
+    configured seed when the checkpoint has none), prints the metrics of each
+    label source, and optionally writes them and the evaluation plots. A
+    plotting error only prints a warning.
+
+    Args:
+        args: Parsed arguments of the ``evaluate`` subcommand.
+
+    Returns:
+        0 on success, 1 after printing an error (missing checkpoint,
+        configuration or model file, or unusable data).
+    """
     import json
 
     from dorothy.data.training_data import SPLIT_FILE, DataSplit, load_training_data
@@ -761,14 +805,20 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """
-    Main entry point for the DOROTHY CLI.
+    """Run the ``dorothy`` command.
+
+    Without a subcommand, prints the help.
 
     Args:
-        argv: Command-line arguments. If None, uses sys.argv.
+        argv: Command-line arguments without the program name; None uses
+            ``sys.argv``.
 
     Returns:
-        Exit code (0 for success, non-zero for errors).
+        Exit code: 0 on success, 1 after an error.
+
+    Raises:
+        SystemExit: If the arguments are invalid (code 2), or for ``--help``
+            and ``--version`` (code 0).
     """
     parser = create_parser()
     args = parser.parse_args(argv)

@@ -78,6 +78,8 @@
 
 ### Fixed
 
+- `dorothy evaluate --help` said `--output` writes JSON or Markdown; it
+  writes the `--format` format.
 - Training on Apple MPS failed at the first step with PyTorch before 2.5,
   which rejects autocast on MPS even when it is disabled.
 - The catalogue loaders raised h5py's `KeyError`, not `ValueError`, for a

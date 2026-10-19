@@ -145,8 +145,8 @@ class TrainingHistory:
         total_time: Total training time in seconds.
         parameter_names: Names of stellar parameters being tracked.
         val_loss_breakdown: Per-epoch loss breakdown (primary label source) with keys:
-            - 'mean_component': (n_epochs, n_params) weighted squared error per param
-            - 'scatter_component': (n_epochs, n_params) log-variance penalty per param
+            - 'mean_component': (n_epochs, n_params) (mu - y)^2 / s^2 per param
+            - 'scatter_component': (n_epochs, n_params) log(s^2) per param
         val_metrics: Per-epoch Evaluator metrics (primary label source) as dict
             of lists of arrays. Keys are metric names (rmse, bias, sd, mae,
             median_offset, robust_scatter, z_median, z_robust_scatter,
@@ -202,7 +202,15 @@ class TrainingHistory:
     per_labelset_best_val_loss: dict[str, float] = field(default_factory=dict)
 
     def save(self, path: str | Path) -> None:
-        """Save training history to a pickle file."""
+        """Save the training history to a pickle file.
+
+        The pickle holds a dict of the fields, except ``learning_rates``;
+        ``train_losses`` and ``val_losses`` are stored as ``history_train``
+        and ``history_val``.
+
+        Args:
+            path: File to write.
+        """
         data = {
             "history_train": self.train_losses,
             "history_val": self.val_losses,
@@ -232,7 +240,11 @@ class TrainingHistory:
             pickle.dump(data, f)
 
     def save_learning_rates(self, path: str | Path) -> None:
-        """Save learning rates to a pickle file."""
+        """Save the learning rate of every optimizer step to a pickle file.
+
+        Args:
+            path: File to write; it holds the list ``learning_rates``.
+        """
         with open(path, "wb") as f:
             pickle.dump(self.learning_rates, f)
 
@@ -362,7 +374,8 @@ class Trainer:
         model: The neural network model (MLP or MultiHeadMLP).
         optimizer: The optimizer (AdamW by default).
         scheduler: Learning rate scheduler (OneCycleLR by default).
-        loss_fn: Loss function (HeteroscedasticLoss).
+        loss_fn: Loss function (HeteroscedasticLoss, or MaskedMSELoss for
+            ``loss: mse``).
         device: Compute device (cuda/mps/cpu).
         autocast_dtype: Dtype of the training forward pass with mixed
             precision (``training.amp`` on CUDA), or None for float32.
@@ -383,7 +396,7 @@ class Trainer:
         ...     data=DataConfig(catalogue_path=Path("/data/catalogue.h5")),
         ... )
         >>> trainer = Trainer(config)
-        >>> # X_train shape: (n_samples, 3, n_wavelengths) - [flux, sigma, mask]
+        >>> # X_train shape: (n_samples, 3, n_wavelengths) - [flux, rho, mask]
         >>> # y_train shape: (n_samples, 3, n_params) - [values, errors, mask]
         >>> trainer.fit(X_train, y_train, X_val, y_val)
         >>> trainer.save_checkpoint()  # Saves model + normalizer
@@ -404,11 +417,11 @@ class Trainer:
                 when set, otherwise the first n STELLAR_PARAMETERS).
 
         Raises:
-            ValueError: If the model configuration sets label_aware_uncertainty
-                or ``data.precision_encoding`` is false, ``parameter_names``
-                does not have one name per predicted parameter, or
-                ``training.amp_dtype`` is bfloat16 and the GPU has no native
-                bfloat16.
+            ValueError: If the model section sets ``label_aware_uncertainty``
+                to false, ``data.precision_encoding`` is false,
+                ``parameter_names`` does not have one name per predicted
+                parameter, or ``training.amp_dtype`` is bfloat16 and the GPU
+                has no native bfloat16.
         """
         section = "multi_head_model" if config.is_multi_head else "model"
         if not getattr(config, section).label_aware_uncertainty:
@@ -678,7 +691,7 @@ class Trainer:
 
         Args:
             X_train: Training features of shape (n_samples, 3, n_wavelengths)
-                with 3 channels: [flux, sigma, mask].
+                with 3 channels: [flux, rho, mask].
             y_train: Training labels of shape (n_samples, 3, n_params) where:
                 - Channel 0: label values
                 - Channel 1: label errors (uncertainties)
@@ -695,6 +708,9 @@ class Trainer:
             TrainingHistory with loss curves and metrics.
 
         Raises:
+            ValueError: If a label array does not have shape
+                (n_samples, 3, n_params), the model has several surveys, or
+                no label is valid for normalization.
             RuntimeError: If no epoch has a finite validation loss.
         """
         key = self.label_keys[0]
@@ -741,7 +757,7 @@ class Trainer:
         Args:
             X_train: Dict mapping survey names to training spectral data arrays.
                 Each array has shape (n_samples, 3, n_wavelengths) with 3 channels:
-                [flux, sigma, mask]. Missing data is indicated by mask=0.
+                [flux, rho, mask]. Missing data is indicated by mask=0.
             y_train: Training labels of shape (n_samples, 3, n_params) where:
                 - Channel 0: label values
                 - Channel 1: label errors (uncertainties)
@@ -758,6 +774,9 @@ class Trainer:
 
         Raises:
             TypeError: If model is not a MultiHeadMLP.
+            ValueError: If a label array does not have shape
+                (n_samples, 3, n_params), or no label is valid for
+                normalization.
             RuntimeError: If no epoch has a finite validation loss.
         """
         self._require_multi_head("fit_multi_survey")
@@ -783,8 +802,8 @@ class Trainer:
 
         This method is designed for large multi-survey datasets where storing
         dense arrays for all surveys would exceed available memory. It builds
-        dense batches on-the-fly from sparse storage, reducing memory usage
-        by 60-80% compared to fit_multi_survey().
+        dense batches on the fly from sparse storage, which holds only the
+        stars that have each survey.
 
         For a model with several output heads, the labels of each source come
         from ``data.labels_dict``; otherwise ``data.labels`` is used.
@@ -801,13 +820,14 @@ class Trainer:
 
         Raises:
             TypeError: If model is not a MultiHeadMLP.
-            ValueError: If the model's label sources are not in the data.
+            ValueError: If the model's label sources are not in the data, or
+                no training label is valid for normalization.
             RuntimeError: If no epoch has a finite validation loss.
 
         Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
             >>> data = loader.load_merged_sparse(["boss", "desi", "lamost_lrs"])
-            >>> train_idx, val_idx, test_idx = split_indices(data.n_total)
+            >>> train_idx, val_idx = ...  # global star indices of the two splits
             >>> history = trainer.fit_multi_survey_sparse(data, train_idx, val_idx)
         """
         self._require_multi_head("fit_multi_survey_sparse")
@@ -869,7 +889,7 @@ class Trainer:
         Args:
             X_train: Dict mapping survey names to training spectral data arrays.
                 Each array has shape (n_samples, 3, n_wavelengths) with 3 channels:
-                [flux, sigma, mask]. Missing data is indicated by mask=0.
+                [flux, rho, mask]. Missing data is indicated by mask=0.
             y_train: Dict mapping label source names to training label arrays.
                 Each array has shape (n_samples, 3, n_params) where:
                 - Channel 0: label values
@@ -894,7 +914,9 @@ class Trainer:
 
         Raises:
             TypeError: If model is not a MultiHeadMLP with multi-label support.
-            ValueError: If the label sources don't match the model's heads.
+            ValueError: If the label sources don't match the model's heads, a
+                label array does not have shape (n_samples, 3, n_params), or no
+                label is valid for normalization.
             RuntimeError: If no epoch has a finite validation loss.
         """
         self._require_multi_head("fit_multi_labelset")
@@ -1775,12 +1797,19 @@ class Trainer:
         """
         Make predictions with the trained model.
 
+        The model reads the learned missing vector in place of label errors.
+
         Args:
-            X: Input features.
+            X: Input spectra of shape (n_samples, 3, n_wavelengths) = [flux,
+                rho, mask], for a model with one survey.
             batch_size: Number of samples per forward pass.
 
         Returns:
-            Predictions as numpy array of shape (n_samples, 2, n_params).
+            Array of shape (n_samples, 2, n_params) = [mu, ln_s], in
+            normalized label units.
+
+        Raises:
+            ValueError: If the model has several surveys.
         """
         self.model.eval()
         X_tensor = self._to_tensor(X)
@@ -1797,16 +1826,20 @@ class Trainer:
         """
         Get predictions and uncertainty estimates.
 
-        Only works with HeteroscedasticLoss.
+        The scatter is meaningful only for a model trained with
+        HeteroscedasticLoss.
 
         Args:
-            X: Input features.
+            X: Input spectra, as for :meth:`predict`.
 
         Returns:
-            Tuple of (predictions, uncertainties) as numpy arrays.
-            predictions has shape (batch, n_params).
-            uncertainties has shape (batch, n_params): the predicted scatter,
-            without the calibration factors.
+            Tuple of (predictions, uncertainties) as numpy arrays, both in
+            normalized label units. predictions has shape (n_samples,
+            n_params). uncertainties has shape (n_samples, n_params): the
+            predicted scatter, without the calibration factors.
+
+        Raises:
+            ValueError: If the model has several surveys.
         """
         output = self.predict(X)
         predictions = output[:, 0, :]
@@ -1828,14 +1861,15 @@ class Trainer:
 
         Args:
             X: Dict mapping survey names to spectral data arrays.
-                Each array has shape (n_samples, 3, n_wavelengths).
+                Each array has shape (n_samples, 3, n_wavelengths) = [flux,
+                rho, mask].
             has_data: Dict mapping survey names to boolean arrays indicating
                 which samples have data from that survey.
 
         Returns:
             Dict mapping label source names to prediction arrays of shape
-            (n_samples, 2, n_params): predicted means in ``[:, 0, :]`` and
-            predicted log-scatter in ``[:, 1, :]``.
+            (n_samples, 2, n_params), in normalized label units: predicted
+            means in ``[:, 0, :]`` and predicted log-scatter in ``[:, 1, :]``.
 
         Raises:
             TypeError: If model is not a MultiHeadMLP with multi-label support.

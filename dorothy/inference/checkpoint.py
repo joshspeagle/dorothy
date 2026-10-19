@@ -1,13 +1,11 @@
-"""
-Loading trained DOROTHY checkpoints.
+"""Load trained DOROTHY checkpoints.
 
 A checkpoint directory written by ``Trainer.save_checkpoint()`` contains the
 model weights, ``config.yaml``, (usually) ``normalizer.pkl`` and the
 calibration factors in ``calibration.json``, if training fit them. The model is
-rebuilt from the saved config, so every architecture option (MLP or
-MultiHeadMLP, normalization, activation, label sources, per-head dropout)
-matches training. Directories with weights only fall back to inferring a
-plain MLP, with an AdditiveOutput layer, from the state dict.
+rebuilt from the saved config, so every architecture option matches training.
+Directories with weights only fall back to inferring a plain MLP, with an
+AdditiveOutput layer, from the state dict.
 """
 
 from __future__ import annotations
@@ -40,8 +38,8 @@ class LoadedCheckpoint:
         path: The checkpoint directory.
         device: Device the model was moved to.
         calibration: Calibration factors of best_model.pth, label source ->
-            parameter name -> factor, or None without calibration.json or
-            for another weights file.
+            parameter name -> factor. None without calibration.json, without
+            config.yaml, or for another weights file.
     """
 
     model: MLP | MultiHeadMLP
@@ -66,7 +64,7 @@ class LoadedCheckpoint:
 
     @property
     def scatter_floor(self) -> float:
-        """Scatter floor the model was trained with (default 0.01)."""
+        """Scatter floor the model was trained with (0.01 without a config)."""
         if self.config is not None:
             return self.config.training.scatter_floor
         return 0.01
@@ -120,7 +118,14 @@ def infer_mlp_architecture(state_dict: dict[str, torch.Tensor]) -> dict:
 
 
 def build_model(config: ExperimentConfig) -> MLP | MultiHeadMLP:
-    """Build the (untrained) model described by an experiment config."""
+    """Build the untrained model described by an experiment config.
+
+    Args:
+        config: The experiment config.
+
+    Returns:
+        A MultiHeadMLP if the config is multi-head, else an MLP.
+    """
     if config.is_multi_head:
         return MultiHeadMLP.from_config(config.multi_head_model)
     return MLP.from_config(config.model)
@@ -165,7 +170,7 @@ def load_checkpoint(
         LoadedCheckpoint with the model in eval mode.
 
     Raises:
-        FileNotFoundError: If the checkpoint or weights file does not exist.
+        FileNotFoundError: If the weights file does not exist.
         ValueError: If a checkpoint without config.yaml holds a model with
             label-aware uncertainty.
     """

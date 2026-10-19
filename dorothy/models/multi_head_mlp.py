@@ -65,7 +65,7 @@ _ROWWISE_MODULES: tuple[type[nn.Module], ...] = (
 class SurveyEncoder(nn.Module):
     """Encoder network for a single survey's spectral data.
 
-    Takes 3-channel spectral input (flux, sigma, mask) and produces a
+    Takes 3-channel spectral input (flux, rho, mask) and produces a
     fixed-size latent representation.
 
     Attributes:
@@ -93,7 +93,11 @@ class SurveyEncoder(nn.Module):
             hidden_layers: Hidden layer sizes. Default: [1024, 512].
             normalization: Normalization type ("layernorm" or "batchnorm").
             activation: Activation function ("gelu", "relu", or "silu").
-            dropout: Dropout probability.
+            dropout: Dropout probability of the hidden layers; the layer to the
+                latent has none.
+
+        Raises:
+            ValueError: If the normalization or activation is not recognized.
         """
         super().__init__()
 
@@ -104,30 +108,15 @@ class SurveyEncoder(nn.Module):
         if hidden_layers is None:
             hidden_layers = [1024, 512]
 
-        # Input size: 3 channels * n_wavelengths
-        input_features = 3 * n_wavelengths
-
-        # Build encoder layers
-        activation_fn = get_activation(activation)
-        norm_class = get_normalization(normalization)
-
-        layers: list[nn.Module] = [nn.Flatten()]
-
-        prev_size = input_features
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(prev_size, hidden_size))
-            layers.append(norm_class(hidden_size))
-            layers.append(activation_fn())
-            if dropout > 0:
-                layers.append(nn.Dropout(p=dropout))
-            prev_size = hidden_size
-
-        # Final projection to latent space
-        layers.append(nn.Linear(prev_size, latent_dim))
-        layers.append(norm_class(latent_dim))
-        layers.append(activation_fn())
-
-        self.encoder = nn.Sequential(*layers)
+        input_dim = 3 * n_wavelengths
+        width = hidden_layers[-1] if hidden_layers else input_dim
+        self.encoder = nn.Sequential(
+            nn.Flatten(),
+            *hidden_blocks(
+                input_dim, hidden_layers, normalization, activation, dropout
+            ),
+            *hidden_blocks(width, [latent_dim], normalization, activation, 0.0),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Encode spectral data to latent representation.
@@ -178,6 +167,9 @@ class SharedTrunk(nn.Module):
             activation: Activation function.
             dropout: Dropout probability.
             residual: Build the residual trunk.
+
+        Raises:
+            ValueError: If the normalization or activation is not recognized.
         """
         super().__init__()
 
@@ -224,10 +216,10 @@ class OutputHead(nn.Module):
     """Output head that produces stellar parameter predictions.
 
     Takes features from the shared trunk and produces predictions in the
-    standard (batch, 2, n_params) format. The head is a LabelAwareOutput:
-    its label decoder maps the features through hidden_layers to mu, and its
-    error decoder maps the features and the label errors through layers of
-    the same sizes to ln s.
+    standard (batch, 2, n_params) format. By default the head is a
+    LabelAwareOutput: its label decoder maps the features through
+    hidden_layers to mu, and its error decoder maps the features and the
+    label errors through layers of the same sizes to ln s.
 
     Attributes:
         n_parameters: Number of stellar parameters to predict.
@@ -253,9 +245,8 @@ class OutputHead(nn.Module):
             normalization: Normalization type.
             activation: Activation function.
             dropout: Dropout probability.
-            label_aware_uncertainty: Make the head a LabelAwareOutput
-                (default); False ends it in the AdditiveOutput of old
-                checkpoints.
+            label_aware_uncertainty: Make the head a LabelAwareOutput (True)
+                or end it in an AdditiveOutput (False).
             residual: Make the hidden layers residual blocks, for a residual
                 stream input (see LabelAwareOutput).
 
@@ -324,8 +315,8 @@ class MultiHeadMLP(nn.Module):
     """Multi-head MLP for multi-survey stellar parameter prediction.
 
     This architecture has separate encoder networks for each survey,
-    a shared trunk that combines the encodings, and an output head
-    that produces predictions.
+    a shared trunk that combines the encodings, and one output head per
+    label source.
 
     The model can handle:
     - Single survey input (standard case)
@@ -337,7 +328,11 @@ class MultiHeadMLP(nn.Module):
         combination_mode: How to combine multi-survey embeddings ("mean" or "concat").
         encoders: ModuleDict of survey encoders.
         trunk: Shared trunk network.
-        output_head: Output prediction head.
+        latent_dim: Output dimension of each survey encoder.
+        label_sources: Label source of each output head; ["default"] when
+            none were given.
+        output_heads: ModuleDict mapping each label source to its output head.
+        output_head: The output head of the first label source.
         label_aware_uncertainty: Whether the heads are LabelAwareOutputs
             (True) or end in an AdditiveOutput.
         residual_stream: Whether the trunk and the heads' decoders form a
@@ -345,8 +340,8 @@ class MultiHeadMLP(nn.Module):
         encode_present_rows_only: With multi-survey input, run each encoder
             only on the rows that have that survey's data (default True).
             The rows without data are discarded either way, so this changes
-            results only by float rounding (a different GEMM size); set it
-            to False to encode every row, as earlier versions did.
+            results only by float rounding (a different GEMM size); False
+            encodes every row.
 
     Examples:
         >>> model = MultiHeadMLP(
@@ -406,9 +401,8 @@ class MultiHeadMLP(nn.Module):
                 "default".
             head_dropout: Optional per-label-source dropout for the output heads,
                 e.g. {"galah": 0.2}. Sources not listed use ``dropout``.
-            label_aware_uncertainty: Make every head a LabelAwareOutput
-                (default); False ends the heads in the AdditiveOutput of old
-                checkpoints.
+            label_aware_uncertainty: Make every head a LabelAwareOutput (True)
+                or end each in an AdditiveOutput (False).
             residual_stream: Build the trunk and the heads' hidden layers as
                 a residual stream of width latent_dim (default; see
                 SharedTrunk and LabelAwareOutput); False builds plain blocks.
@@ -566,11 +560,15 @@ class MultiHeadMLP(nn.Module):
                 have valid data from that survey.
 
         Returns:
-            Predictions of shape (batch, 2, n_parameters).
+            Predictions of shape (batch, 2, n_parameters) from the first
+            head.
+
+        Raises:
+            ValueError: If none of the keys of inputs is a survey of the model.
 
         Note:
-            Samples must have data from at least one survey.
-            If a sample has no data from any survey, the output will be zeros.
+            A sample without data from any survey gets an output that
+            carries no information.
         """
         return self.output_head(self._forward_to_trunk(inputs, has_data))
 
@@ -880,6 +878,10 @@ class MultiHeadMLP(nn.Module):
             Embeddings of shape (batch, latent_dim) for "encoder" or
             (batch, trunk output dim) for "trunk": 128, or latent_dim with
             residual_stream.
+
+        Raises:
+            KeyError: If survey is not in the model's encoders.
+            ValueError: If level is not "encoder" or "trunk".
         """
         if level == "trunk":
             return self._forward_single_to_trunk(x, survey)
@@ -888,11 +890,17 @@ class MultiHeadMLP(nn.Module):
         return self.encoders[survey](x)
 
     def count_parameters(self) -> int:
-        """Count total trainable parameters."""
+        """Count the trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def count_parameters_by_component(self) -> dict[str, int]:
-        """Count trainable parameters by component."""
+        """Count the trainable parameters by component.
+
+        Returns:
+            Dict with the keys "encoder_<survey>", "trunk", "output_head_<source>"
+            (one per head with several label sources, else "output_head") and
+            "total", each the number of trainable parameters.
+        """
         counts = {}
         for name, encoder in self.encoders.items():
             counts[f"encoder_{name}"] = sum(

@@ -1,5 +1,4 @@
-"""
-Test-set evaluation that matches training validation exactly.
+"""Evaluate a trained model with the training validation pipeline.
 
 :func:`evaluate_model` runs a trained model over a set of rows using the same
 batch construction, label normalization and predicted-scatter definition as
@@ -8,10 +7,9 @@ space (directly comparable to the training validation metrics, unless
 calibration factors are given) and physical units. It also returns the
 physical-unit predictions for plotting.
 
-The older per-layout helpers (``evaluate_on_test_set``,
-``evaluate_on_dense_data``, ``evaluate_on_single_survey_data`` and the
-``normalize_*`` / ``build_batch_from_sparse`` utilities) are kept as thin
-wrappers for backward compatibility; they report the primary head.
+The per-layout helpers (``evaluate_on_test_set``, ``evaluate_on_dense_data``,
+``evaluate_on_single_survey_data`` and the ``normalize_*`` and
+``build_batch_from_sparse`` utilities) wrap it and report the primary head.
 """
 
 from __future__ import annotations
@@ -74,7 +72,13 @@ class HeadEvaluation:
     uncalibrated: EvaluationResult | None
 
     def to_dict(self) -> dict:
-        """Metrics, and the calibration factors if any, as a JSON-serializable dict."""
+        """Metrics, and the calibration factors if any, as a JSON-serializable dict.
+
+        Returns:
+            Dict with ``normalized_space``, ``physical_space`` (if a
+            normalizer was used) and, when calibration is set,
+            ``calibration_factors`` and ``uncalibrated_normalized_space``.
+        """
         out = {"normalized_space": self.normalized.to_dict()}
         if self.physical is not None:
             out["physical_space"] = self.physical.to_dict()
@@ -98,8 +102,8 @@ def evaluate_model(
 
     The model reads no label errors, so it predicts with its missing vector.
     The z-scores divide the residuals by s for a model with label-aware
-    uncertainty, and by sqrt(sigma_y^2 + s^2) for the additive model of
-    checkpoints saved before it.
+    uncertainty, and by sqrt(sigma_y^2 + s^2) for a model with an
+    AdditiveOutput.
 
     Without calibration factors, the metrics on the validation stars equal
     the ones recorded during training. A head with factors scales its
@@ -226,8 +230,18 @@ def evaluate_on_test_set(
 ) -> tuple[EvaluationResult, EvaluationResult | None]:
     """Evaluate on sparse multi-survey data (primary head).
 
+    Args:
+        model: Trained MLP or MultiHeadMLP.
+        data: Sparse merged data with physical labels.
+        test_indices: Row indices to evaluate.
+        normalizer: Label normalizer from training (None if not used).
+        config: The checkpoint's experiment config.
+        batch_size: Batch size for inference.
+        device: Device for inference.
+
     Returns:
-        Tuple of (normalized_space_result, physical_space_result).
+        Tuple of (normalized-space result, physical-space result) of the
+        primary head; the second is None without a normalizer.
     """
     td = TrainingData(
         "sparse_multi_survey",
@@ -253,8 +267,21 @@ def evaluate_on_dense_data(
 ) -> tuple[EvaluationResult, EvaluationResult | None]:
     """Evaluate on dense multi-survey dict data (primary head).
 
+    Args:
+        model: Trained MLP or MultiHeadMLP.
+        X_dict: Survey name -> spectra, shape (N, 3, n_wavelengths).
+        y_dict: Label source -> physical labels, shape (N, 3, n_params).
+        has_data_dict: Survey name -> boolean array of shape (N,), True where
+            the star has a spectrum in that survey.
+        test_indices: Row indices to evaluate.
+        normalizer: Label normalizer from training (None if not used).
+        config: The checkpoint's experiment config.
+        batch_size: Batch size for inference.
+        device: Device for inference.
+
     Returns:
-        Tuple of (normalized_space_result, physical_space_result).
+        Tuple of (normalized-space result, physical-space result) of the
+        primary head; the second is None without a normalizer.
     """
     td = TrainingData(
         "dense_multi_label",
@@ -279,10 +306,21 @@ def evaluate_on_single_survey_data(
     batch_size: int = 1024,
     device: str | torch.device = "auto",
 ) -> tuple[EvaluationResult, EvaluationResult | None]:
-    """Evaluate on single-survey arrays (X (N, 3, W), y (N, 3, P)).
+    """Evaluate on single-survey arrays (primary head).
+
+    Args:
+        model: Trained MLP or MultiHeadMLP.
+        X: Spectra, shape (N, 3, n_wavelengths).
+        y: Physical labels, shape (N, 3, n_params).
+        test_indices: Row indices to evaluate.
+        normalizer: Label normalizer from training (None if not used).
+        config: The checkpoint's experiment config.
+        batch_size: Batch size for inference.
+        device: Device for inference.
 
     Returns:
-        Tuple of (normalized_space_result, physical_space_result).
+        Tuple of (normalized-space result, physical-space result) of the
+        primary head; the second is None without a normalizer.
     """
     td = TrainingData(
         "single_survey",
@@ -307,6 +345,11 @@ def build_batch_from_sparse(
 ]:
     """Build one dense batch from sparse storage (same as training).
 
+    Args:
+        data: Sparse merged data.
+        global_indices: Row indices of the stars in the batch.
+        device: Device of the batch tensors.
+
     Returns:
         (X_batch, has_data_batch, y_batch); y_batch is a dict per label
         source when the data has several, else the primary labels tensor.
@@ -328,7 +371,15 @@ def normalize_sparse_data(
     data: SparseMergedData,
     normalizer: LabelNormalizer,
 ) -> SparseMergedData:
-    """Copy of sparse data with labels normalized as in training."""
+    """Normalize the labels of sparse data as in training.
+
+    Args:
+        data: Sparse merged data with physical labels.
+        normalizer: Label normalizer from training.
+
+    Returns:
+        A copy of data with normalized ``labels`` and ``labels_dict``.
+    """
     from dataclasses import replace
 
     labels_dict = (
@@ -347,7 +398,18 @@ def normalize_dense_data(
     has_data_dict: dict[str, np.ndarray],
     normalizer: LabelNormalizer,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Normalize dense dict labels as in training (X and has_data unchanged)."""
+    """Normalize dense dict labels as in training.
+
+    Args:
+        X_dict: Survey name -> spectra.
+        y_dict: Label source -> physical labels, shape (N, 3, n_params).
+        has_data_dict: Survey name -> boolean presence array.
+        normalizer: Label normalizer from training.
+
+    Returns:
+        (X_dict, normalized y_dict, has_data_dict); X_dict and has_data_dict
+        are returned unchanged.
+    """
     return (
         X_dict,
         {s: normalizer.transform_labels(y) for s, y in y_dict.items()},
@@ -360,5 +422,14 @@ def normalize_single_survey_data(
     y: np.ndarray,
     normalizer: LabelNormalizer,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Normalize single-survey labels as in training (X unchanged)."""
+    """Normalize single-survey labels as in training.
+
+    Args:
+        X: Spectra, shape (N, 3, n_wavelengths).
+        y: Physical labels, shape (N, 3, n_params).
+        normalizer: Label normalizer from training.
+
+    Returns:
+        (X unchanged, normalized y).
+    """
     return X, normalizer.transform_labels(y)
