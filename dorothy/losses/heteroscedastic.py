@@ -211,7 +211,7 @@ class HeteroscedasticLoss(nn.Module):
         elif self.reduction == "sum":
             return loss_per_element.sum()
         else:  # mean over valid elements only
-            return loss_per_element.sum() / target[:, 2, :].sum().clamp(min=1)
+            return loss_per_element.sum() / (target[:, 2, :] > 0).sum().clamp(min=1)
 
     def get_predicted_scatter(self, output: torch.Tensor) -> torch.Tensor:
         """
@@ -275,7 +275,7 @@ class HeteroscedasticLoss(nn.Module):
         loss_per_element = masked_mean + masked_scatter
 
         # Average over batch for each parameter, counting only valid samples
-        valid_counts = mask.sum(dim=0).clamp(min=1)  # (n_params,)
+        valid_counts = (mask > 0).sum(dim=0).clamp(min=1)  # (n_params,)
         mean_component_avg = masked_mean.sum(dim=0) / valid_counts
         scatter_component_avg = masked_scatter.sum(dim=0) / valid_counts
 
@@ -284,7 +284,7 @@ class HeteroscedasticLoss(nn.Module):
         elif self.reduction == "sum":
             total_loss = loss_per_element.sum()
         else:  # mean
-            total_loss = loss_per_element.sum() / mask.sum().clamp(min=1)
+            total_loss = loss_per_element.sum() / (mask > 0).sum().clamp(min=1)
 
         return {
             "loss": total_loss,
@@ -347,14 +347,14 @@ class MaskedMSELoss(nn.Module):
             return loss
         if self.reduction == "sum":
             return loss.sum()
-        return loss.sum() / target[:, 2, :].sum().clamp(min=1)
+        return loss.sum() / (target[:, 2, :] > 0).sum().clamp(min=1)
 
     def forward_detailed(
         self, output: torch.Tensor, target: torch.Tensor
     ) -> dict[str, torch.Tensor]:
         """Per-parameter MSE as the mean component (scatter component is 0)."""
         loss = self.element_losses(output, target)
-        valid_counts = target[:, 2, :].sum(dim=0).clamp(min=1)
+        valid_counts = (target[:, 2, :] > 0).sum(dim=0).clamp(min=1)
         mean_component = loss.sum(dim=0) / valid_counts
         return {
             "loss": self.forward(output, target),
