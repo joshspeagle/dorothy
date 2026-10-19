@@ -1,5 +1,4 @@
-"""
-Loading, filtering and splitting experiment data from a config.
+"""Load, filter and split experiment data from a config.
 
 ``dorothy train`` and ``dorothy evaluate`` both go through
 :func:`load_training_data` and :class:`DataSplit`, so the stars used for
@@ -59,7 +58,16 @@ class DataSplit:
     test: np.ndarray
 
     def save(self, checkpoint_path: str | Path, data: TrainingData) -> Path:
-        """Save the split next to a checkpoint (``data_split.pkl``)."""
+        """Save the split next to a checkpoint (``data_split.pkl``).
+
+        Args:
+            checkpoint_path: Checkpoint directory.
+            data: The data the split indexes; its layout and valid rows are
+                saved with the split.
+
+        Returns:
+            Path of the written file.
+        """
         path = Path(checkpoint_path) / SPLIT_FILE
         split_info = {
             "train_idx": np.asarray(self.train),
@@ -76,11 +84,21 @@ class DataSplit:
 
     @classmethod
     def load(cls, checkpoint_path: str | Path, data: TrainingData) -> DataSplit:
-        """Load a saved split, converting files from older versions.
+        """Load a saved split.
 
-        Older single-survey and dense multi-label split files stored indices
-        into the filtered arrays; they are mapped back to rows using the
-        filter that training applied at the time.
+        Split files without ``index_space: rows`` (single-survey and dense
+        multi-label layouts) hold indices into the filtered arrays. They are
+        mapped to rows with :meth:`TrainingData.legacy_filtered_rows`.
+
+        Args:
+            checkpoint_path: Checkpoint directory holding ``data_split.pkl``.
+            data: The data the split indexes.
+
+        Returns:
+            The split, as row indices.
+
+        Raises:
+            FileNotFoundError: If the directory has no ``data_split.pkl``.
         """
         with open(Path(checkpoint_path) / SPLIT_FILE, "rb") as f:
             info = pickle.load(f)
@@ -130,9 +148,14 @@ class TrainingData:
         return self.sparse.n_total
 
     def labels(self, source: str | None = None) -> np.ndarray:
-        """Physical-unit labels (n_rows, 3, n_params) for a label source.
+        """Physical-unit labels for a label source.
 
-        ``None`` (or a single-label dataset) returns the primary labels.
+        Args:
+            source: Label source name. None, or a name the sparse data does
+                not hold separately, gives the primary labels.
+
+        Returns:
+            Array of shape (n_rows, 3, n_params) = [values, errors, mask].
         """
         if self.kind == "single_survey":
             return self.y
@@ -146,9 +169,18 @@ class TrainingData:
     def split(self, train_ratio: float, val_ratio: float, seed: int) -> DataSplit:
         """Randomly split the valid rows into train/validation/test.
 
-        Uses the same permutation as earlier versions (numpy RandomState over
-        the valid rows), so a given set of valid stars and seed always gives
-        the same split.
+        Permutes the valid rows with ``numpy.random.RandomState(seed)``. The
+        first ``int(n * train_ratio)`` go to train, the next
+        ``int(n * val_ratio)`` to validation and the rest to test, where n is
+        the number of valid rows.
+
+        Args:
+            train_ratio: Fraction of valid rows for training.
+            val_ratio: Fraction of valid rows for validation.
+            seed: Seed of the permutation.
+
+        Returns:
+            DataSplit of row indices.
         """
         n = len(self.valid_indices)
         perm = np.random.RandomState(seed).permutation(n)
@@ -162,14 +194,27 @@ class TrainingData:
         )
 
     def configure_model(self, config: ExperimentConfig) -> None:
-        """Set data-dependent model sizes on the config (MLP input features)."""
+        """Set the MLP input features of a single-survey config, in place.
+
+        Args:
+            config: Experiment config, modified in place. Other layouts and
+                configs without ``model`` are left unchanged.
+        """
         if self.kind == "single_survey" and config.model is not None:
             config.model = config.model.model_copy(
                 update={"input_features": self.X.shape[1] * self.X.shape[2]}
             )
 
     def fit(self, trainer: Trainer, split: DataSplit) -> TrainingHistory:
-        """Train with the fit method matching this data layout."""
+        """Train with the fit method matching this data layout.
+
+        Args:
+            trainer: The trainer.
+            split: Row indices; only train and val are used.
+
+        Returns:
+            The training history.
+        """
         tr, va = split.train, split.val
         if self.kind == "single_survey":
             return trainer.fit(self.X[tr], self.y[tr], self.X[va], self.y[va])
@@ -205,6 +250,9 @@ class TrainingData:
             device: Device batches are moved to.
             survey_key: Input key for single-survey data (the survey name for
                 a MultiHeadMLP, otherwise the default key).
+
+        Returns:
+            A sparse or tensor batch source over rows, with ``batches(size)``.
         """
         import torch
 
@@ -230,7 +278,13 @@ class TrainingData:
         )
 
     def legacy_filtered_rows(self) -> np.ndarray:
-        """Rows kept by the pre-refactor training filter (for old split files)."""
+        """Rows kept by the filter that old split files indexed into.
+
+        Returns:
+            Row indices. Single-survey: rows with a valid label. Dense
+            multi-label: rows with a survey and a positive label error in any
+            source. Sparse: ``valid_indices``.
+        """
         if self.kind == "single_survey":
             return np.where(self.y[:, 2, :].any(axis=1))[0]
         if self.kind == "dense_multi_label":
@@ -261,8 +315,9 @@ def complete_config_from_catalogue(config_dict: dict, verbose: bool = False) -> 
 
     Raises:
         FileNotFoundError: If the catalogue does not exist.
-        ValueError: If the catalogue cannot provide the settings, or explicit
-            parameter names disagree with it.
+        ValueError: If ``data.catalogue_path`` is missing, the catalogue
+            cannot provide the settings, or explicit parameter names disagree
+            with it.
     """
     import copy
 
