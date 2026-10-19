@@ -382,6 +382,19 @@ class TestLabelSourceWeighting:
             trainer.loss_fn(out["default"], tgt["default"]),
         )
 
+    def test_weight_of_the_only_label_source_applies(self, tmp_path):
+        """The single head is keyed by its label source, so that source's
+        weight applies (it was ignored under the key "default")."""
+        trainer = Trainer(
+            make_config(tmp_path, epochs=1, label_source_weights={"apogee": 0.0})
+        )
+        outputs, targets = self._outputs_targets()
+        (key,) = trainer.label_keys
+        loss = trainer._combine_losses(
+            {key: outputs["apogee"]}, {key: targets["apogee"]}
+        )
+        assert loss.item() == 0.0
+
 
 class TestSharedLoopBehaviour:
     def test_per_labelset_best_epochs(self, tmp_path):

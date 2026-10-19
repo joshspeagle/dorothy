@@ -246,6 +246,9 @@
   lists one size per grid point, with repeats.
 - `multi_head_model.head_dropout` applies to the head of a multi-head model
   with one label source. Before, it was ignored.
+- `training.label_source_weights` applies to a model with one label source.
+  Before, it was ignored. A weight of 0 gives a zero loss, and other weights
+  can change the loss by rounding.
 - The saliency analyzers compute the predicted scatter with
   `losses.predicted_scatter`. Their uncertainties, scatter changes and
   Fisher weights change where ln s is outside [-10, 5].
