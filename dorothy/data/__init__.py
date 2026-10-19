@@ -23,7 +23,6 @@ from dorothy.data.fits_loader import (
     ivar_to_error_and_mask,
     normalize_spectra,
     normalize_spectrum,
-    split_data,
     zero_invalid_pixels,
 )
 from dorothy.data.normalizer import LabelNormalizer, ParameterStats
@@ -37,7 +36,6 @@ __all__ = [
     "zero_invalid_pixels",
     "encode_precision",
     "apply_quality_filter",
-    "split_data",
     "ivar_to_error_and_mask",
     "APOGEE_COLUMN_MAP",
     "PARAMETER_BOUNDS",

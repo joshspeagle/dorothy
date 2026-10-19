@@ -25,7 +25,6 @@ from dorothy.data.fits_loader import (
     ivar_to_error_and_mask,
     normalize_spectra,
     normalize_spectrum,
-    split_data,
 )
 
 
@@ -530,95 +529,6 @@ class TestFITSLoader:
         np.testing.assert_array_equal(variable.flux, fixed.flux)
         np.testing.assert_array_equal(variable.ivar, fixed.ivar)
         assert fixed.flux[0, 3] == fixed.ivar[1, 4] == fixed.ivar[2, 5] == 0
-
-
-class TestSplitData:
-    """Tests for the data splitting function."""
-
-    @pytest.fixture
-    def sample_spectral_data(self):
-        """Create sample data for splitting tests."""
-        n_samples = 100
-        n_wavelengths = 50
-        n_params = 3
-
-        return SpectralData(
-            flux=np.random.randn(n_samples, n_wavelengths).astype(np.float32),
-            ivar=np.abs(np.random.randn(n_samples, n_wavelengths)).astype(np.float32),
-            wavelength=np.linspace(3600, 9800, n_wavelengths),
-            labels=np.random.randn(n_samples, n_params).astype(np.float32),
-            errors=np.abs(np.random.randn(n_samples, n_params)).astype(np.float32)
-            + 0.01,
-            ids=np.array([f"star_{i}" for i in range(n_samples)]),
-            quality_mask=np.ones(n_samples, dtype=bool),
-            parameter_names=["teff", "logg", "fe_h"],
-        )
-
-    def test_split_ratios(self, sample_spectral_data):
-        """Test that splits have correct ratios."""
-        (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_data(
-            sample_spectral_data,
-            train_ratio=0.7,
-            val_ratio=0.2,
-        )
-
-        assert X_train.shape[0] == 70
-        assert X_val.shape[0] == 20
-        assert X_test.shape[0] == 10
-
-    def test_split_shapes(self, sample_spectral_data):
-        """Test that split data has correct shapes."""
-        (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_data(
-            sample_spectral_data
-        )
-
-        # X should be (n, 2, wavelengths)
-        assert X_train.shape[1:] == (2, 50)
-        assert X_val.shape[1:] == (2, 50)
-        assert X_test.shape[1:] == (2, 50)
-
-        # y should be (n, 2 * n_params)
-        assert y_train.shape[1] == 6
-        assert y_val.shape[1] == 6
-        assert y_test.shape[1] == 6
-
-    def test_split_reproducibility(self, sample_spectral_data):
-        """Test that same seed produces same splits."""
-        split1 = split_data(sample_spectral_data, seed=42)
-        split2 = split_data(sample_spectral_data, seed=42)
-
-        (X_train1, _), _, _ = split1
-        (X_train2, _), _, _ = split2
-
-        assert np.allclose(X_train1, X_train2)
-
-    def test_split_different_seeds(self, sample_spectral_data):
-        """Test that different seeds produce different splits."""
-        (X_train1, _), _, _ = split_data(sample_spectral_data, seed=42)
-        (X_train2, _), _, _ = split_data(sample_spectral_data, seed=123)
-
-        # Should not be equal
-        assert not np.allclose(X_train1, X_train2)
-
-    def test_split_no_overlap(self, sample_spectral_data):
-        """Test that train/val/test sets don't overlap."""
-        (X_train, _), (X_val, _), (X_test, _) = split_data(sample_spectral_data)
-
-        total = X_train.shape[0] + X_val.shape[0] + X_test.shape[0]
-        assert total == 100  # All samples accounted for
-
-    def test_split_with_quality_mask(self, sample_spectral_data):
-        """Test splitting with quality mask applied."""
-        # Mask out 20 samples
-        sample_spectral_data.quality_mask[:20] = False
-
-        (X_train, _), (X_val, _), (X_test, _) = split_data(
-            sample_spectral_data,
-            apply_quality_mask=True,
-        )
-
-        total = X_train.shape[0] + X_val.shape[0] + X_test.shape[0]
-        assert total == 80  # Only 80 good samples
 
 
 class TestColumnMappings:

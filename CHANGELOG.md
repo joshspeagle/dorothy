@@ -192,6 +192,9 @@
 
 ### Changed
 
+- `dorothy.data.split_data` is removed. Nothing used it. It split with
+  `numpy.random.default_rng`, so one seed gave a different split than
+  `TrainingData.split`.
 - The trainer's four training modes share one training loop.
 - Unknown configuration keys are errors. `survey` and `label_source` are
   accepted as aliases of `surveys` and `label_sources`.
