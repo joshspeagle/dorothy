@@ -496,14 +496,8 @@ class Trainer:
 
     @property
     def label_keys(self) -> list[str]:
-        """Label source names, in model output-head order.
-
-        A plain MLP (or a single-head MultiHeadMLP without named sources) has
-        the single key ``"default"``.
-        """
-        if isinstance(self.model, MultiHeadMLP):
-            return list(self.model.label_sources)
-        return ["default"]
+        """Label source names, in model output-head order."""
+        return head_label_sources(self.model, self.config)
 
     def _create_model(self) -> MLP | MultiHeadMLP:
         """Create the model from configuration.
@@ -1513,13 +1507,6 @@ class Trainer:
             self.loss_fn, HeteroscedasticLoss
         ):
             return None
-        names = dict(
-            zip(
-                self.label_keys,
-                head_label_sources(self.model, self.config),
-                strict=True,
-            )
-        )
         history = self.history
         heads = history.per_labelset_val_metrics or {keys[0]: history.val_metrics}
         calibration = {}
@@ -1529,13 +1516,11 @@ class Trainer:
             if not valid.all():
                 missing = np.array(self.parameter_names)[~valid].tolist()
                 logger.warning(
-                    f"{names[key]}: no validation z-score spread for {missing}; "
+                    f"{key}: no validation z-score spread for {missing}; "
                     "their predicted scatter keeps a calibration factor of 1"
                 )
             factors = np.where(valid, spread, 1.0).tolist()
-            calibration[names[key]] = dict(
-                zip(self.parameter_names, factors, strict=True)
-            )
+            calibration[key] = dict(zip(self.parameter_names, factors, strict=True))
         return calibration
 
     def _record_validation(self, epoch: int, val: dict) -> None:

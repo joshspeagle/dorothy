@@ -809,13 +809,14 @@ class TestTrainerMixedPrecision:
             ],
             dim=1,
         )
+        key = trainer.label_keys[0]
         source = TensorBatchSource(
-            {SINGLE_SURVEY_KEY: X}, {"default": y}, None, trainer.device
+            {SINGLE_SURVEY_KEY: X}, {key: y}, None, trainer.device
         )
         batch = next(source.batches(n, np.random.default_rng(0)))
         with torch.autocast("cpu", dtype=torch.bfloat16):
-            outputs = trainer._forward(batch)["default"]
-        expected = trainer.loss_fn(outputs.float(), batch.y["default"]).item()
+            outputs = trainer._forward(batch)[key]
+        expected = trainer.loss_fn(outputs.float(), batch.y[key]).item()
 
         # One batch, in the same order: the epoch loss is its loss before the step
         loss, _ = trainer._train_epoch(

@@ -336,7 +336,7 @@ class MultiHeadModelConfig(_ConfigModel):
         trunk_hidden: Hidden layer sizes for shared trunk.
         output_hidden: Hidden layer sizes for output head(s).
         combination_mode: How to combine multi-survey embeddings.
-        label_sources: List of label sources for multi-output heads.
+        label_sources: Label sources of the output heads, one head each.
         normalization: Type of normalization layer.
         activation: Activation function type.
         dropout: Dropout probability.
@@ -387,8 +387,9 @@ class MultiHeadModelConfig(_ConfigModel):
     )
     label_sources: list[str] | None = Field(
         default=None,
-        description="Label sources for multi-output heads (e.g., ['apogee', 'galah']). "
-        "If None, creates single output head.",
+        description="Label sources of the output heads, one head each (e.g., "
+        "['apogee', 'galah']). None or an empty list gives one head, named after "
+        "the first of data.label_sources.",
     )
     normalization: NormalizationType = Field(
         default=NormalizationType.LAYERNORM,
@@ -979,7 +980,11 @@ class ExperimentConfig(_ConfigModel):
                 f"{sorted(unknown)}; configured: {self.data.label_sources}"
             )
         if self.multi_head_model is not None:
-            heads = set(self.multi_head_model.label_sources or self.data.label_sources)
+            if not self.multi_head_model.label_sources:
+                self.multi_head_model = self.multi_head_model.model_copy(
+                    update={"label_sources": self.data.label_sources[:1]}
+                )
+            heads = set(self.multi_head_model.label_sources)
             unknown = set(self.multi_head_model.head_dropout) - heads
             if unknown:
                 raise ValueError(
@@ -1132,7 +1137,7 @@ class ExperimentConfig(_ConfigModel):
         if mh_section.get("head_dropout"):
             heads = set(
                 mh_section.get("label_sources")
-                or data_section.get("label_sources", ["apogee"])
+                or data_section.get("label_sources", ["apogee"])[:1]
             )
             unknown = set(mh_section["head_dropout"]) - heads
             if unknown:

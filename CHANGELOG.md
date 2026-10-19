@@ -195,6 +195,12 @@
   `SparseMergedData.memory_usage_mb` reports `<survey>_sigma` instead of
   `<survey>_ivar`.
 - The minimum PyTorch version is 2.4.
+- A multi-head model with one label source names its head after that
+  source instead of "default", so `dorothy predict --label-source apogee`
+  and `Predictor(label_source="apogee")` select it. Without
+  `multi_head_model.label_sources`, the configuration sets it to the first
+  of `data.label_sources`. Checkpoints with a "default" head load unchanged.
+  `Trainer.label_keys` of a plain MLP is also its label source.
 
 ### Behaviour changes
 
@@ -240,6 +246,16 @@
   of its block-size grid equal weight (for BOSS, block sizes of at most 5
   pixels now have 24% of the weight), and `AblationSaliencyResult.block_size`
   lists one size per grid point, with repeats.
+- `multi_head_model.head_dropout` applies to the head of a multi-head model
+  with one label source. Before, it was ignored.
+- `label_source="default"` (and `--label-source default`) no longer selects
+  the head of a single-label multi-head model, including one loaded from an
+  old checkpoint; use the label source name. New checkpoints store that head
+  under `output_heads.<source>`, so `--resume` between single-head runs with
+  different label sources now fails instead of reusing the head.
+- `training.label_source_weights` applies to a model with one label source.
+  Before, it was ignored. A weight of 0 gives a zero loss, and other weights
+  can change the loss by rounding.
 - The saliency analyzers compute the predicted scatter with
   `losses.predicted_scatter`. Their uncertainties, scatter changes and
   Fisher weights change where ln s is outside [-10, 5].

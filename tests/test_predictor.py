@@ -485,9 +485,10 @@ class TestCheckpointArchitecture:
 
 @pytest.mark.parametrize("multi_head", [False, True], ids=["mlp", "multi_head"])
 def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
-    """A checkpoint saved before label-aware uncertainty and the precision
-    encoding loads and predicts bit-identically to its model's forward pass
-    from before these options, and its inputs keep sigma."""
+    """A checkpoint saved before label-aware uncertainty, the precision
+    encoding and named single heads loads and predicts bit-identically to its
+    model's forward pass from before these options, and its inputs keep
+    sigma."""
     import yaml
 
     if multi_head:
@@ -537,12 +538,19 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
         model.layers.load_state_dict(old.state_dict())
     path = tmp_path / "ckpt"
     path.mkdir()
-    torch.save(model.state_dict(), path / "best_model.pth")
+    # A single head was saved as output_heads.default, without label_sources
+    state = {
+        k.replace("output_heads.apogee.", "output_heads.default."): v
+        for k, v in model.state_dict().items()
+    }
+    torch.save(state, path / "best_model.pth")
     config.save_yaml(path / "config.yaml")
-    # Configs saved before these options have neither key
+    # Configs saved before these options have none of these keys
     raw = yaml.full_load((path / "config.yaml").read_text())
     del raw["multi_head_model" if multi_head else "model"]["label_aware_uncertainty"]
     del raw["data"]["precision_encoding"]
+    if multi_head:
+        del raw["multi_head_model"]["label_sources"]
     (path / "config.yaml").write_text(yaml.dump(raw))
 
     X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
@@ -552,6 +560,10 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
         expected = old(old_input).view(9, 2, 3)
     predictor = Predictor.load(path, device="cpu")
     result = predictor.predict(X)
+    if multi_head:
+        # dorothy predict --label-source names the head after its source
+        named = Predictor.load(path, device="cpu", label_source="apogee")
+        np.testing.assert_array_equal(named.predict(X).raw_output, result.raw_output)
 
     # predict_from_fits and evaluation preprocess as this setting says
     assert predictor.config.data.precision_encoding is False
@@ -572,8 +584,7 @@ CALIBRATION = {
 def _calibrated_checkpoint(tmp_path: Path, label_sources: list[str]) -> Path:
     """A multi-head checkpoint with best and final weights and the factors of
     CALIBRATION for label_sources. As in dorothy train, a single label source
-    leaves multi_head_model.label_sources unset, so the model calls its head
-    "default"."""
+    leaves multi_head_model.label_sources unset."""
     import json
 
     config = ExperimentConfig(
@@ -628,9 +639,10 @@ def test_each_head_scales_its_scatter_by_its_own_calibration_factors(tmp_path):
     assert final.calibration is None
 
 
-def test_single_head_gets_its_factors_when_named_default(tmp_path):
-    """The factors of a single head are filed under its configured label
-    source, which the model calls "default"."""
+def test_single_head_is_selected_by_its_label_source(tmp_path):
+    """A multi-head model with one label source names its head after it, so
+    label_source="apogee" (dorothy predict --label-source) selects that head
+    and its calibration factors."""
     path = _calibrated_checkpoint(tmp_path, ["apogee"])
-    predictor = Predictor.load(path, device="cpu", label_source="default")
+    predictor = Predictor.load(path, device="cpu", label_source="apogee")
     assert predictor.calibration == CALIBRATION["apogee"]

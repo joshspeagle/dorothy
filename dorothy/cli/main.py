@@ -136,7 +136,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--label-source",
         type=str,
         default=None,
-        help="Output head to predict from, for multi-label models "
+        help="Output head to predict from, for multi-head models "
         "(default: the first label source)",
     )
     predict_parser.add_argument(
@@ -484,7 +484,7 @@ def cmd_info(args: argparse.Namespace) -> int:
                 mh = config.multi_head_model
                 print("  Architecture: MultiHeadMLP")
                 print(f"    Surveys (wavelength bins): {dict(mh.survey_wavelengths)}")
-                print(f"    Output heads: {mh.label_sources or ['default']}")
+                print(f"    Output heads: {mh.label_sources}")
                 print(
                     f"    Encoder {list(mh.encoder_hidden)} -> latent {mh.latent_dim}, "
                     f"trunk {list(mh.trunk_hidden)}, head {list(mh.output_hidden)}"

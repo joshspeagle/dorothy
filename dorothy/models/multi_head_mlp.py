@@ -289,6 +289,17 @@ class OutputHead(nn.Module):
         return self.head[-1](self.head[:-1](x), label_errors)
 
 
+def _rename_default_head(
+    module: MultiHeadMLP, state_dict: dict, prefix: str, *args
+) -> None:
+    # Single-head models saved before heads were named after their label
+    # source store the alias output_heads.<source> as output_heads.default
+    old = f"{prefix}output_heads.default."
+    new = f"{prefix}output_heads.{module.label_sources[0]}."
+    for key in [k for k in state_dict if k.startswith(old)]:
+        state_dict[new + key[len(old) :]] = state_dict.pop(key)
+
+
 class MultiHeadMLP(nn.Module):
     """Multi-head MLP for multi-survey stellar parameter prediction.
 
@@ -367,9 +378,9 @@ class MultiHeadMLP(nn.Module):
             normalization: Normalization type for all components.
             activation: Activation function for all components.
             dropout: Dropout probability for all components.
-            label_sources: List of label sources for multi-output heads. Default: None
-                (single output head). If multiple sources specified, creates one
-                output head per source (e.g., ["apogee", "galah"]).
+            label_sources: Label sources of the output heads, one head each
+                (e.g., ["apogee", "galah"]). Default: None, one head named
+                "default".
             head_dropout: Optional per-label-source dropout for the output heads,
                 e.g. {"galah": 0.2}. Sources not listed use ``dropout``.
             label_aware_uncertainty: Make every head a LabelAwareOutput
@@ -457,8 +468,8 @@ class MultiHeadMLP(nn.Module):
                 dropout=head_dropout.get(self.label_sources[0], dropout),
                 label_aware_uncertainty=label_aware_uncertainty,
             )
-            # For consistency
-            self.output_heads = nn.ModuleDict({"default": self.output_head})
+            self.output_heads = nn.ModuleDict({self.label_sources[0]: self.output_head})
+            self.register_load_state_dict_pre_hook(_rename_default_head)
 
     @classmethod
     def from_config(cls, config: MultiHeadModelConfig) -> MultiHeadMLP:
