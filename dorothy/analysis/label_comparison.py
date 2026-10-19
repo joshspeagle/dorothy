@@ -139,9 +139,9 @@ def compare_label_sources(
 
     Raises:
         FileNotFoundError: If the catalogue does not exist.
-        ValueError: If ``source_a`` and ``source_b`` are equal, a source is not
-            in the catalogue, or the catalogue or a label group has no Gaia
-            IDs.
+        ValueError: If ``source_a`` and ``source_b`` are equal,
+            ``max_flag_bits`` is not an integer >= -1, a source is not in the
+            catalogue, or the catalogue or a label group has no Gaia IDs.
     """
     loader = CatalogueLoader(catalogue_path)
     names = loader.get_parameter_names()
