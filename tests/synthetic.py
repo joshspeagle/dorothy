@@ -138,7 +138,6 @@ def write_config(
         "training:\n"
         f"  epochs: {epochs}\n"
         "  batch_size: 32\n"
-        "  learning_rate: 0.003\n"
         f"{extra_training}"
     )
     return path

@@ -236,8 +236,7 @@ class TestSparseSingleLabel:
                 epochs=50,
                 early_stopping_patience=2,
                 nll_warmup_fraction=0.0,
-                learning_rate=1e-12,
-                scheduler=SchedulerConfig(type=SchedulerType.NONE),
+                scheduler=SchedulerConfig(type=SchedulerType.NONE, max_lr=1e-12),
             )
         )
         train_idx, val_idx = split()

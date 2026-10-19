@@ -54,7 +54,6 @@ def simple_config():
         training=TrainingConfig(
             epochs=5,
             batch_size=16,
-            learning_rate=1e-3,
             loss=LossType.HETEROSCEDASTIC,
             gradient_clip=10.0,
             scatter_floor=0.01,

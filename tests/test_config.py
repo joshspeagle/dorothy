@@ -200,7 +200,7 @@ class TestSchedulerConfig:
     def test_base_lr_cannot_exceed_max_lr(self):
         """Test that base_lr must be <= max_lr."""
         with pytest.raises(ValidationError) as exc_info:
-            SchedulerConfig(base_lr=1e-2, max_lr=1e-4)
+            SchedulerConfig(type=SchedulerType.CYCLIC, base_lr=1e-2, max_lr=1e-4)
 
         assert "must be <=" in str(exc_info.value)
 
@@ -219,7 +219,6 @@ class TestTrainingConfig:
 
         assert config.epochs == 300
         assert config.batch_size == 1024
-        assert config.learning_rate == 1e-3
         assert config.loss == LossType.HETEROSCEDASTIC
         assert config.gradient_clip == 10.0
         assert config.scatter_floor == 0.01
@@ -499,6 +498,25 @@ class TestUnknownKeys:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             ExperimentConfig(name="t", **kwargs)
 
+    def test_checkpoint_learning_rate_becomes_max_lr_of_a_constant_schedule(
+        self, tmp_path
+    ):
+        """An old checkpoint of the none schedule keeps the rate it trained at."""
+        import yaml
+
+        config = ExperimentConfig(
+            name="t",
+            data={"catalogue_path": "a.h5"},
+            training={"scheduler": {"type": "none"}},
+        )
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        raw["training"]["learning_rate"] = 1e-4
+        path.write_text(yaml.dump(raw))
+        loaded = ExperimentConfig.load_checkpoint_config(path)
+        assert loaded.training.scheduler.max_lr == 1e-4
+
     def test_checkpoint_config_ignores_removed_keys(self, tmp_path):
         """Saved configs from older versions still load (obsolete keys dropped)."""
         import yaml
@@ -512,11 +530,17 @@ class TestUnknownKeys:
         raw["masking"] = {"enabled": True}
         raw["data"]["smart_deduplicate"] = True
         raw["training"]["optimizer"]["old_option"] = 1
+        raw["training"]["learning_rate"] = 1e-3
         path.write_text(yaml.dump(raw))
         with pytest.warns(UserWarning, match="doesn't use") as record:
             loaded = ExperimentConfig.load_checkpoint_config(path)
         message = str(record[0].message)
-        for key in ["masking", "data.smart_deduplicate", "optimizer.old_option"]:
+        for key in [
+            "masking",
+            "data.smart_deduplicate",
+            "optimizer.old_option",
+            "training.learning_rate",
+        ]:
             assert key in message
         assert loaded.data.surveys == ["desi"]
         assert loaded.training.optimizer == config.training.optimizer
