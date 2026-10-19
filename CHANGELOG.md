@@ -205,8 +205,8 @@
   `multi_head_model.label_sources`, the configuration sets it to the first
   of `data.label_sources`. Checkpoints with a "default" head load unchanged.
   `Trainer.label_keys` of a plain MLP is also its label source.
-- `scheduler.base_lr` must not exceed `scheduler.max_lr` only for the
-  `cyclic` schedule, the one that uses it.
+- `scheduler.base_lr <= scheduler.max_lr` is checked only for the `cyclic`
+  schedule, the one that uses `base_lr`.
 
 ### Behaviour changes
 
@@ -214,8 +214,9 @@
   learning rate of every schedule. The `none`, `reduce_on_plateau` and
   `cosine_annealing` schedules start at `max_lr`, so they change only where
   `learning_rate` differed from `max_lr`; both defaulted to 1e-3. A config
-  with `training.learning_rate` is an error that names `scheduler.max_lr`;
-  checkpoint configs that have it load with a warning.
+  with `training.learning_rate` is an error. A checkpoint config loads its
+  `learning_rate` as `max_lr` for those three schedules, and ignores it with
+  a warning for the others.
 - A new multi-head model has a residual stream
   (`multi_head_model.residual_stream: true`). Its trunk and heads have more
   parameters with the default widths, and its trunk embeddings have

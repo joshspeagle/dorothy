@@ -441,8 +441,10 @@ class SchedulerConfig(_ConfigModel):
     max_lr: float = Field(
         default=1e-3,
         gt=0,
-        description="Learning rate: the peak of one_cycle and cyclic, and the "
-        "initial rate of none, reduce_on_plateau and cosine_annealing",
+        le=1.0,
+        description="Learning rate: the peak of one_cycle and cyclic, the "
+        "initial rate of reduce_on_plateau and cosine_annealing, and the "
+        "constant rate of none",
     )
     step_size_up: int = Field(
         default=250, ge=1, description="Steps to rise from base_lr to max_lr (cyclic)"
@@ -634,20 +636,6 @@ class TrainingConfig(_ConfigModel):
             if w < 0:
                 raise ValueError(f"label_source_weights['{source}'] must be >= 0")
         return v
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_learning_rate(cls, values: Any) -> Any:
-        """Point a removed ``learning_rate`` key to ``scheduler.max_lr``.
-
-        Raises:
-            ValueError: If ``learning_rate`` is given.
-        """
-        if isinstance(values, dict) and "learning_rate" in values:
-            raise ValueError(
-                "training.learning_rate was removed; set training.scheduler.max_lr"
-            )
-        return values
 
     @model_validator(mode="after")
     def validate_ema(self) -> TrainingConfig:
@@ -1041,8 +1029,10 @@ class ExperimentConfig(_ConfigModel):
         warning is issued either way. A model section without
         ``label_aware_uncertainty``, a multi-head model section without
         ``residual_stream`` and a data section without ``precision_encoding``
-        get False for that flag. Settings this version no longer has are
-        ignored with a warning.
+        get False for that flag. A ``training.learning_rate`` becomes
+        ``scheduler.max_lr`` for the schedules it set (none,
+        reduce_on_plateau, cosine_annealing). Settings this version no longer
+        has are ignored with a warning.
 
         Args:
             path: Path to the checkpoint's ``config.yaml``.
@@ -1057,6 +1047,17 @@ class ExperimentConfig(_ConfigModel):
 
         with open(path) as f:
             data = yaml.full_load(f)
+
+        # training.learning_rate set the rate of the schedules that do not
+        # set their own; scheduler.max_lr now does
+        training = data.get("training") or {}
+        scheduler = training.get("scheduler") or {}
+        if "learning_rate" in training and scheduler.get("type") in (
+            "none",
+            "reduce_on_plateau",
+            "cosine_annealing",
+        ):
+            scheduler["max_lr"] = training.pop("learning_rate")
 
         # Keys from older versions (since removed) are ignored, not errors
         dropped: list[str] = []

@@ -498,13 +498,24 @@ class TestUnknownKeys:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             ExperimentConfig(name="t", **kwargs)
 
-    def test_training_learning_rate_rejected_with_its_replacement(self):
-        with pytest.raises(ValidationError, match="training.scheduler.max_lr"):
-            ExperimentConfig(
-                name="t",
-                data={"catalogue_path": "a.h5"},
-                training={"learning_rate": 1e-3},
-            )
+    def test_checkpoint_learning_rate_becomes_max_lr_of_a_constant_schedule(
+        self, tmp_path
+    ):
+        """An old checkpoint of the none schedule keeps the rate it trained at."""
+        import yaml
+
+        config = ExperimentConfig(
+            name="t",
+            data={"catalogue_path": "a.h5"},
+            training={"scheduler": {"type": "none"}},
+        )
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        raw["training"]["learning_rate"] = 1e-4
+        path.write_text(yaml.dump(raw))
+        loaded = ExperimentConfig.load_checkpoint_config(path)
+        assert loaded.training.scheduler.max_lr == 1e-4
 
     def test_checkpoint_config_ignores_removed_keys(self, tmp_path):
         """Saved configs from older versions still load (obsolete keys dropped)."""
