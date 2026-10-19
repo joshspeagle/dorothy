@@ -1120,7 +1120,8 @@ class CatalogueLoader:
             to the same set of stars (ordered consistently by Gaia ID).
 
         Raises:
-            ValueError: If ``mode`` is not "union" or "intersection", in
+            ValueError: If ``surveys`` is empty, ``mode`` is not "union" or
+                "intersection", in
                 "intersection" mode if no star is in every survey, or as
                 :meth:`load`.
 
@@ -1135,6 +1136,8 @@ class CatalogueLoader:
         """
         if mode not in ("union", "intersection"):
             raise ValueError(f"mode must be 'union' or 'intersection', got {mode!r}")
+        if not surveys:
+            raise ValueError("surveys must name at least one survey")
         result = {}
 
         if mode == "union":

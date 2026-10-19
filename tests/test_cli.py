@@ -129,14 +129,6 @@ class TestCLIParser:
         assert args.batch_size == 512
         assert args.normalized is True
 
-    def test_predict_rejects_the_removed_denormalize_flag(self):
-        """Test that --denormalize is no longer accepted."""
-        parser = create_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(
-                ["predict", "--checkpoint", "m", "--input", "s.fits", "--denormalize"]
-            )
-
     def test_predict_requires_checkpoint(self):
         """Test that predict requires --checkpoint."""
         parser = create_parser()

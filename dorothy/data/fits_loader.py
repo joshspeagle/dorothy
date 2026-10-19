@@ -109,26 +109,6 @@ class SpectralData:
         """Number of stellar parameters."""
         return self.labels.shape[1]
 
-    def get_model_input(self, apply_quality_mask: bool = True) -> NDArray[np.float32]:
-        """
-        Get combined flux/ivar array for model input (2-channel format).
-
-        Args:
-            apply_quality_mask: Whether to filter by quality mask.
-
-        Returns:
-            Array of shape (n_samples, 2, n_wavelengths) containing
-            [flux, scaled_ivar] as the two channels.
-        """
-        if apply_quality_mask:
-            flux = self.flux[self.quality_mask]
-            ivar = self.ivar[self.quality_mask]
-        else:
-            flux = self.flux
-            ivar = self.ivar
-
-        return np.stack([flux, ivar], axis=1).astype(np.float32)
-
     def get_model_input_3channel(
         self, apply_quality_mask: bool = True
     ) -> NDArray[np.float32]:
@@ -193,23 +173,6 @@ class SpectralData:
         if apply_quality_mask:
             return self.errors[self.quality_mask]
         return self.errors
-
-    def get_combined_labels(
-        self, apply_quality_mask: bool = True
-    ) -> NDArray[np.float32]:
-        """
-        Get labels and errors combined for training.
-
-        Args:
-            apply_quality_mask: Whether to keep only quality_mask stars.
-
-        Returns:
-            Array of shape (n_samples, 2 * n_parameters) where the first half
-            contains labels and the second half contains errors.
-        """
-        labels = self.get_labels(apply_quality_mask)
-        errors = self.get_errors(apply_quality_mask)
-        return np.concatenate([labels, errors], axis=1).astype(np.float32)
 
 
 # torch.nanquantile rejects inputs above 2**24 elements in some torch versions
@@ -498,8 +461,8 @@ class FITSLoader:
     Examples:
         >>> loader = FITSLoader(Path("data/loa_trainingset.fits"))
         >>> data = loader.load()
-        >>> X = data.get_model_input()  # Shape: (n_good_stars, 2, 7650)
-        >>> y = data.get_combined_labels()  # Shape: (n_good_stars, 22)
+        >>> X = data.get_model_input_3channel()  # (n_good_stars, 3, n_wavelengths)
+        >>> y = data.get_labels()  # (n_good_stars, n_parameters)
     """
 
     def __init__(

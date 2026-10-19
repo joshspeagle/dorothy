@@ -78,9 +78,6 @@
 
 ### Fixed
 
-- `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
-  `union` or `intersection`. It used to treat any other value as
-  `intersection`.
 - The `plot_*` functions in `visualization.training_plots` accept a `str`
   output directory. They raised `TypeError`.
 - `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer
@@ -192,7 +189,11 @@
 
 ### Changed
 
-- `dorothy.data.split_data` is removed. Nothing used it. It split with
+- `dorothy predict --denormalize` is removed. It did nothing, because physical
+  units are the default. Passing it now fails. `--normalized` writes
+  normalized units.
+- `dorothy.data.split_data` and the methods `SpectralData.get_model_input`
+  (2-channel input) and `get_combined_labels` are removed. Nothing used them. It split with
   `numpy.random.default_rng`, so one seed gave a different split than
   `TrainingData.split`.
 - The trainer's four training modes share one training loop.
@@ -218,9 +219,9 @@
 
 ### Behaviour changes
 
-- `dorothy predict --denormalize` is removed. It did nothing, because physical
-  units are the default. Passing it now fails. `--normalized` writes
-  normalized units.
+- `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
+  `union` or `intersection`, which it treated as `intersection`, and for an
+  empty `surveys` list.
 - A new multi-head model has a residual stream
   (`multi_head_model.residual_stream: true`). Its trunk and heads have more
   parameters with the default widths, and its trunk embeddings have

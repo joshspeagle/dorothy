@@ -98,7 +98,7 @@ def _check_shapes(*arrays: NDArray) -> None:
 
 
 def plot_pred_vs_truth(
-    output_path: Path,
+    output_path: str | Path,
     preds: NDArray,
     true: NDArray,
     pred_unc: NDArray,
@@ -164,7 +164,7 @@ def plot_pred_vs_truth(
 
 
 def plot_residuals(
-    output_path: Path,
+    output_path: str | Path,
     preds: NDArray,
     true: NDArray,
     mask: NDArray,
@@ -247,7 +247,7 @@ def plot_residuals(
 
 
 def plot_histograms(
-    output_path: Path,
+    output_path: str | Path,
     preds: NDArray,
     true: NDArray,
     mask: NDArray,
@@ -303,7 +303,7 @@ def plot_histograms(
 
 
 def plot_zscore_histograms(
-    output_path: Path,
+    output_path: str | Path,
     preds: NDArray,
     true: NDArray,
     pred_unc: NDArray,
@@ -387,7 +387,7 @@ def plot_zscore_histograms(
 
 
 def generate_evaluation_plots(
-    output_dir: Path,
+    output_dir: str | Path,
     preds: NDArray,
     true: NDArray,
     pred_unc: NDArray,

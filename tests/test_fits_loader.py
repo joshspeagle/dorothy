@@ -271,22 +271,6 @@ class TestSpectralData:
         assert sample_data.n_wavelengths == 100
         assert sample_data.n_parameters == 3
 
-    def test_get_model_input_shape(self, sample_data):
-        """Test that get_model_input returns correct shape."""
-        X = sample_data.get_model_input(apply_quality_mask=False)
-
-        assert X.shape == (10, 2, 100)
-        assert X.dtype == np.float32
-
-    def test_get_model_input_with_mask(self, sample_data):
-        """Test that quality mask is applied correctly."""
-        X_masked = sample_data.get_model_input(apply_quality_mask=True)
-        X_unmasked = sample_data.get_model_input(apply_quality_mask=False)
-
-        # 2 stars are masked out
-        assert X_masked.shape[0] == 8
-        assert X_unmasked.shape[0] == 10
-
     def test_get_labels_shape(self, sample_data):
         """Test that get_labels returns correct shape."""
         labels = sample_data.get_labels(apply_quality_mask=False)
@@ -294,17 +278,6 @@ class TestSpectralData:
 
         labels_masked = sample_data.get_labels(apply_quality_mask=True)
         assert labels_masked.shape == (8, 3)
-
-    def test_get_combined_labels(self, sample_data):
-        """Test that combined labels include errors."""
-        combined = sample_data.get_combined_labels(apply_quality_mask=False)
-
-        # Should be (n_samples, 2 * n_params)
-        assert combined.shape == (10, 6)
-
-        # First half should be labels, second half errors
-        assert np.allclose(combined[:, :3], sample_data.labels)
-        assert np.allclose(combined[:, 3:], sample_data.errors)
 
 
 class TestFITSLoader:

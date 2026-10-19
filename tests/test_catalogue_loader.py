@@ -1967,6 +1967,8 @@ class TestLoadMulti:
         path = build_catalogue(tmp_path / "cat.h5")
         with pytest.raises(ValueError, match="mode must be"):
             CatalogueLoader(path).load_multi(["boss", "desi"], mode="inter")
+        with pytest.raises(ValueError, match="at least one survey"):
+            CatalogueLoader(path).load_multi([], mode="intersection")
 
 
 class TestHasLabels:

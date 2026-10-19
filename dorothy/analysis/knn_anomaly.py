@@ -188,23 +188,19 @@ class AnomalyDetector:
             )
         if not 0 <= percentile <= 100:
             raise ValueError(f"percentile must be in [0, 100], got {percentile!r}")
+        embeddings = l2_normalize(
+            self.predictor.get_embeddings(
+                X_train, layer_index=self.layer_index, batch_size=batch_size
+            )
+        )
+        # Query k+1 neighbors (includes self) for training data
+        kth_distances = self._kth_neighbor_distances(embeddings, embeddings, k + 1)
+        # Set the state only once it is complete, so a failed refit keeps the
+        # previous fit
         self.k = k
         self.percentile = percentile
-
-        # Extract and normalize embeddings
-        embeddings = self.predictor.get_embeddings(
-            X_train,
-            layer_index=self.layer_index,
-            batch_size=batch_size,
-        )
-        self.train_embeddings = l2_normalize(embeddings)
-
-        # Query k+1 neighbors (includes self) for training data
-        kth_distances = self._kth_neighbor_distances(self.train_embeddings, k + 1)
-
-        # Compute threshold
+        self.train_embeddings = embeddings
         self.threshold = float(np.percentile(kth_distances, percentile))
-
         return self
 
     def detect(
@@ -242,7 +238,9 @@ class AnomalyDetector:
         embeddings_norm = l2_normalize(embeddings)
 
         # Query k neighbors (no self-distance for new data)
-        kth_distances = self._kth_neighbor_distances(embeddings_norm, self.k)
+        kth_distances = self._kth_neighbor_distances(
+            self.train_embeddings, embeddings_norm, self.k
+        )
         kth_distances = kth_distances.astype(np.float32)
 
         # Flag anomalies
@@ -271,18 +269,21 @@ class AnomalyDetector:
         if self.train_embeddings is None:
             raise RuntimeError("Detector must be fitted first. Call fit().")
 
-        distances = self._kth_neighbor_distances(self.train_embeddings, self.k + 1)
+        distances = self._kth_neighbor_distances(
+            self.train_embeddings, self.train_embeddings, self.k + 1
+        )
         return distances.astype(np.float32)
 
+    @staticmethod
     def _kth_neighbor_distances(
-        self, X: NDArray[np.float32], n_neighbors: int
+        train: NDArray[np.float32], X: NDArray[np.float32], n_neighbors: int
     ) -> NDArray[np.float64]:
         from sklearn.neighbors import NearestNeighbors
 
         # Brute force: a ball tree cannot prune in ~100-dimensional embedding
         # space, so its queries are far slower than blocked BLAS distances.
         search = NearestNeighbors(n_neighbors=n_neighbors, algorithm="brute")
-        distances, _ = search.fit(self.train_embeddings).kneighbors(X)
+        distances, _ = search.fit(train).kneighbors(X)
         return distances[:, -1]
 
     def save(self, path: str | Path) -> None:

@@ -204,6 +204,13 @@ class TestAnomalyDetectorFit:
         with pytest.raises(ValueError, match="percentile must be"):
             detector.fit(training_data, k=5, percentile=percentile)
 
+    def test_failed_refit_keeps_the_previous_fit(self, simple_predictor, training_data):
+        detector = AnomalyDetector(simple_predictor).fit(training_data, k=5)
+        threshold = detector.threshold
+        with pytest.raises(RuntimeError):
+            detector.fit(training_data[:, :3], k=20)
+        assert (detector.k, detector.threshold) == (5, threshold)
+
     def test_fit_accepts_largest_k(self, simple_predictor, training_data):
         """k = n_train - 1 is the largest k with a k-th other star."""
         detector = AnomalyDetector(simple_predictor)
