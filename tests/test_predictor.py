@@ -502,6 +502,7 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
                 "trunk_hidden": [16],
                 "output_hidden": [8],
                 "label_aware_uncertainty": False,
+                "residual_stream": False,
             },
         }
     else:

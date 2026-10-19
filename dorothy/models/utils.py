@@ -159,3 +159,34 @@ class ResidualBlock(nn.Module):
             Output of shape (batch, width).
         """
         return x + self.update(x)
+
+
+def residual_blocks(
+    width: int,
+    hidden_layers: list[int],
+    normalization: str,
+    activation: str,
+    dropout: float,
+) -> list[nn.Module]:
+    """Build a residual stream: one ResidualBlock per hidden size, then a norm.
+
+    Args:
+        width: Size of the stream.
+        hidden_layers: Hidden size of each block, in order.
+        normalization: Normalization type ("batchnorm" or "layernorm").
+        activation: Activation function ("gelu", "relu" or "silu").
+        dropout: Dropout probability.
+
+    Returns:
+        The blocks and the closing normalization, in order.
+
+    Raises:
+        ValueError: If the normalization or activation is not recognized.
+    """
+    return [
+        *[
+            ResidualBlock(width, size, normalization, activation, dropout)
+            for size in hidden_layers
+        ],
+        get_normalization(normalization)(width),
+    ]

@@ -415,30 +415,11 @@ class MultiHeadModelConfig(_ConfigModel):
     )
     residual_stream: bool = Field(
         default=True,
-        description="Replace the plain trunk and the output heads' hidden layers "
-        "with a residual stream of width latent_dim. The combined encodings, "
-        "linearly mapped to latent_dim when combination_mode is concat with "
-        "several surveys, pass through one pre-norm residual block per "
-        "trunk_hidden size (its hidden size) and a closing normalization. Each "
-        "head's decoders read the result through one residual block per "
-        "output_hidden size, and the error decoder adds a linear map of the log "
-        "label errors instead of concatenating them. Needs "
-        "label_aware_uncertainty: unset, it is False when "
-        "label_aware_uncertainty is False. Checkpoints saved before this "
-        "option load with False.",
+        description="Build the trunk and the output heads' hidden layers as a "
+        "residual stream of width latent_dim, with one residual block per "
+        "trunk_hidden and output_hidden size; False builds plain blocks. "
+        "Checkpoints saved before this option load with False.",
     )
-
-    @model_validator(mode="after")
-    def resolve_residual_stream(self) -> MultiHeadModelConfig:
-        """Turn the residual stream off for plain heads unless it was set."""
-        if self.residual_stream and not self.label_aware_uncertainty:
-            if "residual_stream" in self.model_fields_set:
-                raise ValueError(
-                    "multi_head_model.residual_stream needs "
-                    "label_aware_uncertainty: true"
-                )
-            self.residual_stream = False
-        return self
 
     @field_validator("head_dropout")
     @classmethod

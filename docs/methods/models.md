@@ -82,8 +82,7 @@ $$
 
 where W₁ maps d to h numbers and W₂ maps them back to d, and a final
 normalization closes the stream. The normalization is the configured one,
-`layernorm` by default. Every block reads and writes the same vector, so the
-stream is one representation that can be probed at every depth.
+`layernorm` by default.
 
 Each head's two decoders read the closed stream. Each decoder adds one
 residual block of hidden size h for each entry h of `output_hidden`, then a
@@ -98,6 +97,8 @@ $$
 
 where z is the closed stream and W_u has no bias. Its residual block makes
 ln s a nonlinear function of u.
+With `label_aware_uncertainty: false`, each head is instead one stack of
+these blocks followed by a single linear map to μ and ln s.
 
 The block count follows the hidden layer sizes, not the parameter count. With
 the defaults, the residual trunk and heads have more parameters than the

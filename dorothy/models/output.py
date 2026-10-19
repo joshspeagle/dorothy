@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from dorothy.losses.heteroscedastic import LN_S_MAX, LN_S_MIN
-from dorothy.models.utils import ResidualBlock, get_normalization, hidden_blocks
+from dorothy.models.utils import hidden_blocks, residual_blocks
 
 
 def _decoder(
@@ -26,11 +26,9 @@ def _decoder(
     """
     if residual:
         return nn.Sequential(
-            *[
-                ResidualBlock(input_dim, size, normalization, activation, dropout)
-                for size in hidden_layers
-            ],
-            get_normalization(normalization)(input_dim),
+            *residual_blocks(
+                input_dim, hidden_layers, normalization, activation, dropout
+            ),
             nn.Linear(input_dim, n_parameters),
         )
     return nn.Sequential(
@@ -77,7 +75,7 @@ class LabelAwareOutput(nn.Module):
         normalization: str,
         activation: str,
         dropout: float,
-        residual: bool = False,
+        residual: bool,
     ) -> None:
         """Initialize the decoders.
 
@@ -228,8 +226,8 @@ def output_modules(
         label_aware: Build a LabelAwareOutput; False builds the hidden blocks
             and the AdditiveOutput of checkpoints saved before label-aware
             uncertainty.
-        residual: Build a residual LabelAwareOutput (see LabelAwareOutput),
-            whose input is a residual stream.
+        residual: Read a residual stream: the hidden layers are residual
+            blocks of width input_dim (see LabelAwareOutput).
 
     Returns:
         The modules in order. The last one maps (features, label_errors) to
@@ -237,12 +235,9 @@ def output_modules(
         features.
 
     Raises:
-        ValueError: If label_aware and hidden_layers is empty, if residual
-            and not label_aware, or if the normalization or activation is not
-            recognized.
+        ValueError: If label_aware and hidden_layers is empty, or the
+            normalization or activation is not recognized.
     """
-    if residual and not label_aware:
-        raise ValueError("residual needs label_aware=True")
     if label_aware:
         return [
             LabelAwareOutput(
@@ -254,6 +249,13 @@ def output_modules(
                 dropout,
                 residual,
             )
+        ]
+    if residual:
+        return [
+            *residual_blocks(
+                input_dim, hidden_layers, normalization, activation, dropout
+            ),
+            AdditiveOutput(input_dim, n_parameters),
         ]
     width = hidden_layers[-1] if hidden_layers else input_dim
     return [
