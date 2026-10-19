@@ -695,7 +695,7 @@ class Trainer:
             y_train: Training labels of shape (n_samples, 3, n_params) where:
                 - Channel 0: label values
                 - Channel 1: label errors (uncertainties)
-                - Channel 2: mask (1=valid, 0=masked)
+                - Channel 2: mask, valid where > 0
             X_val: Validation features (same format as X_train).
             y_val: Validation labels (same format as y_train).
             normalize_labels: Whether to fit and apply label normalization.
@@ -761,7 +761,7 @@ class Trainer:
             y_train: Training labels of shape (n_samples, 3, n_params) where:
                 - Channel 0: label values
                 - Channel 1: label errors (uncertainties)
-                - Channel 2: mask (1=valid, 0=masked)
+                - Channel 2: mask, valid where > 0
             X_val: Dict mapping survey names to validation spectral data.
             y_val: Validation labels (same format as y_train).
             has_data_train: Dict mapping survey names to boolean arrays indicating
@@ -894,7 +894,7 @@ class Trainer:
                 Each array has shape (n_samples, 3, n_params) where:
                 - Channel 0: label values
                 - Channel 1: label errors (uncertainties)
-                - Channel 2: mask (1=valid, 0=masked)
+                - Channel 2: mask, valid where > 0
             X_val: Dict mapping survey names to validation spectral data.
             y_val: Dict mapping label source names to validation label arrays.
             has_data_train: Dict mapping survey names to boolean arrays indicating
@@ -1269,7 +1269,7 @@ class Trainer:
         labelset_losses, labelset_metrics = {}, {}
         if len(keys) > 1:
             for k in keys:
-                has_labels = targets[k][:, 2, :].sum() > 0
+                has_labels = (targets[k][:, 2, :] > 0).any()
                 labelset_losses[k] = (
                     self.loss_fn(outputs[k], targets[k]).item()
                     if has_labels

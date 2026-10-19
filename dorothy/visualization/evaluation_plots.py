@@ -2,10 +2,10 @@
 
 All functions take arrays in physical units, shaped (n_samples, n_params):
 predictions, true labels, predicted model scatter, label errors and a validity
-mask (1 = label valid). Grids are sized to the number of parameters, and axis
-ranges default to percentiles of the data. A plot function
-writes a PNG into a directory and returns its path, or None when matplotlib is
-not installed.
+mask (label valid where > 0). Grids are sized to the number of parameters,
+and axis ranges default to percentiles of the data. A plot function writes a
+PNG into a directory and returns its path, or None when matplotlib is not
+installed.
 
 Adapted from evaluation plots by Diego (d5martin).
 """
@@ -81,7 +81,7 @@ def _symmetric_range(values: NDArray, pct: float = 99.0) -> Range:
 
 def _valid(mask: NDArray, i: int, *arrays: NDArray) -> NDArray:
     """Boolean selector for samples with a valid, finite label for parameter i."""
-    keep = mask[:, i].astype(bool)
+    keep = mask[:, i] > 0
     for a in arrays:
         keep &= np.isfinite(a[:, i])
     return keep
@@ -115,7 +115,7 @@ def plot_pred_vs_truth(
         preds: Predicted values, shape (n_samples, n_params).
         true: True label values, same shape.
         pred_unc: Predicted uncertainties, same shape.
-        mask: Label validity mask (1 = valid), same shape.
+        mask: Label validity mask (valid where > 0), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in axis labels and titles.
         ranges: Optional per-parameter (min, max) axis ranges, keyed by name.
@@ -180,7 +180,7 @@ def plot_residuals(
         output_path: Directory to save the plot.
         preds: Predicted values, shape (n_samples, n_params).
         true: True label values, same shape.
-        mask: Label validity mask (1 = valid), same shape.
+        mask: Label validity mask (valid where > 0), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in axis labels and titles.
         ranges: Optional per-parameter (min, max) ranges for the true value.
@@ -263,7 +263,7 @@ def plot_histograms(
         output_path: Directory to save the plot.
         preds: Predicted values, shape (n_samples, n_params).
         true: True label values, same shape.
-        mask: Label validity mask (1 = valid), same shape.
+        mask: Label validity mask (valid where > 0), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in the legend.
         ranges: Optional per-parameter (min, max) histogram ranges.
@@ -328,7 +328,7 @@ def plot_zscore_histograms(
         true: True label values, same shape.
         pred_unc: Predicted model scatter, same shape.
         label_err: Label errors, same shape, or None to use pred_unc only.
-        mask: Label validity mask (1 = valid), same shape.
+        mask: Label validity mask (valid where > 0), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in the title.
         z_max: Histogram range is [-z_max, z_max].
@@ -409,7 +409,7 @@ def generate_evaluation_plots(
         true: True label values, same shape.
         pred_unc: Predicted model scatter, same shape.
         label_err: Label errors, same shape, or None to use pred_unc only.
-        mask: Label validity mask (1 = valid), same shape.
+        mask: Label validity mask (valid where > 0), same shape.
         parameter_names: Parameter names (length n_params).
         label_source: Label source name, used in titles and file names.
         ranges: Optional per-parameter (min, max) ranges for the first three

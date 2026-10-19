@@ -835,6 +835,20 @@ class TestDynamicInputMaskingExact:
             )
 
 
+def test_label_set_with_only_negative_mask_entries_is_not_available():
+    """A label set whose mask holds only -1 has no valid label, so the
+    guaranteed keeper always keeps the other set."""
+    n = 64
+    valid = torch.stack([torch.ones(n, 2), torch.ones(n, 2), torch.ones(n, 2)], 1)
+    invalid = valid.clone()
+    invalid[:, 2] = -1.0
+    masking = DynamicLabelMasking(
+        p_labelset_min=0.0, p_labelset_max=0.0, p_label_min=1.0, p_label_max=1.0
+    )
+    out = masking({"apogee": valid, "galah": invalid})
+    assert torch.equal(out["apogee"], valid)
+
+
 # ============================================================================
 # Seeded random draws
 # ============================================================================
