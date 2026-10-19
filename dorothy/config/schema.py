@@ -830,7 +830,6 @@ class ExperimentConfig(_ConfigModel):
 
     For single-survey training, use the ``model`` config (MLP). For
     multi-survey training, use the ``multi_head_model`` config (MultiHeadMLP).
-
     """
 
     name: str = Field(min_length=1, max_length=100, description="Experiment name")

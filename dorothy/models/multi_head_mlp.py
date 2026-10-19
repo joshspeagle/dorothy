@@ -215,9 +215,9 @@ class OutputHead(nn.Module):
 
     Takes features from the shared trunk and produces predictions in the
     standard (batch, 2, n_params) format. By default the head is a
-    LabelAwareOutput: its label decoder maps the features through hidden_layers to mu, and its
-    error decoder maps the features and the label errors through layers of
-    the same sizes to ln s.
+    LabelAwareOutput: its label decoder maps the features through
+    hidden_layers to mu, and its error decoder maps the features and the
+    label errors through layers of the same sizes to ln s.
 
     Attributes:
         n_parameters: Number of stellar parameters to predict.
