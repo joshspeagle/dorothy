@@ -342,10 +342,11 @@
   `data.precision_encoding: false`, and `dorothy train --resume` rejects a
   checkpoint saved before it. Arrays passed to `Predictor.predict` must
   be encoded when the checkpoint's configuration says so.
-- Label and input masking draw from their own generators, seeded from the
-  configured seed, instead of the global numpy and torch generators. Runs
-  with masking differ from earlier runs with the same seed. Two runs with
-  the same seed get the same masks even when other code draws from the
-  global generators. `DynamicLabelMasking` and
+- Label masking, input masking and the label error dropout draw from their
+  own generators, seeded from the configured seed, instead of the global
+  numpy and torch generators. Training results differ from earlier runs
+  with the same seed. Two runs with the same seed get the same draws even
+  when other code draws from the global generators. Model dropout still
+  draws from the global torch generator. `DynamicLabelMasking` and
   `DynamicInputMasking` take a `seed` argument; None, the default, draws a
   fresh seed.

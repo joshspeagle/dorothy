@@ -50,6 +50,7 @@ from dorothy.config.schema import (
 from dorothy.data.augmentation import (
     DynamicInputMasking,
     DynamicLabelMasking,
+    _Random,
 )
 from dorothy.data.catalogue_loader import SparseMergedData
 from dorothy.data.normalizer import LabelNormalizer
@@ -288,6 +289,15 @@ class TrainingHistory:
         }
 
 
+def _stream_seeds(seed: int) -> list[int]:
+    """Seeds of the label masking, input masking and label error dropout.
+
+    Child seeds give streams independent of each other and of the batch
+    shuffle, which uses the configured seed itself.
+    """
+    return [int(c.generate_state(1)[0]) for c in np.random.SeedSequence(seed).spawn(3)]
+
+
 def _is_weight_matrix(param: torch.Tensor) -> bool:
     """Whether weight decay and the grokking metrics apply to a parameter.
 
@@ -489,6 +499,7 @@ class Trainer:
         # Dynamic masking for hierarchical label/input augmentation
         self._label_masking: DynamicLabelMasking | None = None
         self._input_masking: DynamicInputMasking | None = None
+        self._label_error_random = _Random(_stream_seeds(config.seed)[2])
         self._survey_wavelengths: dict[str, int] | None = None
         self._evaluator: Evaluator | None = None
 
@@ -1033,12 +1044,7 @@ class Trainer:
         self, survey_wavelengths: dict[str, int], multi_survey: bool = False
     ) -> None:
         """Create the label/input masking augmentations from the config."""
-        # Child seeds give streams independent of each other and of the batch
-        # shuffle, which uses the configured seed itself.
-        label_seed, input_seed = (
-            int(child.generate_state(1)[0])
-            for child in np.random.SeedSequence(self.config.seed).spawn(2)
-        )
+        label_seed, input_seed, _ = _stream_seeds(self.config.seed)
         lm = self.config.label_masking
         self._label_masking = (
             DynamicLabelMasking(
@@ -1108,7 +1114,10 @@ class Trainer:
         p = self.config.training.label_error_dropout
         errors = {}
         for key, target in y.items():
-            dropped = torch.rand(target.shape[0], 1, device=target.device) < p
+            draws = self._label_error_random.rand(
+                target.shape[0], 1, device=target.device, dtype=torch.float32
+            )
+            dropped = draws < p
             keep = (target[:, 2, :] > 0) & ~dropped
             errors[key] = torch.where(keep, target[:, 1, :], 0.0)
         return errors

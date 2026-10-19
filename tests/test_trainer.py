@@ -1091,18 +1091,14 @@ class TestTrainerMaskingAndAugmentation:
     def test_masked_runs_with_one_seed_are_identical_after_global_draws(
         self, full_masking_config, training_data
     ):
-        """Masking draws from the configured seed, not the global generators."""
+        """Masking and label error dropout draw from the configured seed, not
+        the global generators."""
         from dorothy.config.schema import LabelMaskingConfig
 
-        # Label error dropout of 1 replaces every error, whatever it draws.
         config = full_masking_config.model_copy(
-            update={
-                "label_masking": LabelMaskingConfig(enabled=True),
-                "training": full_masking_config.training.model_copy(
-                    update={"label_error_dropout": 1.0}
-                ),
-            }
+            update={"label_masking": LabelMaskingConfig(enabled=True)}
         )
+        assert config.training.label_error_dropout == 0.5
         X, y = training_data
 
         def train_losses(global_draws: int) -> list[float]:
@@ -1995,7 +1991,6 @@ class TestLabelAwareTraining:
         simple_config.training.label_error_dropout = 0.3
         trainer = Trainer(simple_config)
         n = 4000
-        torch.manual_seed(0)
         errors = trainer._label_errors(
             {"a": torch.ones(n, 3, 3), "b": torch.ones(n, 3, 3)}
         )
