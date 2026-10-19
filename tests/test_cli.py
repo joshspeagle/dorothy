@@ -102,7 +102,7 @@ class TestCLIParser:
         assert args.output is None
         assert args.device == "auto"
         assert args.batch_size == 1024
-        assert args.denormalize is False
+        assert args.normalized is False
 
     def test_predict_command_with_options(self):
         """Test predict command with all options."""
@@ -120,14 +120,14 @@ class TestCLIParser:
                 "cpu",
                 "--batch-size",
                 "512",
-                "--denormalize",
+                "--normalized",
             ]
         )
 
         assert args.output == Path("results.csv")
         assert args.device == "cpu"
         assert args.batch_size == 512
-        assert args.denormalize is True
+        assert args.normalized is True
 
     def test_predict_requires_checkpoint(self):
         """Test that predict requires --checkpoint."""

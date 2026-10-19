@@ -96,9 +96,17 @@ def _try_import_matplotlib():
         return None
 
 
+def _save_figure(plt, fig, output_path: str | Path, filename: str) -> Path:
+    """Save fig as output_path/filename at 150 dpi, close it, return the path."""
+    save_path = Path(output_path) / filename
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return save_path
+
+
 def plot_loss_curves(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
     title: str = "Training Progress",
 ) -> Path | None:
     """Plot the loss curves and the learning rate schedule.
@@ -190,16 +198,12 @@ def plot_loss_curves(
     plt.suptitle(title, fontsize=14)
     plt.tight_layout()
 
-    save_path = output_path / "loss_curves.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "loss_curves.png")
 
 
 def plot_loss_components(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the mean and scatter loss components per epoch.
 
@@ -258,11 +262,7 @@ def plot_loss_components(
 
     plt.tight_layout()
 
-    save_path = output_path / "loss_components.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "loss_components.png")
 
 
 def _categorize_layer_names(layer_names: list[str]) -> dict[str, list[str]]:
@@ -314,7 +314,7 @@ def _categorize_layer_names(layer_names: list[str]) -> dict[str, list[str]]:
 
 def plot_grokking_metrics(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the gradient norm, weight norms and weight updates per epoch.
 
@@ -467,16 +467,12 @@ def plot_grokking_metrics(
 
     plt.tight_layout()
 
-    save_path = output_path / "grokking_metrics.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "grokking_metrics.png")
 
 
 def plot_val_metrics(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation RMSE, robust scatter, bias and MAE per parameter.
 
@@ -608,16 +604,12 @@ def plot_val_metrics(
     )
     plt.tight_layout()
 
-    save_path = output_path / "val_metrics.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "val_metrics.png")
 
 
 def plot_zscore_calibration(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the median and robust scatter of the z-scores per parameter.
 
@@ -695,16 +687,12 @@ def plot_zscore_calibration(
     plt.suptitle("Uncertainty Calibration (z-score diagnostics)", fontsize=12)
     plt.tight_layout()
 
-    save_path = output_path / "zscore_calibration.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "zscore_calibration.png")
 
 
 def plot_metrics_evolution(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation RMSE and z-score scatter per epoch.
 
@@ -781,16 +769,12 @@ def plot_metrics_evolution(
 
     plt.tight_layout()
 
-    save_path = output_path / "metrics_evolution.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "metrics_evolution.png")
 
 
 def plot_per_survey_loss_curves(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation loss of each survey, absolute and relative.
 
@@ -877,16 +861,12 @@ def plot_per_survey_loss_curves(
     plt.suptitle("Per-Survey Training Progress", fontsize=12)
     plt.tight_layout()
 
-    save_path = output_path / "per_survey_loss_curves.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "per_survey_loss_curves.png")
 
 
 def plot_per_survey_metrics(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation metrics of each survey at the best epoch.
 
@@ -1035,16 +1015,12 @@ def plot_per_survey_metrics(
     )
     plt.tight_layout()
 
-    save_path = output_path / "per_survey_metrics.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "per_survey_metrics.png")
 
 
 def plot_per_survey_metrics_evolution(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation RMSE of each survey per epoch.
 
@@ -1118,16 +1094,12 @@ def plot_per_survey_metrics_evolution(
     plt.suptitle("Per-Survey RMSE Evolution by Parameter", fontsize=12)
     plt.tight_layout()
 
-    save_path = output_path / "per_survey_metrics_evolution.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "per_survey_metrics_evolution.png")
 
 
 def plot_per_labelset_loss_curves(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation loss of each label source, absolute and relative.
 
@@ -1216,16 +1188,12 @@ def plot_per_labelset_loss_curves(
     plt.suptitle("Per-Labelset (Output Head) Training Progress", fontsize=12)
     plt.tight_layout()
 
-    save_path = output_path / "per_labelset_loss_curves.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "per_labelset_loss_curves.png")
 
 
 def plot_per_labelset_metrics(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation metrics of each label source at the best epoch.
 
@@ -1374,16 +1342,12 @@ def plot_per_labelset_metrics(
     )
     plt.tight_layout()
 
-    save_path = output_path / "per_labelset_metrics.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "per_labelset_metrics.png")
 
 
 def plot_per_labelset_metrics_evolution(
     history: "TrainingHistory",
-    output_path: Path,
+    output_path: str | Path,
 ) -> Path | None:
     """Plot the validation RMSE of each label source per epoch.
 
@@ -1457,16 +1421,12 @@ def plot_per_labelset_metrics_evolution(
     plt.suptitle("Per-Labelset (Output Head) RMSE Evolution by Parameter", fontsize=12)
     plt.tight_layout()
 
-    save_path = output_path / "per_labelset_metrics_evolution.png"
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    return save_path
+    return _save_figure(plt, fig, output_path, "per_labelset_metrics_evolution.png")
 
 
 def generate_training_report(
     history: "TrainingHistory",
-    output_dir: Path,
+    output_dir: str | Path,
     experiment_name: str = "training",
 ) -> list[Path]:
     """Write every training plot that the history supports.

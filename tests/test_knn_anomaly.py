@@ -187,6 +187,36 @@ class TestAnomalyDetectorFit:
         assert detector.train_embeddings is not None
         assert detector.train_embeddings.shape[0] == 100
 
+    @pytest.mark.parametrize("k", [0, -1, 2.5, 100, True])
+    def test_fit_rejects_invalid_k(self, simple_predictor, training_data, k):
+        """k must be an integer below n_train (100 here)."""
+        detector = AnomalyDetector(simple_predictor)
+        with pytest.raises(ValueError, match="k must be"):
+            detector.fit(training_data, k=k)
+        assert detector.k is None
+
+    @pytest.mark.parametrize("percentile", [-1.0, 100.5])
+    def test_fit_rejects_percentile_outside_0_to_100(
+        self, simple_predictor, training_data, percentile
+    ):
+        """Test that percentile must lie in [0, 100]."""
+        detector = AnomalyDetector(simple_predictor)
+        with pytest.raises(ValueError, match="percentile must be"):
+            detector.fit(training_data, k=5, percentile=percentile)
+
+    def test_failed_refit_keeps_the_previous_fit(self, simple_predictor, training_data):
+        detector = AnomalyDetector(simple_predictor).fit(training_data, k=5)
+        threshold = detector.threshold
+        with pytest.raises(RuntimeError):
+            detector.fit(training_data[:, :3], k=20)
+        assert (detector.k, detector.threshold) == (5, threshold)
+
+    def test_fit_accepts_largest_k(self, simple_predictor, training_data):
+        """k = n_train - 1 is the largest k with a k-th other star."""
+        detector = AnomalyDetector(simple_predictor)
+        detector.fit(training_data, k=99)
+        assert detector.threshold > 0
+
     def test_fit_returns_self(self, simple_predictor, training_data):
         """Test that fit returns self for chaining."""
         detector = AnomalyDetector(simple_predictor)

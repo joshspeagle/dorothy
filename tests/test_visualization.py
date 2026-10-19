@@ -296,6 +296,12 @@ class TestPlotFunctionsWithData:
         assert result.exists()
         assert result.name == "loss_curves.png"
 
+    def test_plot_functions_accept_a_str_path(self, basic_history, tmp_path):
+        """Test that the output directory may be a str."""
+        result = plot_loss_curves(basic_history, str(tmp_path))
+        assert result == tmp_path / "loss_curves.png"
+        assert result.exists()
+
     def test_plot_loss_components_generates_file(self, full_history, tmp_path):
         """Test plot_loss_components generates a file."""
         result = plot_loss_components(full_history, tmp_path)

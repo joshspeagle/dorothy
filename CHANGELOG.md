@@ -78,6 +78,10 @@
 
 ### Fixed
 
+- The `plot_*` functions in `visualization.training_plots` accept a `str`
+  output directory. They raised `TypeError`.
+- `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer
+  in [1, n_train - 1] and for a `percentile` outside [0, 100].
 - `dorothy evaluate --help` said `--output` writes JSON or Markdown; it
   writes the `--format` format.
 - Training on Apple MPS failed at the first step with PyTorch before 2.5,
@@ -185,6 +189,13 @@
 
 ### Changed
 
+- `dorothy predict --denormalize` is removed. It did nothing, because physical
+  units are the default. Passing it now fails. `--normalized` writes
+  normalized units.
+- `dorothy.data.split_data` and the methods `SpectralData.get_model_input`
+  (2-channel input) and `get_combined_labels` are removed. Nothing used them. It split with
+  `numpy.random.default_rng`, so one seed gave a different split than
+  `TrainingData.split`.
 - The trainer's four training modes share one training loop.
 - Unknown configuration keys are errors. `survey` and `label_source` are
   accepted as aliases of `surveys` and `label_sources`.
@@ -210,6 +221,9 @@
 
 ### Behaviour changes
 
+- `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
+  `union` or `intersection`, which it treated as `intersection`, and for an
+  empty `surveys` list.
 - `training.learning_rate` is removed; `training.scheduler.max_lr` sets the
   learning rate of every schedule. The `none`, `reduce_on_plateau` and
   `cosine_annealing` schedules start at `max_lr`, so they change only where

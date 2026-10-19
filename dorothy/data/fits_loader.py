@@ -109,26 +109,6 @@ class SpectralData:
         """Number of stellar parameters."""
         return self.labels.shape[1]
 
-    def get_model_input(self, apply_quality_mask: bool = True) -> NDArray[np.float32]:
-        """
-        Get combined flux/ivar array for model input (2-channel format).
-
-        Args:
-            apply_quality_mask: Whether to filter by quality mask.
-
-        Returns:
-            Array of shape (n_samples, 2, n_wavelengths) containing
-            [flux, scaled_ivar] as the two channels.
-        """
-        if apply_quality_mask:
-            flux = self.flux[self.quality_mask]
-            ivar = self.ivar[self.quality_mask]
-        else:
-            flux = self.flux
-            ivar = self.ivar
-
-        return np.stack([flux, ivar], axis=1).astype(np.float32)
-
     def get_model_input_3channel(
         self, apply_quality_mask: bool = True
     ) -> NDArray[np.float32]:
@@ -193,23 +173,6 @@ class SpectralData:
         if apply_quality_mask:
             return self.errors[self.quality_mask]
         return self.errors
-
-    def get_combined_labels(
-        self, apply_quality_mask: bool = True
-    ) -> NDArray[np.float32]:
-        """
-        Get labels and errors combined for training.
-
-        Args:
-            apply_quality_mask: Whether to keep only quality_mask stars.
-
-        Returns:
-            Array of shape (n_samples, 2 * n_parameters) where the first half
-            contains labels and the second half contains errors.
-        """
-        labels = self.get_labels(apply_quality_mask)
-        errors = self.get_errors(apply_quality_mask)
-        return np.concatenate([labels, errors], axis=1).astype(np.float32)
 
 
 # torch.nanquantile rejects inputs above 2**24 elements in some torch versions
@@ -498,8 +461,8 @@ class FITSLoader:
     Examples:
         >>> loader = FITSLoader(Path("data/loa_trainingset.fits"))
         >>> data = loader.load()
-        >>> X = data.get_model_input()  # Shape: (n_good_stars, 2, 7650)
-        >>> y = data.get_combined_labels()  # Shape: (n_good_stars, 22)
+        >>> X = data.get_model_input_3channel()  # (n_good_stars, 3, n_wavelengths)
+        >>> y = data.get_labels()  # (n_good_stars, n_parameters)
     """
 
     def __init__(
@@ -736,49 +699,3 @@ class FITSLoader:
             mask &= (aspcap_flags & bad_flags) == 0
 
         return mask
-
-
-def split_data(
-    data: SpectralData,
-    train_ratio: float = 0.7,
-    val_ratio: float = 0.2,
-    seed: int = 42,
-    apply_quality_mask: bool = True,
-) -> tuple[
-    tuple[NDArray, NDArray],
-    tuple[NDArray, NDArray],
-    tuple[NDArray, NDArray],
-]:
-    """
-    Split data into train, validation, and test sets.
-
-    Args:
-        data: SpectralData object to split.
-        train_ratio: Fraction for training.
-        val_ratio: Fraction for validation. The test set is the remainder.
-        seed: Seed of ``numpy.random.default_rng``, which permutes the stars.
-        apply_quality_mask: Whether to filter by quality first.
-
-    Returns:
-        Tuple of ((X_train, y_train), (X_val, y_val), (X_test, y_test)).
-        Each X has shape (n, 2, wavelengths), each y has shape (n, 2*n_params).
-    """
-    X = data.get_model_input(apply_quality_mask)
-    y = data.get_combined_labels(apply_quality_mask)
-
-    n_samples = X.shape[0]
-    rng = np.random.default_rng(seed)
-    indices = rng.permutation(n_samples)
-
-    n_train = int(n_samples * train_ratio)
-    n_val = int(n_samples * val_ratio)
-
-    train_idx = indices[:n_train]
-    val_idx = indices[n_train : n_train + n_val]
-    test_idx = indices[n_train + n_val :]
-
-    return (
-        (X[train_idx], y[train_idx]),
-        (X[val_idx], y[val_idx]),
-        (X[test_idx], y[test_idx]),
-    )

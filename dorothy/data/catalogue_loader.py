@@ -1109,8 +1109,7 @@ class CatalogueLoader:
             surveys: List of survey names to load.
             mode: "union" returns all rows of every survey. "intersection"
                 returns the first row with data (snr > 0) of each star that
-                has data in every survey. Any other value acts as
-                "intersection".
+                has data in every survey.
             deduplicate: In "union" mode, keep only the first row of each Gaia
                 ID, and every row with an integer ID <= 0. Ignored in
                 "intersection" mode.
@@ -1121,8 +1120,10 @@ class CatalogueLoader:
             to the same set of stars (ordered consistently by Gaia ID).
 
         Raises:
-            ValueError: In "intersection" mode, if no star is in every survey,
-                or as :meth:`load`.
+            ValueError: If ``surveys`` is empty, ``mode`` is not "union" or
+                "intersection", in
+                "intersection" mode if no star is in every survey, or as
+                :meth:`load`.
 
         Examples:
             >>> loader = CatalogueLoader("super_catalogue.h5")
@@ -1133,6 +1134,10 @@ class CatalogueLoader:
             ... )
             >>> print(f"Stars in both: {data['boss'].n_stars}")
         """
+        if mode not in ("union", "intersection"):
+            raise ValueError(f"mode must be 'union' or 'intersection', got {mode!r}")
+        if not surveys:
+            raise ValueError("surveys must name at least one survey")
         result = {}
 
         if mode == "union":

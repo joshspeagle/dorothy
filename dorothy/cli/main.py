@@ -118,11 +118,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Batch size for predictions (default: 1024)",
     )
     predict_parser.add_argument(
-        "--denormalize",
-        action="store_true",
-        help="Output predictions in physical units (the default)",
-    )
-    predict_parser.add_argument(
         "--normalized",
         action="store_true",
         help="Output predictions in normalized units instead of physical units",

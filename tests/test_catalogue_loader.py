@@ -1963,6 +1963,13 @@ class TestLoadMulti:
         for survey in ("boss", "desi"):
             np.testing.assert_array_equal(data[survey].gaia_ids, [4, 5])
 
+    def test_unknown_mode_is_rejected(self, tmp_path):
+        path = build_catalogue(tmp_path / "cat.h5")
+        with pytest.raises(ValueError, match="mode must be"):
+            CatalogueLoader(path).load_multi(["boss", "desi"], mode="inter")
+        with pytest.raises(ValueError, match="at least one survey"):
+            CatalogueLoader(path).load_multi([], mode="intersection")
+
 
 class TestHasLabels:
     @pytest.mark.parametrize("dense", [False, True])
