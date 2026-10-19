@@ -1,16 +1,8 @@
-"""
-Label normalization for stellar parameter prediction.
+"""Median/IQR label normalization for stellar parameters.
 
-This module implements the median/IQR normalization scheme used by DOROTHY models.
-Labels are normalized to have zero median and unit IQR (interquartile range),
-which provides robustness to outliers compared to standard scaling.
-
-Special handling for Teff:
-    Temperature is normalized in log10 space to better capture the distribution
-    of stellar temperatures across the HR diagram.
-
-The normalizer also handles uncertainty (error) columns, scaling them by the
-same IQR factor as their corresponding labels.
+Labels are normalized to zero median and unit IQR (interquartile range). The
+parameter named ``teff`` is normalized in log10 space. Error columns are
+scaled by the same IQR as their labels.
 """
 
 from __future__ import annotations
@@ -38,6 +30,10 @@ class ParameterStats:
         use_log: Whether to apply log10 before normalization (for Teff).
         log_median: Median of log10 values (only if use_log=True).
         log_iqr: IQR of log10 values (only if use_log=True).
+
+    Raises:
+        ValueError: If ``use_log`` is set without ``log_median`` and
+            ``log_iqr``.
     """
 
     name: str
@@ -60,23 +56,24 @@ class LabelNormalizer:
     """
     Normalizer for stellar parameter labels using median/IQR scaling.
 
-    This normalizer:
-    1. Fits on training data to compute median and IQR for each parameter
-    2. Normalizes labels to ~zero median and unit IQR
-    3. Applies log10 transformation for Teff before normalization
-    4. Handles error columns by scaling with the same IQR
+    The normalization is
 
-    The normalization formula is:
         normalized = (value - median) / IQR
 
-    For Teff:
-        log_value = log10(value)
-        normalized = (log_value - log_median) / log_IQR
+    and for the parameter named ``teff``
+
+        normalized = (log10(value) - log_median) / log_IQR.
+
+    Errors scale by the same IQR; the error of ``teff`` is first propagated to
+    log10 space, sigma / (value ln 10).
 
     Attributes:
         parameters: List of parameter names to normalize.
         stats: Dictionary mapping parameter names to their statistics.
         is_fitted: Whether the normalizer has been fitted to data.
+
+    Raises:
+        ValueError: If ``parameters`` is empty.
 
     Examples:
         >>> normalizer = LabelNormalizer()
@@ -108,23 +105,25 @@ class LabelNormalizer:
         """
         Fit the normalizer on training labels.
 
-        Computes median and IQR for each parameter. For Teff (first parameter
-        by convention), computes statistics in log10 space.
+        Computes median and IQR for each parameter. For the parameter named
+        ``teff``, also computes them in log10 space. A parameter with no
+        unmasked value gets median 0 and IQR 1, with a warning.
 
         Args:
             y: Labels array of shape (n_samples, n_parameters).
             errors: Optional error array of shape (n_samples, n_parameters).
-                Not used for fitting, but validates shapes if provided.
+                Only its shape is checked.
             mask: Optional mask array of shape (n_samples, n_parameters).
-                Values of 1 indicate valid labels, 0 indicates masked.
-                When provided, statistics are computed only on unmasked values
-                for each parameter.
+                Nonzero entries are valid labels. Statistics use only valid
+                values of each parameter.
 
         Returns:
             self, for method chaining.
 
         Raises:
-            ValueError: If y has wrong shape or contains invalid values.
+            ValueError: If y is not 2-D with one column per parameter, errors
+                or mask differ in shape from y, a valid value is NaN or
+                infinite, a valid ``teff`` is not positive, or an IQR is zero.
         """
         if y.ndim != 2:
             raise ValueError(f"y must be 2D, got shape {y.shape}")
@@ -226,18 +225,19 @@ class LabelNormalizer:
         Args:
             y: Labels array of shape (n_samples, n_parameters).
             errors: Optional error array of shape (n_samples, n_parameters).
-            mask: Optional mask array of shape (n_samples, n_parameters).
-                Values of 1 indicate valid labels, 0 indicates masked.
-                The mask is not modified; masked positions are still normalized
-                but their values may be meaningless.
+            mask: Optional mask array of shape (n_samples, n_parameters). Only
+                its shape is checked; masked positions are normalized like the
+                rest.
 
         Returns:
-            If errors is None: normalized labels of shape (n_samples, n_parameters).
-            If errors is provided: tuple of (normalized_labels, normalized_errors).
+            If errors is None: float64 normalized labels of shape
+            (n_samples, n_parameters). Otherwise a tuple of (normalized
+            labels, normalized errors).
 
         Raises:
             RuntimeError: If normalizer has not been fitted.
-            ValueError: If input shape doesn't match fitted parameters.
+            ValueError: If y is not 2-D with one column per parameter, or
+                errors or mask differ in shape from y.
         """
         if not self.is_fitted:
             raise RuntimeError("Normalizer has not been fitted. Call fit() first.")
@@ -293,6 +293,10 @@ class LabelNormalizer:
 
         Returns:
             Normalized labels, same shape, float32.
+
+        Raises:
+            RuntimeError: If normalizer has not been fitted.
+            ValueError: If y is not of shape (n_samples, 3, n_params).
         """
         if not self.is_fitted:
             raise RuntimeError("Normalizer must be fitted before transform")
@@ -318,16 +322,19 @@ class LabelNormalizer:
         """
         Convert normalized predictions back to physical units.
 
+        Errors of ``teff`` convert as sigma = value * ln 10 * sigma_log10.
+
         Args:
             y_norm: Normalized predictions of shape (n_samples, n_parameters).
-            errors_norm: Optional normalized errors of shape (n_samples, n_parameters).
+            errors_norm: Optional normalized errors, same shape as y_norm.
 
         Returns:
-            If errors_norm is None: denormalized values of shape (n_samples, n_parameters).
-            If errors_norm is provided: tuple of (denormalized_values, denormalized_errors).
+            If errors_norm is None: float64 values of shape (n_samples,
+            n_parameters). Otherwise a tuple of (values, errors).
 
         Raises:
             RuntimeError: If normalizer has not been fitted.
+            ValueError: If y_norm is not 2-D with one column per parameter.
         """
         if not self.is_fitted:
             raise RuntimeError("Normalizer has not been fitted. Call fit() first.")
@@ -372,11 +379,13 @@ class LabelNormalizer:
         """
         Get normalization parameters as a dictionary.
 
-        Returns a dictionary compatible with the original DOROTHY format
-        for saving to pickle files.
-
         Returns:
-            Dictionary mapping parameter names to their normalization stats.
+            Parameter name -> dict with ``median`` and ``IQR``, plus
+            ``log_median`` and ``log_IQR`` for a log parameter. This is the
+            format :meth:`save` writes.
+
+        Raises:
+            RuntimeError: If normalizer has not been fitted.
         """
         if not self.is_fitted:
             raise RuntimeError("Normalizer has not been fitted. Call fit() first.")
@@ -399,6 +408,9 @@ class LabelNormalizer:
 
         Args:
             path: Path to save the pickle file.
+
+        Raises:
+            RuntimeError: If normalizer has not been fitted.
         """
         if not self.is_fitted:
             raise RuntimeError("Normalizer has not been fitted. Call fit() first.")
@@ -412,17 +424,18 @@ class LabelNormalizer:
         cls, path: str | Path, parameters: list[str] | None = None
     ) -> LabelNormalizer:
         """
-        Load normalizer from a pickle file.
-
-        Supports loading from the original DOROTHY params format.
+        Load normalizer from a pickle file written by :meth:`save`.
 
         Args:
-            path: Path to the pickle file.
+            path: Path to the pickle file. Only load files you trust.
             parameters: Optional list of parameter names. If not provided,
                 uses the parameters found in the saved file.
 
         Returns:
             Fitted LabelNormalizer instance.
+
+        Raises:
+            ValueError: If a requested parameter is not in the file.
         """
         with open(path, "rb") as f:
             params = pickle.load(f)
