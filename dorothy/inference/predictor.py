@@ -325,8 +325,8 @@ class Predictor:
             has them.
 
         Raises:
-            ValueError: If the calibration factors do not cover the parameter
-                names.
+            ValueError: If the calibration factors are not one per parameter
+                name.
         """
 
         def as_tensor(a):

@@ -108,12 +108,14 @@ class SurveyEncoder(nn.Module):
         if hidden_layers is None:
             hidden_layers = [1024, 512]
 
-        # The projection to the latent has no dropout
-        sizes = [3 * n_wavelengths, *hidden_layers]
+        input_dim = 3 * n_wavelengths
+        width = hidden_layers[-1] if hidden_layers else input_dim
         self.encoder = nn.Sequential(
             nn.Flatten(),
-            *hidden_blocks(sizes[0], hidden_layers, normalization, activation, dropout),
-            *hidden_blocks(sizes[-1], [latent_dim], normalization, activation, 0.0),
+            *hidden_blocks(
+                input_dim, hidden_layers, normalization, activation, dropout
+            ),
+            *hidden_blocks(width, [latent_dim], normalization, activation, 0.0),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

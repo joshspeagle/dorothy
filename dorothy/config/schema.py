@@ -154,7 +154,7 @@ class DataConfig(_ConfigModel):
         min_length=1,
         description="Label parameter names in catalogue order. dorothy train fills "
         "them from the catalogue; when None, the first n STELLAR_PARAMETERS "
-        "(n from the model section) are used.",
+        "(n from the model section) are used, then param_<i>.",
     )
     normalize_spectra: bool = Field(
         default=True,

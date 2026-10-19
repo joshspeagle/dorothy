@@ -83,8 +83,8 @@ class DynamicLabelMasking:
 
         Returns:
             Same structure as y. Values, errors and mask are zeroed for each
-            dropped label; a dropped labelset is zeroed whole. A tensor
-            without any valid label is returned as is.
+            dropped label; a dropped labelset is zeroed whole. A single
+            tensor without any valid label is returned as is.
 
         Raises:
             ValueError: If y is a tensor, or a one-entry dict of tensors, not

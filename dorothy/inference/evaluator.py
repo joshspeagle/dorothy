@@ -552,7 +552,8 @@ class Evaluator:
 
         Returns:
             EvaluationResult with one entry per parameter, plus "log_teff"
-            if teff_in_log is set and a valid "teff" sample exists.
+            if teff_in_log is set and a "teff" column (any case) has valid
+            samples with positive predicted and true values.
 
         Raises:
             ValueError: If y_pred and y_true differ in shape, y_pred has
@@ -1033,8 +1034,8 @@ def evaluate_predictions(
         mask: Optional mask, same shape; nonzero entries are valid labels.
 
     Returns:
-        EvaluationResult with per-parameter metrics, plus "log_teff" when
-        a valid "teff" sample exists.
+        EvaluationResult with per-parameter metrics, plus "log_teff" as in
+        :meth:`Evaluator.evaluate`.
 
     Raises:
         ValueError: As :meth:`Evaluator.evaluate`.

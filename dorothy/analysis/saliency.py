@@ -238,10 +238,10 @@ class SaliencyAnalyzer:
     The Jacobian holds the derivatives of the predicted means μ_p and
     scatters σ_p with respect to the flux and error channels. The Fisher
     information of N(μ, σ²) is 1/σ² for μ and 2/σ² for σ, so the importance
-    of pixel i for parameter p is
+    of pixel i for parameter p is::
 
         I_p(i) = [(∂μ_p/∂flux_i)² + (∂μ_p/∂err_i)²
-                  + 2 (∂σ_p/∂flux_i)² + 2 (∂σ_p/∂err_i)²] / σ_p².
+                  + 2 (∂σ_p/∂flux_i)² + 2 (∂σ_p/∂err_i)²] / σ_p²
 
     The model uses the first output head of a ``MultiHeadMLP``, without label
     errors.

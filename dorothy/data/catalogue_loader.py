@@ -458,8 +458,8 @@ class MergedCatalogueData:
             'label_errors', 'label_flags', 'has_data' (bool mask).
         label_source: Label source used (typically 'apogee').
         primary_labels: Primary labels, shape (N, n_params). Each star takes
-            the labels of the first survey, in loading order, whose label
-            errors are not all zero.
+            the labels of the first survey, in loading order, with a positive
+            label error.
         primary_errors: Primary label errors, shape (N, n_params).
         primary_flags: Primary label flags, shape (N, n_params).
 
@@ -1112,7 +1112,7 @@ class CatalogueLoader:
                 has data in every survey. Any other value acts as
                 "intersection".
             deduplicate: In "union" mode, keep only the first row of each Gaia
-                ID, and every row with an ID <= 0. Ignored in
+                ID, and every row with an integer ID <= 0. Ignored in
                 "intersection" mode.
 
         Returns:

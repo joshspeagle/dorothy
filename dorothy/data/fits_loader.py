@@ -557,8 +557,9 @@ class FITSLoader:
 
         Returns:
             SpectralData object containing all loaded data. ``ids`` come from
-            the APOGEE_ID or TARGET_ID column, else the first column of a
-            GAIA_ID extension, else the row numbers. ``wavelength`` is
+            the APOGEE_ID or TARGET_ID column; without an APOGEE extension,
+            from the first column of a GAIA_ID extension; else they are the
+            row numbers. ``wavelength`` is
             ``arange(n_wavelengths)`` without a WAVELENGTH extension.
 
         Raises:
