@@ -198,6 +198,7 @@
   and `Predictor(label_source="apogee")` select it. Without
   `multi_head_model.label_sources`, the configuration sets it to the first
   of `data.label_sources`. Checkpoints with a "default" head load unchanged.
+  `Trainer.label_keys` of a plain MLP is also its label source.
 
 ### Behaviour changes
 
