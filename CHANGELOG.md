@@ -78,6 +78,8 @@
 
 ### Fixed
 
+- The `plot_*` functions in `visualization.training_plots` accept a `str`
+  output directory. They raised `TypeError`.
 - `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer
   in [1, n_train - 1] and for a `percentile` outside [0, 100].
 - `dorothy evaluate --help` said `--output` writes JSON or Markdown; it
