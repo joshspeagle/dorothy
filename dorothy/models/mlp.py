@@ -221,11 +221,7 @@ class MLP(nn.Module):
         )
 
     def count_parameters(self) -> int:
-        """Count the trainable parameters.
-
-        Returns:
-            Number of weights and biases that require gradients.
-        """
+        """Count the trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def extra_repr(self) -> str:

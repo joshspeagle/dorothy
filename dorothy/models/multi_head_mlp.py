@@ -565,9 +565,8 @@ class MultiHeadMLP(nn.Module):
             ValueError: If none of the keys of inputs is a survey of the model.
 
         Note:
-            A sample without data from any survey enters the trunk as a
-            zero vector (concat) or a zero mean (mean), so its output carries
-            no information.
+            A sample without data from any survey gets an output that
+            carries no information.
         """
         return self.output_head(self._forward_to_trunk(inputs, has_data))
 
@@ -889,11 +888,7 @@ class MultiHeadMLP(nn.Module):
         return self.encoders[survey](x)
 
     def count_parameters(self) -> int:
-        """Count the trainable parameters.
-
-        Returns:
-            Number of weights and biases that require gradients.
-        """
+        """Count the trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def count_parameters_by_component(self) -> dict[str, int]:

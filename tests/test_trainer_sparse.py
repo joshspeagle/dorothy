@@ -228,12 +228,23 @@ class TestSparseSingleLabel:
         assert all(np.isfinite(history.val_losses))
 
     def test_early_stopping(self, tmp_path):
-        trainer = Trainer(make_config(tmp_path, epochs=50, early_stopping_patience=2))
+        # A learning rate of 1e-12 freezes the weights, so the validation loss
+        # plateaus and training stops after the patience (no warm-up)
+        trainer = Trainer(
+            make_config(
+                tmp_path,
+                epochs=50,
+                early_stopping_patience=2,
+                nll_warmup_fraction=0.0,
+                learning_rate=1e-12,
+                scheduler=SchedulerConfig(type=SchedulerType.NONE),
+            )
+        )
         train_idx, val_idx = split()
         history = trainer.fit_multi_survey_sparse(
             make_sparse_data(), train_idx, val_idx
         )
-        assert len(history.val_losses) < 50
+        assert len(history.val_losses) == 3
 
 
 class TestSparseMultiLabel:
