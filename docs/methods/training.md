@@ -258,6 +258,8 @@ afresh for every batch from the configured ranges.
 Each star always keeps at least one survey, one block, one label source and
 one label. Masking teaches the model to predict from incomplete inputs, as it
 must for stars observed by only some surveys.
+The masks come from generators seeded by `seed`, so runs with the same seed
+mask the same entries.
 
 ## Checkpoints
 

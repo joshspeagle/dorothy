@@ -1033,6 +1033,12 @@ class Trainer:
         self, survey_wavelengths: dict[str, int], multi_survey: bool = False
     ) -> None:
         """Create the label/input masking augmentations from the config."""
+        # Child seeds give streams independent of each other and of the batch
+        # shuffle, which uses the configured seed itself.
+        label_seed, input_seed = (
+            int(child.generate_state(1)[0])
+            for child in np.random.SeedSequence(self.config.seed).spawn(2)
+        )
         lm = self.config.label_masking
         self._label_masking = (
             DynamicLabelMasking(
@@ -1040,6 +1046,7 @@ class Trainer:
                 p_labelset_max=lm.p_labelset_max,
                 p_label_min=lm.p_label_min,
                 p_label_max=lm.p_label_max,
+                seed=label_seed,
             )
             if lm.enabled
             else None
@@ -1058,6 +1065,7 @@ class Trainer:
                 f_max=im.f_max,
                 p_block_min=im.p_block_min,
                 p_block_max=im.p_block_max,
+                seed=input_seed,
             )
             self._survey_wavelengths = dict(survey_wavelengths)
             logger.info(f"Created input masking: {self._input_masking}")

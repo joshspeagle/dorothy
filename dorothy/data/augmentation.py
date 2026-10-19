@@ -3,13 +3,38 @@
 - :class:`DynamicLabelMasking`: hierarchical label masking.
 - :class:`DynamicInputMasking`: hierarchical input masking.
 
-Both draw their random numbers from the global numpy and torch generators.
+Each draws its random numbers from its own generators, seeded by its
+``seed`` argument, and leaves the global numpy and torch generators untouched.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import torch
+
+
+class _Random:
+    """Independent numpy and torch random streams from one seed.
+
+    Torch numbers are drawn on the device of the tensors they mask, from one
+    generator per device, created on first use.
+    """
+
+    def __init__(self, seed: int | None) -> None:
+        numpy_seed, torch_seed = np.random.SeedSequence(seed).spawn(2)
+        self.numpy = np.random.default_rng(numpy_seed)
+        self._torch_seed = int(torch_seed.generate_state(1)[0])
+        self._torch: dict[torch.device, torch.Generator] = {}
+
+    def rand(
+        self, *size: int, device: torch.device, dtype: torch.dtype
+    ) -> torch.Tensor:
+        """Uniform numbers in [0, 1) of the given shape, device and dtype."""
+        generator = self._torch.get(device)
+        if generator is None:
+            generator = torch.Generator(device).manual_seed(self._torch_seed)
+            self._torch[device] = generator
+        return torch.rand(*size, generator=generator, device=device, dtype=dtype)
 
 
 class DynamicLabelMasking:
@@ -43,6 +68,7 @@ class DynamicLabelMasking:
         p_labelset_max: float = 1.0,
         p_label_min: float = 0.3,
         p_label_max: float = 1.0,
+        seed: int | None = None,
     ) -> None:
         """
         Initialize the dynamic label masking augmentation.
@@ -52,6 +78,8 @@ class DynamicLabelMasking:
             p_labelset_max: Maximum probability of keeping each labelset.
             p_label_min: Minimum probability of keeping each label.
             p_label_max: Maximum probability of keeping each label.
+            seed: Seed of the random draws; equal seeds give equal masks for
+                equal inputs. None seeds from fresh operating-system entropy.
 
         Raises:
             ValueError: If a range does not satisfy 0 <= min <= max <= 1.
@@ -69,6 +97,7 @@ class DynamicLabelMasking:
         self.p_labelset_max = p_labelset_max
         self.p_label_min = p_label_min
         self.p_label_max = p_label_max
+        self._random = _Random(seed)
 
     def __call__(
         self, y: torch.Tensor | dict[str, torch.Tensor]
@@ -91,8 +120,9 @@ class DynamicLabelMasking:
                 of shape (batch, 3, n_params).
         """
         # Sample probabilities fresh for this batch
-        p_keep_labelset = np.random.uniform(self.p_labelset_min, self.p_labelset_max)
-        p_keep_label = np.random.uniform(self.p_label_min, self.p_label_max)
+        rng = self._random.numpy
+        p_keep_labelset = rng.uniform(self.p_labelset_min, self.p_labelset_max)
+        p_keep_label = rng.uniform(self.p_label_min, self.p_label_max)
 
         if isinstance(y, dict):
             return self._apply_hierarchical(y, p_keep_labelset, p_keep_label)
@@ -130,7 +160,7 @@ class DynamicLabelMasking:
             return y
 
         # Generate random values for vectorized selection
-        rand = torch.rand(batch_size, n_params, device=y.device, dtype=y.dtype)
+        rand = self._random.rand(batch_size, n_params, device=y.device, dtype=y.dtype)
 
         # Guaranteed keeper: select one available label per sample
         # Use highest random value among available as the guaranteed keeper
@@ -201,7 +231,9 @@ class DynamicLabelMasking:
         any_labelset_available = labelset_available.any(dim=1)  # (batch,)
 
         # Generate random values for labelset selection
-        rand_labelset = torch.rand(batch_size, n_labelsets, device=device, dtype=dtype)
+        rand_labelset = self._random.rand(
+            batch_size, n_labelsets, device=device, dtype=dtype
+        )
 
         # Guaranteed keeper: select one available labelset per sample
         rand_for_guaranteed = rand_labelset.masked_fill(
@@ -308,6 +340,7 @@ class DynamicInputMasking:
         f_max: float = 0.5,
         p_block_min: float = 0.3,
         p_block_max: float = 1.0,
+        seed: int | None = None,
     ) -> None:
         """
         Initialize the dynamic input masking augmentation.
@@ -321,6 +354,8 @@ class DynamicInputMasking:
             f_max: Maximum block size as fraction of spectrum.
             p_block_min: Minimum probability of keeping each block.
             p_block_max: Maximum probability of keeping each block.
+            seed: Seed of the random draws; equal seeds give equal masks for
+                equal inputs. None seeds from fresh operating-system entropy.
 
         Raises:
             ValueError: If a probability range does not satisfy
@@ -348,6 +383,7 @@ class DynamicInputMasking:
         self.f_max = f_max
         self.p_block_min = p_block_min
         self.p_block_max = p_block_max
+        self._random = _Random(seed)
 
     def __call__(
         self,
@@ -381,7 +417,7 @@ class DynamicInputMasking:
             return X
 
         # Sample survey-level probability
-        p_keep_survey = np.random.uniform(self.p_survey_min, self.p_survey_max)
+        p_keep_survey = self._random.numpy.uniform(self.p_survey_min, self.p_survey_max)
 
         # Get batch size and device from first survey
         first_tensor = X[surveys[0]]
@@ -410,7 +446,9 @@ class DynamicInputMasking:
         any_survey_available = survey_available.any(dim=1)  # (batch,)
 
         # Generate random values for survey selection
-        rand_survey = torch.rand(batch_size, n_surveys, device=device, dtype=dtype)
+        rand_survey = self._random.rand(
+            batch_size, n_surveys, device=device, dtype=dtype
+        )
 
         # Guaranteed keeper: select one available survey per sample
         rand_for_guaranteed = rand_survey.masked_fill(~survey_available, -float("inf"))
@@ -518,15 +556,17 @@ class DynamicInputMasking:
 
         # Sample block size fraction (log-uniform)
         f_min = self.f_min_override if self.f_min_override is not None else (1.0 / N)
-        # Ensure f_min is valid
-        f_min = max(f_min, 1.0 / N)
+        # At least one pixel. f_min exceeds f_max only when f_max * N < 1,
+        # where every block is one pixel anyway.
+        f_min = min(max(f_min, 1.0 / N), self.f_max)
 
-        log_f = np.random.uniform(np.log(f_min), np.log(self.f_max))
+        rng = self._random.numpy
+        log_f = rng.uniform(np.log(f_min), np.log(self.f_max))
         f = np.exp(log_f)
         block_size = max(1, int(np.ceil(f * N)))
 
         # Sample random offset in [0, block_size) to shift block boundaries
-        offset = np.random.randint(0, block_size)
+        offset = int(rng.integers(block_size))
 
         # With offset, we need to account for the shifted structure:
         # - First partial block: [0, block_size - offset) if offset > 0
@@ -538,7 +578,7 @@ class DynamicInputMasking:
         post_pad = n_blocks * block_size - total_length
 
         # Sample p_keep for blocks
-        p_keep_block = np.random.uniform(self.p_block_min, self.p_block_max)
+        p_keep_block = rng.uniform(self.p_block_min, self.p_block_max)
 
         # Natural mask: which pixels are valid (non-zero mask channel)
         valid = X[:, 2, :] != 0  # (batch, N)
@@ -560,7 +600,7 @@ class DynamicInputMasking:
             return None
 
         # Generate random values for block selection
-        rand_block = torch.rand(batch_size, n_blocks, device=device, dtype=dtype)
+        rand_block = self._random.rand(batch_size, n_blocks, device=device, dtype=dtype)
 
         # Guaranteed keeper: select one available block per sample
         rand_for_guaranteed = rand_block.masked_fill(~block_available, -float("inf"))
