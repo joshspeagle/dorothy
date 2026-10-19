@@ -352,17 +352,26 @@ def cmd_train(args: argparse.Namespace) -> int:
             print(f"Error: No best_model.pth in {args.resume}")
             return 1
         resumed = args.resume / "config.yaml"
-        if (
-            resumed.exists()
-            and not ExperimentConfig.load_checkpoint_config(
-                resumed
-            ).data.precision_encoding
-        ):
-            print(
-                f"Error: {args.resume} was trained on sigma inputs, before the "
-                "precision encoding, so its weights cannot start a new run"
-            )
-            return 1
+        if resumed.exists():
+            old = ExperimentConfig.load_checkpoint_config(resumed)
+            if not old.data.precision_encoding:
+                print(
+                    f"Error: {args.resume} was trained on sigma inputs, before the "
+                    "precision encoding, so its weights cannot start a new run"
+                )
+                return 1
+            if (
+                config.is_multi_head
+                and old.is_multi_head
+                and old.multi_head_model.residual_stream
+                != config.multi_head_model.residual_stream
+            ):
+                print(
+                    f"Error: {args.resume} has multi_head_model.residual_stream: "
+                    f"{str(old.multi_head_model.residual_stream).lower()}; set the "
+                    "same value in the config to resume from it"
+                )
+                return 1
         try:
             trainer.model.load_state_dict(
                 torch.load(weights, map_location=trainer.device, weights_only=True)

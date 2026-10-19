@@ -3,7 +3,8 @@
 Both models are multilayer perceptrons. Each hidden layer is a linear map
 followed by a normalization (`layernorm` {cite:p}`ba2016layernorm` or
 `batchnorm`), an activation (`gelu` {cite:p}`hendrycks2016gelu`, `relu` or
-`silu`) and, optionally, dropout. Both output an array of shape
+`silu`) and, optionally, dropout; the multi-head model's trunk and heads
+use [residual blocks](#residual-stream) by default. Both output an array of shape
 `(2, n_parameters)` per star: the predicted value μ and the log-scatter ln s
 of every parameter, in {term}`normalized units`.
 

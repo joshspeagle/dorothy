@@ -75,7 +75,7 @@ class LabelAwareOutput(nn.Module):
         normalization: str,
         activation: str,
         dropout: float,
-        residual: bool,
+        residual: bool = False,
     ) -> None:
         """Initialize the decoders.
 

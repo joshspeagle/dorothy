@@ -15,9 +15,9 @@ Architecture:
         Hidden layers -> (batch, trunk_output_dim)
 
     Output Head (a LabelAwareOutput per label source):
-        Label decoder: (batch, trunk_output_dim) -> Hidden layers -> mu
-        Error decoder: (batch, trunk_output_dim + n_params), the trunk output
-        and the log label errors -> Hidden layers of the same sizes -> ln s
+        Label decoder: the trunk output -> Hidden layers -> mu
+        Error decoder: the trunk output and the log label errors -> Hidden
+        layers of the same sizes -> ln s
         Output: (batch, 2, n_params) = [mu, ln s]
 
     With residual_stream (the default), the trunk and the decoders' hidden
@@ -38,7 +38,12 @@ import torch
 import torch.nn as nn
 
 from dorothy.models.output import output_modules
-from dorothy.models.utils import get_activation, get_normalization, residual_blocks
+from dorothy.models.utils import (
+    get_activation,
+    get_normalization,
+    hidden_blocks,
+    residual_blocks,
+)
 
 if TYPE_CHECKING:
     from dorothy.config.schema import MultiHeadModelConfig
@@ -193,25 +198,15 @@ class SharedTrunk(nn.Module):
                 ),
             )
         else:
-            activation_fn = get_activation(activation)
-            norm_class = get_normalization(normalization)
-            layers: list[nn.Module] = []
-            prev_size = input_dim
-
-            for hidden_size in hidden_layers:
-                layers.append(nn.Linear(prev_size, hidden_size))
-                layers.append(norm_class(hidden_size))
-                layers.append(activation_fn())
-                if dropout > 0:
-                    layers.append(nn.Dropout(p=dropout))
-                prev_size = hidden_size
-
-            # Final layer to output_dim
-            layers.append(nn.Linear(prev_size, output_dim))
-            layers.append(norm_class(output_dim))
-            layers.append(activation_fn())
-
-            self.trunk = nn.Sequential(*layers)
+            width = hidden_layers[-1] if hidden_layers else input_dim
+            self.trunk = nn.Sequential(
+                *hidden_blocks(
+                    input_dim, hidden_layers, normalization, activation, dropout
+                ),
+                nn.Linear(width, output_dim),
+                get_normalization(normalization)(output_dim),
+                get_activation(activation)(),
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Process combined embeddings.

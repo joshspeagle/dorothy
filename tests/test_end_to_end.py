@@ -219,6 +219,23 @@ class TestCLIEndToEnd:
         assert main(["train", str(config_path), "--resume", str(ckpt)]) == 1
         assert "before the precision encoding" in capsys.readouterr().out
 
+    def test_resume_rejects_another_residual_stream_setting(
+        self, tmp_path, catalogue, capsys
+    ):
+        config_path = _config(tmp_path, catalogue, MULTI_SURVEYS, ["apogee"], epochs=1)
+        assert main(["train", str(config_path)]) == 0
+        ckpt = tmp_path / "outputs" / "e2e" / "e2e_final"
+        # A checkpoint saved before the residual stream has no residual_stream key
+        saved = ckpt / "config.yaml"
+        text, removed = re.subn(
+            r"^ *residual_stream: true\n", "", saved.read_text(), flags=re.M
+        )
+        assert removed == 1
+        saved.write_text(text)
+        capsys.readouterr()
+        assert main(["train", str(config_path), "--resume", str(ckpt)]) == 1
+        assert "residual_stream: false" in capsys.readouterr().out
+
 
 class TestPredictorMultiHead:
     def test_load_and_predict_single_survey_and_dict(self, tmp_path, catalogue):
