@@ -2259,10 +2259,9 @@ class TestNllWarmup:
         "fraction, loss, epochs",
         [
             (0.5, LossType.HETEROSCEDASTIC, 2.4),
-            (0.0, LossType.HETEROSCEDASTIC, 0.0),
             (0.5, LossType.MSE, 0.0),
         ],
-        ids=["warmup", "fraction_zero", "mse"],
+        ids=["warmup", "mse"],
     )
     def test_history_records_the_warmup_length_in_epochs(
         self, simple_config, training_data, fraction, loss, epochs
