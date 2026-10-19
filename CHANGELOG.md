@@ -216,12 +216,21 @@
   `multi_head_model.label_sources`, the configuration sets it to the first
   of `data.label_sources`. Checkpoints with a "default" head load unchanged.
   `Trainer.label_keys` of a plain MLP is also its label source.
+- `scheduler.base_lr <= scheduler.max_lr` is checked only for the `cyclic`
+  schedule, the one that uses `base_lr`.
 
 ### Behaviour changes
 
 - `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
   `union` or `intersection`, which it treated as `intersection`, and for an
   empty `surveys` list.
+- `training.learning_rate` is removed; `training.scheduler.max_lr` sets the
+  learning rate of every schedule. The `none`, `reduce_on_plateau` and
+  `cosine_annealing` schedules start at `max_lr`, so they change only where
+  `learning_rate` differed from `max_lr`; both defaulted to 1e-3. A config
+  with `training.learning_rate` is an error. A checkpoint config loads its
+  `learning_rate` as `max_lr` for those three schedules, and ignores it with
+  a warning for the others.
 - Every reader of a label mask treats entries > 0 as valid.
   `LabelNormalizer.fit`, `Evaluator.evaluate`, the evaluation plots,
   `DynamicLabelMasking` and the per-source validation loss counted negative

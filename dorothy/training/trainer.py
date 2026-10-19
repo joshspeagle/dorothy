@@ -552,7 +552,7 @@ class Trainer:
         if optimizer_config.type == OptimizerType.ADAMW:
             return torch.optim.AdamW(
                 groups,
-                lr=training_config.learning_rate,
+                lr=training_config.scheduler.max_lr,
                 betas=optimizer_config.betas,
                 weight_decay=optimizer_config.weight_decay,
                 fused=use_fused,
@@ -561,7 +561,7 @@ class Trainer:
         elif optimizer_config.type == OptimizerType.ADAM:
             return torch.optim.Adam(
                 groups,
-                lr=training_config.learning_rate,
+                lr=training_config.scheduler.max_lr,
                 betas=optimizer_config.betas,
                 weight_decay=optimizer_config.weight_decay,
                 fused=use_fused,
@@ -570,7 +570,7 @@ class Trainer:
         elif optimizer_config.type == OptimizerType.SGD:
             return torch.optim.SGD(
                 groups,
-                lr=training_config.learning_rate,
+                lr=training_config.scheduler.max_lr,
                 momentum=optimizer_config.momentum,
                 weight_decay=optimizer_config.weight_decay,
                 nesterov=optimizer_config.nesterov,

@@ -385,7 +385,6 @@ class TestCLITrainIntegration:
             "training": {
                 "epochs": 2,
                 "batch_size": 32,
-                "learning_rate": 0.001,
             },
             "output_dir": str(tmp_path / "outputs"),
             "seed": 42,
@@ -521,7 +520,6 @@ class TestCLIMultiSurveyIntegration:
             "training": {
                 "epochs": 2,
                 "batch_size": 32,
-                "learning_rate": 0.001,
             },
             "output_dir": str(tmp_path / "outputs"),
             "seed": 42,
@@ -670,7 +668,6 @@ class TestCLIMultiLabelsetIntegration:
             "training": {
                 "epochs": 2,
                 "batch_size": 32,
-                "learning_rate": 0.001,
             },
             "output_dir": str(tmp_path / "outputs"),
             "seed": 42,
@@ -713,7 +710,6 @@ class TestCLIMultiLabelsetIntegration:
             "training": {
                 "epochs": 2,
                 "batch_size": 32,
-                "learning_rate": 0.001,
             },
             "output_dir": str(tmp_path / "outputs"),
             "seed": 42,
@@ -870,7 +866,6 @@ class TestCLIEvaluateIntegration:
             "training": {
                 "epochs": 2,
                 "batch_size": 32,
-                "learning_rate": 0.001,
             },
             "output_dir": str(tmp_path / "outputs"),
             "seed": 42,
@@ -1081,7 +1076,6 @@ class TestCLIEvaluateSingleSurvey:
             "training": {
                 "epochs": 2,
                 "batch_size": 32,
-                "learning_rate": 0.001,
             },
             "output_dir": str(tmp_path / "outputs"),
             "seed": 42,
