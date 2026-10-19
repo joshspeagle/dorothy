@@ -1,8 +1,9 @@
-"""
-FITS file loader for stellar spectra and labels.
+"""Load stellar spectra and labels from FITS files, and preprocess spectra.
 
-This module handles loading spectroscopic data from FITS files containing
-DESI, BOSS, or LAMOST data cross-matched with APOGEE stellar parameters.
+:class:`FITSLoader` reads FITS files with DESI, BOSS or LAMOST spectra
+cross-matched with APOGEE stellar parameters. The preprocessing functions
+(:func:`zero_invalid_pixels`, :func:`normalize_spectra`,
+:func:`encode_precision`) are shared with the catalogue loaders.
 
 Expected FITS file structure:
     - APOGEE extension: Table with stellar parameters and quality flags
@@ -168,13 +169,27 @@ class SpectralData:
         return np.stack([flux, error, mask], axis=1).astype(np.float32)
 
     def get_labels(self, apply_quality_mask: bool = True) -> NDArray[np.float32]:
-        """Get labels, optionally filtered by quality mask."""
+        """Get labels, optionally filtered by quality mask.
+
+        Args:
+            apply_quality_mask: Whether to keep only quality_mask stars.
+
+        Returns:
+            Array of shape (n_samples, n_parameters).
+        """
         if apply_quality_mask:
             return self.labels[self.quality_mask]
         return self.labels
 
     def get_errors(self, apply_quality_mask: bool = True) -> NDArray[np.float32]:
-        """Get errors, optionally filtered by quality mask."""
+        """Get label errors, optionally filtered by quality mask.
+
+        Args:
+            apply_quality_mask: Whether to keep only quality_mask stars.
+
+        Returns:
+            Array of shape (n_samples, n_parameters).
+        """
         if apply_quality_mask:
             return self.errors[self.quality_mask]
         return self.errors
@@ -184,6 +199,9 @@ class SpectralData:
     ) -> NDArray[np.float32]:
         """
         Get labels and errors combined for training.
+
+        Args:
+            apply_quality_mask: Whether to keep only quality_mask stars.
 
         Returns:
             Array of shape (n_samples, 2 * n_parameters) where the first half
@@ -267,8 +285,8 @@ def normalize_spectra(
     finite and positive ivar). Invalid pixels are returned with flux = 0 and
     ivar = 0 (:func:`zero_invalid_pixels`), so downstream code that derives
     the pixel mask from ivar > 0 treats them as masked. So are pixels whose
-    normalized flux or scaled ivar overflows to infinity. Spectra with no
-    valid pixels, or zero IQR, use median = 0 / IQR = 1.
+    normalized flux or scaled ivar overflows to infinity. A spectrum with no
+    valid pixels uses median = 0 and IQR = 1; one with zero IQR uses IQR = 1.
 
     Args:
         flux: Flux array of shape (n_spectra, n_wavelengths) or (n_wavelengths,).
@@ -381,15 +399,17 @@ def normalize_spectrum(flux: NDArray, ivar: NDArray) -> tuple[NDArray, NDArray]:
     """
     Normalize a single spectrum using median/IQR scaling.
 
-    Thin wrapper around :func:`normalize_spectra` for one spectrum; statistics
-    use valid pixels only and invalid pixels are zeroed (flux and ivar).
+    Calls :func:`normalize_spectra` on one spectrum.
 
     Args:
         flux: Flux array of shape (n_wavelengths,).
         ivar: Inverse variance array of shape (n_wavelengths,).
 
     Returns:
-        Tuple of (normalized_flux, scaled_ivar).
+        Tuple of (normalized_flux, scaled_ivar), float32.
+
+    Raises:
+        ValueError: If flux and ivar differ in shape.
     """
     return normalize_spectra(flux, ivar)
 
@@ -428,15 +448,14 @@ def apply_quality_filter(
     """
     Create a quality mask based on physical bounds and valid values.
 
-    A star passes the quality filter if ALL parameters:
-    - Are not NaN or Inf
-    - Are within physical bounds
-    - Have non-zero, non-NaN errors
+    A star passes if, for every parameter, the value and error are finite,
+    the error is positive, the value lies within ``PARAMETER_BOUNDS`` (if the
+    parameter has bounds) and the value is nonzero (except ``fe_h``).
 
     Args:
         labels: Array of shape (n_samples, n_parameters).
         errors: Array of shape (n_samples, n_parameters).
-        parameter_names: List of parameter names matching columns.
+        parameter_names: Parameter name of each column.
 
     Returns:
         Boolean mask of shape (n_samples,) where True = good quality.
@@ -469,8 +488,8 @@ class FITSLoader:
     """
     Loader for FITS files containing stellar spectra and parameters.
 
-    This class reads FITS files in the DOROTHY format, normalizes spectra,
-    and applies quality filtering based on APOGEE flags.
+    Reads FITS files in the DOROTHY format, normalizes spectra and computes a
+    quality mask from the label values and the APOGEE ``ASPCAPFLAG`` bits.
 
     Attributes:
         fits_path: Path to the FITS file.
@@ -493,8 +512,9 @@ class FITSLoader:
 
         Args:
             fits_path: Path to the FITS file.
-            parameters: List of parameter names to load. If None, loads all
-                11 stellar parameters in the default order.
+            parameters: Parameter names to load, keys of
+                ``APOGEE_COLUMN_MAP``. If None, loads all of them in the order
+                of the map.
         """
         self.fits_path = Path(fits_path)
 
@@ -536,11 +556,16 @@ class FITSLoader:
                 returned as NaN and the quality mask keeps every spectrum.
 
         Returns:
-            SpectralData object containing all loaded data.
+            SpectralData object containing all loaded data. ``ids`` come from
+            the APOGEE_ID or TARGET_ID column, else the first column of a
+            GAIA_ID extension, else the row numbers. ``wavelength`` is
+            ``arange(n_wavelengths)`` without a WAVELENGTH extension.
 
         Raises:
             FileNotFoundError: If FITS file doesn't exist.
-            ValueError: If required extensions are missing.
+            ValueError: If a required extension is missing, or, with
+                require_labels, a parameter is not in ``APOGEE_COLUMN_MAP`` or
+                its columns are not in the APOGEE table.
         """
         if not self.fits_path.exists():
             raise FileNotFoundError(f"FITS file not found: {self.fits_path}")
@@ -728,9 +753,9 @@ def split_data(
 
     Args:
         data: SpectralData object to split.
-        train_ratio: Fraction for training (default 0.7).
-        val_ratio: Fraction for validation (default 0.2).
-        seed: Random seed for reproducibility.
+        train_ratio: Fraction for training.
+        val_ratio: Fraction for validation. The test set is the remainder.
+        seed: Seed of ``numpy.random.default_rng``, which permutes the stars.
         apply_quality_mask: Whether to filter by quality first.
 
     Returns:
