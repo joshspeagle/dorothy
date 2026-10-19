@@ -270,8 +270,8 @@ class HeteroscedasticLoss(nn.Module):
         # Mask with torch.where so non-finite masked entries cannot leak NaN
         valid = mask > 0
         zeros = torch.zeros_like(mean_component)
-        masked_mean = torch.where(valid, mean_component * mask, zeros)
-        masked_scatter = torch.where(valid, scatter_component * mask, zeros)
+        masked_mean = torch.where(valid, mean_component, zeros)
+        masked_scatter = torch.where(valid, scatter_component, zeros)
         loss_per_element = masked_mean + masked_scatter
 
         # Average over batch for each parameter, counting only valid samples
