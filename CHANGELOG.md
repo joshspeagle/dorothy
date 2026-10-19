@@ -217,6 +217,11 @@
   with `training.learning_rate` is an error. A checkpoint config loads its
   `learning_rate` as `max_lr` for those three schedules, and ignores it with
   a warning for the others.
+- Every reader of a label mask treats entries > 0 as valid.
+  `LabelNormalizer.fit`, `Evaluator.evaluate`, the evaluation plots,
+  `DynamicLabelMasking` and the per-source validation loss counted negative
+  and NaN entries as valid. The loaders write masks of 0 and 1, so results
+  on catalogue data do not change.
 - A new multi-head model has a residual stream
   (`multi_head_model.residual_stream: true`). Its trunk and heads have more
   parameters with the default widths, and its trunk embeddings have

@@ -75,7 +75,7 @@ class HeteroscedasticLoss(nn.Module):
     The target has 3-channel format (batch, 3, n_parameters):
     - target[:, 0, :]: true labels (y)
     - target[:, 1, :]: label errors, not used here (the model reads them)
-    - target[:, 2, :]: mask (1=valid, 0=masked) - used for loss computation
+    - target[:, 2, :]: mask, valid where > 0, used for loss computation
 
     Attributes:
         scatter_floor: Minimum scatter value (s_0) to prevent division by zero.
@@ -197,7 +197,7 @@ class HeteroscedasticLoss(nn.Module):
             target: Target values of shape (batch_size, 3, n_parameters).
                 target[:, 0, :] contains true labels (y).
                 target[:, 1, :] contains label errors (not used).
-                target[:, 2, :] contains mask (1=valid, 0=masked).
+                target[:, 2, :] contains mask (valid where > 0).
 
         Returns:
             The computed loss, reduced according to self.reduction.
@@ -248,7 +248,7 @@ class HeteroscedasticLoss(nn.Module):
             target: Target values of shape (batch_size, 3, n_parameters).
                 target[:, 0, :] contains true labels (y).
                 target[:, 1, :] contains label errors (not used).
-                target[:, 2, :] contains mask (1=valid, 0=masked).
+                target[:, 2, :] contains mask (valid where > 0).
 
         Returns:
             Dictionary containing:
