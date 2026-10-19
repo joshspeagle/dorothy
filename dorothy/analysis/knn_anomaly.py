@@ -1,16 +1,14 @@
-"""
-k-NN based anomaly detection for stellar spectra.
+"""k-NN anomaly detection for stellar spectra.
 
-This module provides anomaly detection by comparing embedding-space distances
-to a threshold computed from the training distribution. Stars with k-NN distances
-exceeding the threshold are flagged as potential anomalies.
+A star is an anomaly when its k-th nearest training neighbour in embedding
+space is farther than a percentile of the same distance over the training set.
 
-The approach:
-1. Extract penultimate-layer embeddings from the trained model
-2. L2-normalize embeddings to unit vectors
-3. Find nearest training neighbors by brute-force search
-4. Compute k-th nearest neighbor distances
-5. Flag stars exceeding the percentile threshold as anomalies
+The steps:
+1. Extract embeddings from the trained model (see ``Predictor.get_embeddings``).
+2. L2-normalize the embeddings to unit vectors.
+3. Find the k nearest training embeddings by brute-force search.
+4. Take the Euclidean distance to the k-th neighbour.
+5. Flag the stars whose distance exceeds the percentile threshold.
 
 Examples:
     >>> detector = AnomalyDetector.from_predictor(predictor)
@@ -37,11 +35,13 @@ def l2_normalize(X: NDArray[np.float32]) -> NDArray[np.float32]:
     """
     Normalize each row of X to unit L2 norm.
 
+    Each row is divided by its norm plus 1e-10, so a zero row stays zero.
+
     Args:
         X: Array of shape (n_samples, n_features).
 
     Returns:
-        Normalized array with each row having unit L2 norm.
+        Array of shape (n_samples, n_features).
     """
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     # Add small epsilon to avoid division by zero
@@ -51,14 +51,17 @@ def l2_normalize(X: NDArray[np.float32]) -> NDArray[np.float32]:
 @dataclass
 class AnomalyResult:
     """
-    Container for anomaly detection results.
+    Result of ``AnomalyDetector.detect``.
 
     Attributes:
-        distances: k-th nearest neighbor distances for each sample.
-        is_anomaly: Boolean mask indicating anomalous samples.
-        threshold: Distance threshold used for detection.
-        k: Number of neighbors used.
-        percentile: Percentile used to compute threshold.
+        distances: Distance to the k-th nearest training neighbour, shape
+            (n_samples,). The embeddings are unit vectors, so it is at most 2.
+        is_anomaly: True where ``distances`` exceeds ``threshold``, shape
+            (n_samples,).
+        threshold: Distance threshold.
+        k: Number of neighbours.
+        percentile: Percentile of the training distances that gave the
+            threshold.
     """
 
     distances: NDArray[np.float32]
@@ -83,23 +86,23 @@ class AnomalyResult:
         return self.n_anomalies / self.n_samples if self.n_samples > 0 else 0.0
 
     def get_anomaly_indices(self) -> NDArray[np.int64]:
-        """Get indices of anomalous samples."""
+        """Indices of the anomalous samples, shape (n_anomalies,)."""
         return np.where(self.is_anomaly)[0]
 
 
 class AnomalyDetector:
     """
-    k-NN based anomaly detector for stellar spectra.
-
-    Uses embedding-space distances to identify outliers that differ
-    significantly from the training distribution.
+    k-NN anomaly detector for stellar spectra.
 
     Attributes:
-        predictor: The DOROTHY predictor for extracting embeddings.
-        threshold: Distance threshold for anomaly detection.
-        k: Number of neighbors to consider.
-        percentile: Percentile used to compute threshold.
-        train_embeddings: Normalized training embeddings.
+        predictor: The predictor that extracts embeddings.
+        layer_index: Layer of the embeddings.
+        threshold: Distance threshold; None before ``fit``.
+        k: Number of neighbours; None before ``fit``.
+        percentile: Percentile of the training distances that gave the
+            threshold; None before ``fit``.
+        train_embeddings: Unit-norm training embeddings, shape
+            (n_train, embedding_dim); None before ``fit``.
 
     Examples:
         >>> detector = AnomalyDetector.from_predictor(predictor)
@@ -116,8 +119,9 @@ class AnomalyDetector:
         Initialize the anomaly detector.
 
         Args:
-            predictor: Trained DOROTHY predictor for embedding extraction.
-            layer_index: Which layer to extract embeddings from (-2 = penultimate).
+            predictor: Trained predictor that extracts the embeddings.
+            layer_index: Layer of the embeddings, as in
+                ``Predictor.get_embeddings`` (-2 is the penultimate MLP layer).
         """
         self.predictor = predictor
         self.layer_index = layer_index
@@ -138,11 +142,11 @@ class AnomalyDetector:
         Create an anomaly detector from a predictor.
 
         Args:
-            predictor: Trained DOROTHY predictor.
-            layer_index: Layer index for embedding extraction.
+            predictor: Trained predictor that extracts the embeddings.
+            layer_index: Layer of the embeddings, as in ``__init__``.
 
         Returns:
-            Configured AnomalyDetector instance.
+            An unfitted detector.
         """
         return cls(predictor=predictor, layer_index=layer_index)
 
@@ -154,19 +158,20 @@ class AnomalyDetector:
         batch_size: int = 1024,
     ) -> AnomalyDetector:
         """
-        Fit the anomaly detector on training data.
+        Fit the detector on training spectra.
 
-        Computes embeddings and determines the distance threshold from the
-        training distribution.
+        The threshold is the given percentile of the distance of each training
+        star to its k-th nearest other training star. The brute-force search
+        takes O(n_train^2 * embedding_dim) time.
 
         Args:
-            X_train: Training spectra of shape (n_samples, n_features).
-            k: Number of nearest neighbors to consider.
-            percentile: Percentile of training distances for threshold.
-            batch_size: Batch size for embedding computation.
+            X_train: Training spectra, shape (n_train, 3, n_wavelengths).
+            k: Number of nearest neighbours.
+            percentile: Percentile of the training distances, in [0, 100].
+            batch_size: Batch size for the embeddings.
 
         Returns:
-            Self for method chaining.
+            The detector.
         """
         self.k = k
         self.percentile = percentile
@@ -193,17 +198,20 @@ class AnomalyDetector:
         batch_size: int = 1024,
     ) -> AnomalyResult:
         """
-        Detect anomalies in new data.
+        Flag the anomalies among new spectra.
+
+        The brute-force search takes O(n_samples * n_train * embedding_dim)
+        time.
 
         Args:
-            X: Input spectra of shape (n_samples, n_features).
-            batch_size: Batch size for embedding computation.
+            X: Spectra, shape (n_samples, 3, n_wavelengths).
+            batch_size: Batch size for the embeddings.
 
         Returns:
-            AnomalyResult containing distances and anomaly flags.
+            Distances and anomaly flags.
 
         Raises:
-            RuntimeError: If detector has not been fitted.
+            RuntimeError: If the detector is not fitted.
         """
         if self.train_embeddings is None or self.threshold is None:
             raise RuntimeError(
@@ -235,15 +243,15 @@ class AnomalyDetector:
 
     def get_training_distances(self) -> NDArray[np.float32]:
         """
-        Get k-th neighbor distances for training data.
+        Distance of each training star to its k-th nearest other training star.
 
-        Useful for comparing training and test distributions.
+        This takes O(n_train^2 * embedding_dim) time.
 
         Returns:
-            Array of k-th neighbor distances for training samples.
+            Distances, shape (n_train,).
 
         Raises:
-            RuntimeError: If detector has not been fitted.
+            RuntimeError: If the detector is not fitted.
         """
         if self.train_embeddings is None:
             raise RuntimeError("Detector must be fitted first. Call fit().")
@@ -264,13 +272,16 @@ class AnomalyDetector:
 
     def save(self, path: str | Path) -> None:
         """
-        Save the fitted detector to disk.
+        Pickle the fitted state to a file.
+
+        The state is the embeddings, threshold, k, percentile and layer index.
+        The predictor is not saved.
 
         Args:
-            path: Path to save the detector.
+            path: Output file.
 
         Raises:
-            RuntimeError: If detector has not been fitted.
+            RuntimeError: If the detector is not fitted.
         """
         if self.train_embeddings is None:
             raise RuntimeError("Cannot save unfitted detector. Call fit() first.")
@@ -288,16 +299,16 @@ class AnomalyDetector:
 
     def load_state(self, path: str | Path) -> AnomalyDetector:
         """
-        Load a previously saved detector state.
+        Load a state written by ``save``, replacing the fitted state.
 
-        Note: The predictor must be provided separately during __init__
-        as models cannot be pickled safely.
+        The predictor comes from ``__init__``. Unpickling runs code, so load
+        only files that you trust.
 
         Args:
-            path: Path to the saved state.
+            path: File written by ``save``.
 
         Returns:
-            Self for method chaining.
+            The detector.
         """
         path = Path(path)
         with open(path, "rb") as f:
