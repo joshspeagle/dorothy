@@ -546,9 +546,9 @@ class Evaluator:
             label_errors: Label errors sigma_label, shape (n_samples,
                 n_parameters). With pred_scatter, z-scores divide by
                 sqrt(sigma_label^2 + s^2) instead of s.
-            mask: Optional mask of shape (n_samples, n_parameters).
-                Entries > 0 are valid labels. Only valid samples contribute to
-                the metrics of each parameter.
+            mask: Optional mask of shape (n_samples, n_parameters); labels
+                are valid where > 0. Only valid samples contribute to the
+                metrics of each parameter.
 
         Returns:
             EvaluationResult with one entry per parameter, plus "log_teff"
@@ -1031,7 +1031,7 @@ def evaluate_predictions(
         label_errors: Label errors sigma_label, same shape.
         parameter_names: Parameter names, one per column. None uses
             ["teff", "logg", "fe_h"].
-        mask: Optional mask, same shape; entries > 0 are valid labels.
+        mask: Optional mask, same shape; labels are valid where > 0.
 
     Returns:
         EvaluationResult with per-parameter metrics, plus "log_teff" as in

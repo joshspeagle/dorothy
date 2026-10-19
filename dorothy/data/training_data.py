@@ -286,7 +286,7 @@ class TrainingData:
             source. Sparse: ``valid_indices``.
         """
         if self.kind == "single_survey":
-            return np.where((self.y[:, 2, :] > 0).any(axis=1))[0]
+            return np.where(self.y[:, 2, :].any(axis=1))[0]
         if self.kind == "dense_multi_label":
             has_survey = np.any(list(self.has_data.values()), axis=0)
             # That filter counted a star as labelled when a label error was

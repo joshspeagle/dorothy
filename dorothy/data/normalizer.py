@@ -114,7 +114,7 @@ class LabelNormalizer:
             errors: Optional error array of shape (n_samples, n_parameters).
                 Only its shape is checked.
             mask: Optional mask array of shape (n_samples, n_parameters).
-                Entries > 0 are valid labels. Statistics use only valid
+                Labels are valid where > 0. Statistics use only valid
                 values of each parameter.
 
         Returns:

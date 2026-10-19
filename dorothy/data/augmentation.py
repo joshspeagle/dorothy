@@ -222,10 +222,7 @@ class DynamicLabelMasking:
         # Per labelset: does any sample keep it, and does it have any valid
         # label? Read in one host transfer instead of one sync per check.
         flags = torch.cat(
-            [
-                keep_labelset.any(dim=0),
-                torch.stack([(y_dict[name][:, 2, :] > 0).any() for name in labelsets]),
-            ]
+            [keep_labelset.any(dim=0), labelset_available.any(dim=0)]
         ).tolist()
         kept_any, has_any_label = flags[:n_labelsets], flags[n_labelsets:]
 

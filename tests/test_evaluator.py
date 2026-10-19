@@ -1281,3 +1281,12 @@ def test_evaluate_model_adds_label_errors_to_z_scores_only_for_additive_models(
     # The dorothy evaluate plots take these errors for their z-scores
     expected = None if label_aware else head["apogee"].y_err
     assert head["apogee"].z_label_errors is expected
+
+
+def test_evaluate_counts_only_mask_entries_above_zero():
+    """Mask entries -1, NaN and 0 are invalid; 0.5 and 1 are valid."""
+    mask = np.array([-1.0, np.nan, 0.0, 0.5, 1.0])[:, None]
+    true = np.array([np.nan, np.nan, np.nan, 1.0, 3.0])[:, None]
+    result = Evaluator(parameter_names=["logg"]).evaluate(true + 1.0, true, mask=mask)
+    assert result.metrics["logg"].n_samples == 2
+    assert result.metrics["logg"].bias == 1.0

@@ -2,10 +2,10 @@
 
 All functions take arrays in physical units, shaped (n_samples, n_params):
 predictions, true labels, predicted model scatter, label errors and a validity
-mask (label valid where > 0). Grids are sized to the number of parameters, and axis
-ranges default to percentiles of the data. A plot function
-writes a PNG into a directory and returns its path, or None when matplotlib is
-not installed.
+mask (label valid where > 0). Grids are sized to the number of parameters,
+and axis ranges default to percentiles of the data. A plot function writes a
+PNG into a directory and returns its path, or None when matplotlib is not
+installed.
 
 Adapted from evaluation plots by Diego (d5martin).
 """
