@@ -562,3 +562,11 @@ class TestLabelNormalizerMasking:
         assert normalizer.stats["teff"].log_median == pytest.approx(
             expected_log_median, rel=0.01
         )
+
+
+def test_fit_counts_only_mask_entries_above_zero():
+    """Mask entries -1, NaN and 0 are invalid; 0.5 and 1 are valid."""
+    mask = np.array([-1.0, np.nan, 0.0, 0.5, 1.0])[:, None]
+    values = np.array([np.nan, np.nan, np.nan, 1.0, 3.0])[:, None]
+    normalizer = LabelNormalizer(parameters=["logg"]).fit(values, mask=mask)
+    assert normalizer.stats["logg"].median == 2.0
