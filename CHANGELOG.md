@@ -78,6 +78,8 @@
 
 ### Fixed
 
+- `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer
+  in [1, n_train - 1] and for a `percentile` outside [0, 100].
 - `dorothy evaluate --help` said `--output` writes JSON or Markdown; it
   writes the `--format` format.
 - Training on Apple MPS failed at the first step with PyTorch before 2.5,

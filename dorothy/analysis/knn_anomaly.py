@@ -172,7 +172,22 @@ class AnomalyDetector:
 
         Returns:
             The detector.
+
+        Raises:
+            ValueError: If ``k`` is not an integer in [1, n_train - 1] or
+                ``percentile`` is not in [0, 100].
         """
+        if (
+            isinstance(k, bool)
+            or not isinstance(k, (int, np.integer))
+            or not 1 <= k < len(X_train)
+        ):
+            raise ValueError(
+                f"k must be an integer in [1, n_train - 1] = [1, {len(X_train) - 1}], "
+                f"got {k!r}"
+            )
+        if not 0 <= percentile <= 100:
+            raise ValueError(f"percentile must be in [0, 100], got {percentile!r}")
         self.k = k
         self.percentile = percentile
 
