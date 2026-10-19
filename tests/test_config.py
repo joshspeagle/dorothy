@@ -560,3 +560,27 @@ def test_unimplemented_loss_type_is_rejected():
         ExperimentConfig(
             name="t", data={"catalogue_path": "a.h5"}, training={"loss": "penalty"}
         )
+
+
+@pytest.mark.parametrize("label_aware", [True, False])
+def test_new_multi_head_config_builds_a_residual_stream(label_aware):
+    """A new multi-head config builds the residual trunk and heads, with or
+    without label-aware uncertainty."""
+    import torch
+
+    from dorothy.config.schema import MultiHeadModelConfig
+    from dorothy.models.multi_head_mlp import MultiHeadMLP
+
+    config = MultiHeadModelConfig(
+        survey_wavelengths={"boss": 10},
+        n_parameters=2,
+        latent_dim=16,
+        encoder_hidden=[12],
+        trunk_hidden=[6],
+        output_hidden=[4],
+        label_aware_uncertainty=label_aware,
+    )
+    model = MultiHeadMLP.from_config(config)
+    assert model.residual_stream
+    assert model.trunk.output_dim == 16
+    assert model(torch.randn(5, 3, 10), survey="boss").shape == (5, 2, 2)

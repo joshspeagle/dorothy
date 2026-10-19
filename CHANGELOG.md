@@ -14,6 +14,8 @@
   elements (20 parameters) with `--elements extended`. The parameter names
   set the model's output size.
 - `multi_head_model.head_dropout`: dropout per output head.
+- `multi_head_model.residual_stream`: a residual trunk and residual output
+  heads. `dorothy info` shows which blocks a checkpoint has.
 - `training.label_source_weighting` (`per_label` or `per_source`) and
   `training.label_source_weights` set how the losses of several label
   sources combine.
@@ -204,6 +206,11 @@
 
 ### Behaviour changes
 
+- A new multi-head model has a residual stream
+  (`multi_head_model.residual_stream: true`). Its trunk and heads have more
+  parameters with the default widths, and its trunk embeddings have
+  `latent_dim` numbers instead of 128. Old checkpoints load with plain
+  blocks.
 - The default embedding of a newly trained MLP
   (`MLP.get_embeddings`, and so `AnomalyDetector`) is the input of its two
   decoders, which take over the last hidden layer: the layer before it, for

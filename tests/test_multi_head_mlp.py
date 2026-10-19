@@ -474,8 +474,8 @@ class TestMultiLabelsetOutputs:
             output_hidden=[32],
         )
 
-    @pytest.fixture
-    def multi_label_model(self):
+    @pytest.fixture(params=[False, True], ids=["plain", "residual_stream"])
+    def multi_label_model(self, request):
         """Create model with multiple label sources."""
         return MultiHeadMLP(
             survey_configs={"boss": 100, "lamost": 80},
@@ -485,6 +485,7 @@ class TestMultiLabelsetOutputs:
             trunk_hidden=[64],
             output_hidden=[32],
             label_sources=["apogee", "galah"],
+            residual_stream=request.param,
         )
 
     def test_single_label_defaults(self, single_label_model):

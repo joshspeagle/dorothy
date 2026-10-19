@@ -413,6 +413,13 @@ class MultiHeadModelConfig(_ConfigModel):
         default=True,
         description=_LABEL_AWARE_DESCRIPTION,
     )
+    residual_stream: bool = Field(
+        default=True,
+        description="Build the trunk and the output heads' hidden layers as a "
+        "residual stream of width latent_dim, with one residual block per "
+        "trunk_hidden and output_hidden size; False builds plain blocks. "
+        "Checkpoints saved before this option load with False.",
+    )
 
     @field_validator("head_dropout")
     @classmethod
@@ -1079,7 +1086,8 @@ class ExperimentConfig(_ConfigModel):
         ``multi_head_model.head_dropout`` entry or 20 predicted parameters,
         whose sparse and single-survey loaders already normalized spectra. A
         warning is issued either way. A model section without
-        ``label_aware_uncertainty``, and a data section without
+        ``label_aware_uncertainty``, a multi-head model section without
+        ``residual_stream``, and a data section without
         ``precision_encoding``, predate that option, so the flag defaults to
         False there. Settings this version no longer has are ignored with a
         warning.
@@ -1131,6 +1139,8 @@ class ExperimentConfig(_ConfigModel):
         for key in ("model", "multi_head_model"):
             if data.get(key) is not None:
                 data[key].setdefault("label_aware_uncertainty", False)
+        if data.get("multi_head_model") is not None:
+            data["multi_head_model"].setdefault("residual_stream", False)
         # Dropout is irrelevant once trained: drop head_dropout entries for
         # heads the model doesn't have rather than refusing to load
         mh_section = data.get("multi_head_model") or {}

@@ -19,7 +19,7 @@
   <rect x="230.0" y="18.0" width="190.0" height="62.0" rx="6"/>
   <text x="325.0" y="39.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">label decoder</text>
   <text x="325.0" y="56.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">hidden layers → linear</text>
-  <text x="325.0" y="71.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">first layer reads x</text>
+  <text x="325.0" y="71.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">reads x</text>
   <line x1="422.0" y1="49.0" x2="456.0" y2="49.0" marker-end="url(#uncertainty-arrow)"/>
   <text x="462.0" y="54.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ</text>
   <text x="482.0" y="54.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">predicted value, never sees σ<tspan baseline-shift="sub" font-size="75%">y</tspan></text>
@@ -27,7 +27,7 @@
   <rect x="230.0" y="130.0" width="190.0" height="62.0" rx="6"/>
   <text x="325.0" y="151.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">error decoder</text>
   <text x="325.0" y="168.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">same hidden layers → linear</text>
-  <text x="325.0" y="183.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">first layer reads x and u</text>
+  <text x="325.0" y="183.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--color-foreground-muted, #646776)">reads x and u</text>
   <line x1="422.0" y1="161.0" x2="456.0" y2="161.0" marker-end="url(#uncertainty-arrow)"/>
   <text x="462.0" y="166.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">ln s</text>
   <text x="496.0" y="166.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--color-foreground-muted, #646776)">log-scatter, s² = exp(2 ln s) + s₀²</text>

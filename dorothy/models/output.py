@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from dorothy.losses.heteroscedastic import LN_S_MAX, LN_S_MIN
-from dorothy.models.utils import hidden_blocks
+from dorothy.models.utils import hidden_blocks, residual_blocks
 
 
 def _decoder(
@@ -16,8 +16,21 @@ def _decoder(
     normalization: str,
     activation: str,
     dropout: float,
+    residual: bool,
 ) -> nn.Sequential:
-    """The hidden blocks of hidden_layers, then a linear map to n_parameters."""
+    """Hidden layers of hidden_layers, then a linear map to n_parameters.
+
+    The hidden layers are plain hidden blocks, or with residual one
+    ResidualBlock of width input_dim per hidden size and a closing
+    normalization.
+    """
+    if residual:
+        return nn.Sequential(
+            *residual_blocks(
+                input_dim, hidden_layers, normalization, activation, dropout
+            ),
+            nn.Linear(input_dim, n_parameters),
+        )
     return nn.Sequential(
         *hidden_blocks(input_dim, hidden_layers, normalization, activation, dropout),
         nn.Linear(hidden_layers[-1], n_parameters),
@@ -39,11 +52,19 @@ class LabelAwareOutput(nn.Module):
     linear map; u enters the first layer of D_s. At least one hidden layer
     makes ln s a nonlinear function of u. No layer that feeds mu reads u.
 
+    With residual, x is a residual stream of width input_dim. Each decoder
+    is one ResidualBlock per hidden size, a normalization and a linear map,
+    and u is added to a copy of x instead of concatenated::
+
+        ln_s = D_s(x + W_u u)
+
     Attributes:
         mean: The label decoder D_mu.
         missing_log_error: The missing vector m, shape (n_parameters,), in the
             units of u.
         scatter: The error decoder D_s.
+        error_projection: The map W_u from u to the stream, without bias;
+            None without residual.
     """
 
     def __init__(
@@ -54,6 +75,7 @@ class LabelAwareOutput(nn.Module):
         normalization: str,
         activation: str,
         dropout: float,
+        residual: bool = False,
     ) -> None:
         """Initialize the decoders.
 
@@ -64,6 +86,7 @@ class LabelAwareOutput(nn.Module):
             normalization: Normalization type ("batchnorm" or "layernorm").
             activation: Activation function ("gelu", "relu" or "silu").
             dropout: Dropout probability of the hidden blocks.
+            residual: Build residual decoders that read u through W_u.
 
         Raises:
             ValueError: If hidden_layers is empty, or the normalization or
@@ -76,19 +99,29 @@ class LabelAwareOutput(nn.Module):
             )
         super().__init__()
         self.mean = _decoder(
-            input_dim, n_parameters, hidden_layers, normalization, activation, dropout
-        )
-        # 0 is a label error of one normalized unit (the training labels'
-        # interquartile range), far above real errors, so the missing state
-        # starts distinct from them
-        self.missing_log_error = nn.Parameter(torch.zeros(n_parameters))
-        self.scatter = _decoder(
-            input_dim + n_parameters,
+            input_dim,
             n_parameters,
             hidden_layers,
             normalization,
             activation,
             dropout,
+            residual,
+        )
+        # 0 is a label error of one normalized unit (the training labels'
+        # interquartile range), far above real errors, so the missing state
+        # starts distinct from them
+        self.missing_log_error = nn.Parameter(torch.zeros(n_parameters))
+        self.error_projection = (
+            nn.Linear(n_parameters, input_dim, bias=False) if residual else None
+        )
+        self.scatter = _decoder(
+            input_dim if residual else input_dim + n_parameters,
+            n_parameters,
+            hidden_layers,
+            normalization,
+            activation,
+            dropout,
+            residual,
         )
 
     def forward(
@@ -124,7 +157,11 @@ class LabelAwareOutput(nn.Module):
             log_errors = torch.log(torch.where(reported, label_errors, 1.0))
             u = torch.where(reported, log_errors.clamp(LN_S_MIN, LN_S_MAX), u)
         # u is float32; matching x's dtype avoids two full casts under AMP
-        ln_s = self.scatter(torch.cat([x, u.to(x.dtype)], dim=1))
+        u = u.to(x.dtype)
+        if self.error_projection is None:
+            ln_s = self.scatter(torch.cat([x, u], dim=1))
+        else:
+            ln_s = self.scatter(x + self.error_projection(u))
         return torch.stack([self.mean(x), ln_s], dim=1)
 
 
@@ -175,6 +212,7 @@ def output_modules(
     activation: str,
     dropout: float,
     label_aware: bool,
+    residual: bool = False,
 ) -> list[nn.Module]:
     """Build the modules of an output head, from its input to [mu, ln s].
 
@@ -188,6 +226,8 @@ def output_modules(
         label_aware: Build a LabelAwareOutput; False builds the hidden blocks
             and the AdditiveOutput of checkpoints saved before label-aware
             uncertainty.
+        residual: Read a residual stream: the hidden layers are residual
+            blocks of width input_dim (see LabelAwareOutput).
 
     Returns:
         The modules in order. The last one maps (features, label_errors) to
@@ -207,7 +247,15 @@ def output_modules(
                 normalization,
                 activation,
                 dropout,
+                residual,
             )
+        ]
+    if residual:
+        return [
+            *residual_blocks(
+                input_dim, hidden_layers, normalization, activation, dropout
+            ),
+            AdditiveOutput(input_dim, n_parameters),
         ]
     width = hidden_layers[-1] if hidden_layers else input_dim
     return [
