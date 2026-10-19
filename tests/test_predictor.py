@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import yaml
 from torch import nn
 
 from dorothy.config.schema import (
@@ -489,7 +490,6 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     encoding and named single heads loads and predicts bit-identically to its
     model's forward pass from before these options, and its inputs keep
     sigma."""
-    import yaml
 
     if multi_head:
         sections = {
@@ -576,9 +576,11 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
     )
 
 
-def test_residual_stream_checkpoint_predicts_as_its_model(tmp_path):
-    """multi_head_model.residual_stream survives the saved config, so the
-    checkpoint loads into the residual model and predicts as it does."""
+@pytest.mark.parametrize("residual", [True, False], ids=["residual", "plain"])
+def test_residual_stream_checkpoint_predicts_as_its_model(tmp_path, residual):
+    """A residual checkpoint loads into the residual model, and a label-aware
+    checkpoint saved before the option (no residual_stream key) loads into
+    plain blocks; each predicts as the model it saved."""
     config = ExperimentConfig(
         name="residual",
         device="cpu",
@@ -590,7 +592,7 @@ def test_residual_stream_checkpoint_predicts_as_its_model(tmp_path):
             "encoder_hidden": [24],
             "trunk_hidden": [16],
             "output_hidden": [8],
-            "residual_stream": True,
+            "residual_stream": residual,
         },
     )
     torch.manual_seed(0)
@@ -599,10 +601,14 @@ def test_residual_stream_checkpoint_predicts_as_its_model(tmp_path):
     path.mkdir()
     torch.save(model.state_dict(), path / "best_model.pth")
     config.save_yaml(path / "config.yaml")
+    if not residual:
+        raw = yaml.full_load((path / "config.yaml").read_text())
+        del raw["multi_head_model"]["residual_stream"]
+        (path / "config.yaml").write_text(yaml.dump(raw))
 
     X = torch.randn(9, 3, 20, generator=torch.Generator().manual_seed(1))
     predictor = Predictor.load(path, device="cpu")
-    assert predictor.model.residual_stream
+    assert predictor.model.residual_stream == residual
     with torch.no_grad():
         expected = model(X, survey="boss").numpy()
     np.testing.assert_array_equal(predictor.predict(X).raw_output, expected)

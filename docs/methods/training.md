@@ -77,7 +77,9 @@ first layer of the error decoder:
 
 Multi-head model
 : x is the trunk output, and the hidden layers are the `output_hidden`
-  layers.
+  layers. With the residual stream (the default), each hidden layer is a
+  residual block and u enters as a linear map added to x
+  ([Residual stream](models.md#residual-stream)).
 
 MLP
 : The decoders take over the last hidden layer: x is the input of that

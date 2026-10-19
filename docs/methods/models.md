@@ -45,7 +45,8 @@ Combination
 
 Trunk
 : The {py:class}`~dorothy.models.multi_head_mlp.SharedTrunk` passes the
-  combined vector through `trunk_hidden` layers. Its output describes the star
+  combined vector through `trunk_hidden` layers, by default as a
+  [residual stream](#residual-stream). Its output describes the star
   independently of the surveys and label sources.
 
 Heads
@@ -63,9 +64,12 @@ predict from any one of them:
 
 ## Residual stream
 
-`multi_head_model.residual_stream: true` replaces the plain trunk and the
-hidden layers of the heads with a residual stream of width d = `latent_dim`.
-It is experimental and off by default.
+By default (`multi_head_model.residual_stream: true`) the trunk and the
+hidden layers of the heads form a residual stream of width d = `latent_dim`.
+`residual_stream: false` builds plain blocks instead: a trunk of hidden
+blocks with a 128-number output, and heads whose error decoder concatenates
+the log label errors to its input. Checkpoints saved before this option have
+plain blocks.
 
 The stream starts at the combined encodings. In `concat` mode with several
 surveys, a linear map takes them from `n_surveys × latent_dim` numbers to d;

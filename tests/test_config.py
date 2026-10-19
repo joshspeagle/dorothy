@@ -560,3 +560,22 @@ def test_unimplemented_loss_type_is_rejected():
         ExperimentConfig(
             name="t", data={"catalogue_path": "a.h5"}, training={"loss": "penalty"}
         )
+
+
+def test_residual_stream_defaults_to_the_label_aware_setting():
+    """The residual stream is on by default, off by default for plain heads,
+    and rejected when set with plain heads."""
+    from dorothy.config.schema import MultiHeadModelConfig
+
+    wavelengths = {"boss": 10}
+    assert MultiHeadModelConfig(survey_wavelengths=wavelengths).residual_stream
+    plain = MultiHeadModelConfig(
+        survey_wavelengths=wavelengths, label_aware_uncertainty=False
+    )
+    assert not plain.residual_stream
+    with pytest.raises(ValueError, match="residual_stream needs"):
+        MultiHeadModelConfig(
+            survey_wavelengths=wavelengths,
+            label_aware_uncertainty=False,
+            residual_stream=True,
+        )
