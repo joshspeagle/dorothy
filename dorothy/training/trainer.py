@@ -492,8 +492,7 @@ class Trainer:
     def label_keys(self) -> list[str]:
         """Label source names, in model output-head order.
 
-        A plain MLP (or a single-head MultiHeadMLP without named sources) has
-        the single key ``"default"``.
+        A plain MLP has the single key ``"default"``.
         """
         if isinstance(self.model, MultiHeadMLP):
             return list(self.model.label_sources)

@@ -105,8 +105,8 @@ class Predictor:
         parameter_names: Names of stellar parameters being predicted.
         scatter_floor: Scatter floor used to convert log-scatter to scatter.
         survey: Survey of single-array inputs (MultiHeadMLP only).
-        label_source: Output head to predict from (MultiHeadMLP with several
-            label sources; None uses the first / primary head).
+        label_source: Output head to predict from (MultiHeadMLP only; None
+            uses the first head).
         calibration: Calibration factor per parameter name of the head
             predicted from, which scales the predicted scatter (see
             :func:`~dorothy.inference.calibration.calibrate_scatter`), or
@@ -141,8 +141,8 @@ class Predictor:
             parameter_names: Names of parameters in prediction order.
             scatter_floor: Scatter floor (s_0) the model was trained with.
             survey: For a MultiHeadMLP, the survey of single-array inputs.
-            label_source: For a multi-label MultiHeadMLP, which output head
-                to use (default: the first label source).
+            label_source: For a MultiHeadMLP, which output head to use
+                (default: the first label source).
             calibration: Calibration factor per parameter name of that head,
                 which scales the predicted scatter; None reports the raw
                 scatter.
@@ -208,7 +208,7 @@ class Predictor:
             normalizer_file: Name of normalizer file (None to skip).
             device: Device for inference ("auto", "cpu", "cuda", "mps").
             survey: For a MultiHeadMLP, the survey of single-array inputs.
-            label_source: For a multi-label model, which output head to use.
+            label_source: For a MultiHeadMLP, which output head to use.
             calibrate: Scale the predicted scatter by the checkpoint's
                 calibration factors for that head, if it has them.
 
@@ -223,10 +223,7 @@ class Predictor:
         ckpt = load_checkpoint(checkpoint_path, model_file, normalizer_file, device)
         calibration = None
         if calibrate and ckpt.calibration is not None:
-            # A single head is filed under the configured label source, while
-            # the model may call it "default"
-            heads = head_label_sources(ckpt.model, ckpt.config)
-            head = label_source if label_source in heads else heads[0]
+            head = label_source or head_label_sources(ckpt.model, ckpt.config)[0]
             calibration = ckpt.calibration.get(head)
         predictor = cls(
             model=ckpt.model,
@@ -501,7 +498,7 @@ def predict_from_fits(
         batch_size: Batch size for inference.
         denormalize: Output physical units (requires a normalizer).
         survey: Survey of the spectra, for multi-survey models.
-        label_source: Output head to use, for multi-label models.
+        label_source: Output head to use, for a MultiHeadMLP.
         calibrate: Scale the uncertainties by the checkpoint's calibration
             factors, if it has them.
 

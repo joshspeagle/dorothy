@@ -674,6 +674,28 @@ class TestMultiHeadModelConfigLabelSources:
         assert model.label_sources == ["apogee", "galah"]
         assert model.is_multi_label
 
+    def test_single_head_is_named_after_the_primary_label_source(self):
+        """Without multi_head_model.label_sources, the one head takes the
+        name of the first data label source, and its head_dropout applies."""
+        from dorothy.config.schema import ExperimentConfig
+        from dorothy.inference.checkpoint import build_model
+
+        config = ExperimentConfig(
+            name="t",
+            data={"catalogue_path": "c.h5", "label_sources": ["galah", "apogee"]},
+            multi_head_model={
+                "survey_wavelengths": {"boss": 10},
+                "head_dropout": {"galah": 0.3},
+            },
+        )
+        model = build_model(config)
+        assert model.label_sources == ["galah"]
+        assert list(model.output_heads) == ["galah"]
+        dropout = [
+            m.p for m in model.output_head.modules() if isinstance(m, torch.nn.Dropout)
+        ]
+        assert dropout and all(p == 0.3 for p in dropout)
+
 
 class TestPresentRowsOnlyEncoding:
     """Encoding only the rows that have a survey's data (the default)."""

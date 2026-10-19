@@ -193,6 +193,11 @@
   `SparseMergedData.memory_usage_mb` reports `<survey>_sigma` instead of
   `<survey>_ivar`.
 - The minimum PyTorch version is 2.4.
+- A multi-head model with one label source names its head after that
+  source instead of "default", so `dorothy predict --label-source apogee`
+  and `Predictor(label_source="apogee")` select it. Without
+  `multi_head_model.label_sources`, the configuration sets it to the first
+  of `data.label_sources`. Checkpoints with a "default" head load unchanged.
 
 ### Behaviour changes
 
@@ -238,6 +243,8 @@
   of its block-size grid equal weight (for BOSS, block sizes of at most 5
   pixels now have 24% of the weight), and `AblationSaliencyResult.block_size`
   lists one size per grid point, with repeats.
+- `multi_head_model.head_dropout` applies to the head of a multi-head model
+  with one label source. Before, it was ignored.
 - The saliency analyzers compute the predicted scatter with
   `losses.predicted_scatter`. Their uncertainties, scatter changes and
   Fisher weights change where ln s is outside [-10, 5].

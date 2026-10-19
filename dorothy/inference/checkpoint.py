@@ -131,7 +131,7 @@ def head_label_sources(
 ) -> list[str]:
     """Label source of each output head, in model order.
 
-    A single-head model's head is named after the configured label source.
+    A plain MLP's head is named after the configured label source.
 
     Args:
         model: The model.
@@ -140,7 +140,7 @@ def head_label_sources(
     Returns:
         One label source name per output head.
     """
-    if isinstance(model, MultiHeadMLP) and model.label_sources != ["default"]:
+    if isinstance(model, MultiHeadMLP):
         return list(model.label_sources)
     return list(config.data.label_sources[:1])
 
