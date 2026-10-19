@@ -433,8 +433,10 @@ def test_loss_plot_shades_the_warmup_only_when_there_is_one(
         assert spans == []
     else:
         assert len(spans) == 1
-        left, width = spans[0].get_x(), spans[0].get_width()
-        assert (left, left + width) == pytest.approx((0.5, 2.9))
+        # axvspan gives a Rectangle in matplotlib >= 3.9 and a Polygon before
+        span = spans[0]
+        box = span.get_path().transformed(span.get_patch_transform()).get_extents()
+        assert (box.x0, box.x1) == pytest.approx((0.5, 2.9))
 
 
 # =============================================================================
