@@ -253,14 +253,6 @@ class ModelConfig(_ConfigModel):
 
     The default architecture follows the standard DOROTHY MLP:
     15300 -> 5000 -> 2000 -> 1000 -> 500 -> 200 -> 100 -> 22
-
-    Attributes:
-        hidden_layers: List of hidden layer sizes.
-        normalization: Type of normalization layer (batchnorm or layernorm).
-        activation: Activation function type.
-        dropout: Dropout probability (0.0 = no dropout).
-        input_features: Number of input features (computed from data config).
-        output_features: Number of output features (11 params + 11 uncertainties = 22).
     """
 
     hidden_layers: list[int] = Field(
@@ -328,21 +320,6 @@ class MultiHeadModelConfig(_ConfigModel):
     Each survey has its own encoder, feeding into a shared trunk.
     Optionally supports multiple output heads for different label sources.
 
-    Attributes:
-        survey_wavelengths: Dict mapping survey names to wavelength counts.
-        n_parameters: Number of stellar parameters to predict.
-        latent_dim: Output dimension of each survey encoder.
-        encoder_hidden: Hidden layer sizes for encoders.
-        trunk_hidden: Hidden layer sizes for shared trunk.
-        output_hidden: Hidden layer sizes for output head(s).
-        combination_mode: How to combine multi-survey embeddings.
-        label_sources: Label sources of the output heads, one head each.
-        normalization: Type of normalization layer.
-        activation: Activation function type.
-        dropout: Dropout probability.
-        head_dropout: Optional per-label-source dropout for the output heads
-            (e.g. ``{"galah": 0.2}``); sources not listed use ``dropout``.
-
     Examples:
         >>> config = MultiHeadModelConfig(
         ...     survey_wavelengths={"boss": 4506, "lamost_lrs": 3700},
@@ -407,7 +384,8 @@ class MultiHeadModelConfig(_ConfigModel):
     )
     head_dropout: dict[str, float] = Field(
         default_factory=dict,
-        description="Per-label-source output head dropout (falls back to dropout)",
+        description='Output head dropout per label source, e.g. {"galah": 0.2}; '
+        "sources not listed use dropout",
     )
     label_aware_uncertainty: bool = Field(
         default=True,
@@ -550,26 +528,7 @@ class OptimizerConfig(_ConfigModel):
 
 
 class TrainingConfig(_ConfigModel):
-    """Configuration for the training process.
-
-    Attributes:
-        epochs: Number of training epochs.
-        batch_size: Training batch size.
-        loss: Loss function type.
-        optimizer: Optimizer configuration.
-        scheduler: Learning rate scheduler configuration.
-        gradient_clip: Maximum gradient norm for clipping (0 = no clipping).
-        save_every: Save checkpoint every N epochs (0 = only save final).
-        early_stopping_patience: Epochs without improvement before stopping (0 = disabled).
-        scatter_floor: Minimum scatter floor (s_0) for heteroscedastic loss.
-        label_source_weighting: How losses from multiple label sources (output
-            heads) are combined, for training and for selecting the best epoch.
-            "per_label" (default) gives every valid label equal weight;
-            "per_source" averages each head's mean loss, so a smaller label
-            source gets as much total weight as a larger one.
-        label_source_weights: Optional relative weight per label source
-            (default 1.0), e.g. ``{"galah": 0.5}``.
-    """
+    """Configuration for the training process."""
 
     epochs: int = Field(default=300, ge=1, le=10000, description="Number of epochs")
     batch_size: int = Field(default=1024, ge=1, le=65536, description="Batch size")
@@ -594,7 +553,9 @@ class TrainingConfig(_ConfigModel):
         default=10.0, ge=0, description="Max gradient norm (0=disabled)"
     )
     save_every: int = Field(
-        default=0, ge=0, description="Save checkpoint every N epochs"
+        default=0,
+        ge=0,
+        description="Save a checkpoint every N epochs (0 = only the final one)",
     )
     early_stopping_patience: int = Field(
         default=0,
@@ -636,11 +597,15 @@ class TrainingConfig(_ConfigModel):
     )
     label_source_weighting: Literal["per_label", "per_source"] = Field(
         default="per_label",
-        description="Combine label-source losses per valid label or per source",
+        description="How the losses of the label sources (output heads) combine, "
+        "for training and for selecting the best epoch. per_label gives every "
+        "valid label equal weight; per_source averages each head's mean loss, "
+        "so a smaller label source gets as much total weight as a larger one.",
     )
     label_source_weights: dict[str, float] = Field(
         default_factory=dict,
-        description="Relative loss weight per label source (default 1.0)",
+        description='Relative loss weight per label source, e.g. {"galah": 0.5}; '
+        "sources not listed have weight 1.0",
     )
     amp: bool = Field(
         default=False,
