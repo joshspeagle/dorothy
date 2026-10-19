@@ -108,7 +108,6 @@ def make_test_config(tmpdir=None, epochs=5):
         training=TrainingConfig(
             epochs=epochs,
             batch_size=32,
-            learning_rate=0.001,
         ),
         output_dir=Path(tmpdir) if tmpdir else Path("./outputs"),
         seed=42,
