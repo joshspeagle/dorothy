@@ -208,6 +208,9 @@
 
 ### Behaviour changes
 
+- `dorothy predict --denormalize` is removed. It did nothing, because physical
+  units are the default. Passing it now fails. `--normalized` writes
+  normalized units.
 - A new multi-head model has a residual stream
   (`multi_head_model.residual_stream: true`). Its trunk and heads have more
   parameters with the default widths, and its trunk embeddings have
