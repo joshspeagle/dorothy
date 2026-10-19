@@ -475,24 +475,6 @@ class TestDynamicInputMaskingMultiSurvey:
 class TestDynamicInputMaskingBlockSize:
     """Tests for block size sampling."""
 
-    def test_block_size_varies(self):
-        """Test that block size varies across batches (log-uniform)."""
-        np.random.seed(42)
-
-        # Call block masking multiple times and check block sizes vary
-        block_sizes = []
-        for _ in range(50):
-            # Reset random state to get different samples
-            f_min = 1.0 / 1000
-            log_f = np.random.uniform(np.log(f_min), np.log(0.5))
-            f = np.exp(log_f)
-            block_size = max(1, int(np.ceil(f * 1000)))
-            block_sizes.append(block_size)
-
-        # Should have variety in block sizes
-        unique_sizes = len(set(block_sizes))
-        assert unique_sizes > 10, f"Expected variety in block sizes, got {unique_sizes}"
-
     def test_f_min_override(self):
         """Test that f_min_override is respected."""
         masking = DynamicInputMasking(f_min_override=0.1, f_max=0.5, seed=42)
@@ -583,7 +565,6 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_produces_partial_blocks_at_edges(self):
         """Test that offset creates partial blocks at spectrum edges."""
-
         # Use parameters that force a specific block structure
         # With p_block=1.0, all blocks should be kept
         masking = DynamicInputMasking(
@@ -601,7 +582,6 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_guaranteed_keeper_with_offset(self):
         """Test that guaranteed keeper works correctly with random offset."""
-
         # Very aggressive masking - should still keep at least one block
         masking = DynamicInputMasking(p_block_min=0.0, p_block_max=0.05, seed=42)
         X = {"survey": torch.ones(50, 3, 100)}
@@ -616,7 +596,6 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_does_not_change_mean_coverage(self):
         """Test that random offset doesn't significantly change mean coverage."""
-
         masking = DynamicInputMasking(p_block_min=0.4, p_block_max=0.6, seed=42)
         X = {"survey": torch.ones(100, 3, 200)}
         n_wavelengths = {"survey": 200}
@@ -638,7 +617,6 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_with_partial_natural_mask(self):
         """Test offset works correctly when some wavelengths are naturally masked."""
-
         masking = DynamicInputMasking(p_block_min=0.5, p_block_max=0.5, seed=42)
         X = {"survey": torch.ones(10, 3, 100)}
         # Mask first and last 10 wavelengths naturally
@@ -658,7 +636,6 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_with_very_small_spectrum(self):
         """Test that offset works with very small spectra (edge case)."""
-
         masking = DynamicInputMasking(seed=42)
         X = {"survey": torch.ones(5, 3, 5)}  # Only 5 wavelengths
         n_wavelengths = {"survey": 5}
@@ -673,7 +650,6 @@ class TestDynamicInputMaskingRandomOffset:
 
     def test_offset_with_large_block_size(self):
         """Test offset when block size is large relative to spectrum."""
-
         # Force large blocks (up to 50% of spectrum)
         masking = DynamicInputMasking(f_min_override=0.4, f_max=0.5, seed=42)
         X = {"survey": torch.ones(10, 3, 50)}
