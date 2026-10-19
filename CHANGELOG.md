@@ -222,6 +222,11 @@
 - `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
   `union` or `intersection`, which it treated as `intersection`, and for an
   empty `surveys` list.
+- Every reader of a label mask treats entries > 0 as valid.
+  `LabelNormalizer.fit`, `Evaluator.evaluate`, the evaluation plots,
+  `DynamicLabelMasking` and the per-source validation loss counted negative
+  and NaN entries as valid. The loaders write masks of 0 and 1, so results
+  on catalogue data do not change.
 - A new multi-head model has a residual stream
   (`multi_head_model.residual_stream: true`). Its trunk and heads have more
   parameters with the default widths, and its trunk embeddings have

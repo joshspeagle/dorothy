@@ -635,3 +635,10 @@ class TestEvaluationPlots:
         preds, true, _, _, mask = self._arrays(3)
         with pytest.raises(ValueError, match="same shape"):
             plot_histograms(tmp_path, preds, true[:, :2], mask, ["a", "b", "c"])
+
+
+def test_evaluation_plots_select_mask_entries_above_zero():
+    from dorothy.visualization.evaluation_plots import _valid
+
+    mask = np.array([-1.0, np.nan, 0.0, 0.5, 1.0])[:, None]
+    np.testing.assert_array_equal(_valid(mask, 0), [False, False, False, True, True])

@@ -114,7 +114,7 @@ class LabelNormalizer:
             errors: Optional error array of shape (n_samples, n_parameters).
                 Only its shape is checked.
             mask: Optional mask array of shape (n_samples, n_parameters).
-                Nonzero entries are valid labels. Statistics use only valid
+                Labels are valid where > 0. Statistics use only valid
                 values of each parameter.
 
         Returns:
@@ -146,7 +146,7 @@ class LabelNormalizer:
         for i, param_name in enumerate(self.parameters):
             # Get mask for this parameter if provided
             if mask is not None:
-                param_mask = mask[:, i].astype(bool)
+                param_mask = mask[:, i] > 0
                 values = y[param_mask, i]
                 if len(values) == 0:
                     # No valid labels (e.g. an element one label source lacks):
