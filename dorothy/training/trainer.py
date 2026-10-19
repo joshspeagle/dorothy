@@ -136,6 +136,10 @@ class TrainingHistory:
             sources this combines all heads (see
             ``training.label_source_weighting``) and selects the best epoch.
         learning_rates: Learning rate after each optimizer step.
+        nll_warmup_epochs: Length of the β-NLL warm-up in epochs (warm-up
+            steps divided by steps per epoch, so it can be fractional); 0 if
+            there was no warm-up. During the warm-up the training loss is
+            β-weighted and not comparable with the validation loss.
         best_epoch: Epoch with the best validation loss (0-based).
         best_val_loss: Best validation loss achieved.
         total_time: Total training time in seconds.
@@ -164,6 +168,7 @@ class TrainingHistory:
     train_losses: list[float] = field(default_factory=list)
     val_losses: list[float] = field(default_factory=list)
     learning_rates: list[float] = field(default_factory=list)
+    nll_warmup_epochs: float = 0.0
     best_epoch: int = 0
     best_val_loss: float = float("inf")
     total_time: float = 0.0
@@ -201,6 +206,7 @@ class TrainingHistory:
         data = {
             "history_train": self.train_losses,
             "history_val": self.val_losses,
+            "nll_warmup_epochs": self.nll_warmup_epochs,
             "best_epoch": self.best_epoch,
             "best_val_loss": self.best_val_loss,
             "total_time": self.total_time,
@@ -1361,6 +1367,7 @@ class Trainer:
         labelsets = keys if multi_label else []
         self.calibration = None
         self.history = TrainingHistory(
+            nll_warmup_epochs=warmup_steps / steps_per_epoch,
             parameter_names=self.parameter_names,
             val_loss_breakdown={"mean_component": [], "scatter_component": []},
             val_metrics={name: [] for name in EVALUATOR_METRIC_NAMES},

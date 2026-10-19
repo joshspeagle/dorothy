@@ -2255,6 +2255,25 @@ class TestNllWarmup:
         assert steps[warmup:] == [0.0] * (25 - warmup)  # exactly 0: the plain loss
         assert validation == [0.0] * 5
 
+    @pytest.mark.parametrize(
+        "fraction, loss, epochs",
+        [
+            (0.5, LossType.HETEROSCEDASTIC, 2.4),
+            (0.5, LossType.MSE, 0.0),
+        ],
+        ids=["warmup", "mse"],
+    )
+    def test_history_records_the_warmup_length_in_epochs(
+        self, simple_config, training_data, fraction, loss, epochs
+    ):
+        """simple_config has 5 steps per epoch, so a fraction 0.5 of 25 steps
+        rounds to 12 warm-up steps, or 2.4 epochs. mse has no warm-up."""
+        simple_config.training.nll_warmup_fraction = fraction
+        simple_config.training.loss = loss
+        X, y = training_data
+        history = Trainer(simple_config).fit(X[:80], y[:80], X[80:], y[80:])
+        assert history.nll_warmup_epochs == pytest.approx(epochs)
+
     def test_early_stopping_waits_for_the_end_of_the_warmup(
         self, simple_config, training_data
     ):

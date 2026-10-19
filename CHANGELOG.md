@@ -4,6 +4,8 @@
 
 ### Added
 
+- `TrainingHistory.nll_warmup_epochs` records the length of the β-NLL
+  warm-up, and `plot_loss_curves` shades it.
 - Per-spectrum flux normalization (`data.normalize_spectra`, default true):
   each spectrum is scaled by the median and interquartile range of its valid
   pixels, in every loading path and at prediction time.
