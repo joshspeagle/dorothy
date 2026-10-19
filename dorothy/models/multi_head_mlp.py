@@ -104,30 +104,13 @@ class SurveyEncoder(nn.Module):
         if hidden_layers is None:
             hidden_layers = [1024, 512]
 
-        # Input size: 3 channels * n_wavelengths
-        input_features = 3 * n_wavelengths
-
-        # Build encoder layers
-        activation_fn = get_activation(activation)
-        norm_class = get_normalization(normalization)
-
-        layers: list[nn.Module] = [nn.Flatten()]
-
-        prev_size = input_features
-        for hidden_size in hidden_layers:
-            layers.append(nn.Linear(prev_size, hidden_size))
-            layers.append(norm_class(hidden_size))
-            layers.append(activation_fn())
-            if dropout > 0:
-                layers.append(nn.Dropout(p=dropout))
-            prev_size = hidden_size
-
-        # Final projection to latent space
-        layers.append(nn.Linear(prev_size, latent_dim))
-        layers.append(norm_class(latent_dim))
-        layers.append(activation_fn())
-
-        self.encoder = nn.Sequential(*layers)
+        # The projection to the latent has no dropout
+        sizes = [3 * n_wavelengths, *hidden_layers]
+        self.encoder = nn.Sequential(
+            nn.Flatten(),
+            *hidden_blocks(sizes[0], hidden_layers, normalization, activation, dropout),
+            *hidden_blocks(sizes[-1], [latent_dim], normalization, activation, 0.0),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Encode spectral data to latent representation.
