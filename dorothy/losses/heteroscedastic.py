@@ -46,6 +46,7 @@ def predicted_scatter(ln_s: torch.Tensor, scatter_floor: float) -> torch.Tensor:
 
     This is the single definition used by the loss, training validation,
     evaluation and inference, so predicted uncertainties agree everywhere.
+    ln_s is clamped to [LN_S_MIN, LN_S_MAX] first.
 
     Args:
         ln_s: Predicted log-scatter (any shape).
@@ -64,7 +65,7 @@ class HeteroscedasticLoss(nn.Module):
 
     loss = (mu - y)^2 / s^2 + log(s^2), where s is the predicted scatter
     (:func:`~dorothy.losses.heteroscedastic.predicted_scatter`). The squared
-    error is weighted by the predicted variance, and the log-variance term
+    error is divided by the predicted variance, and the log-variance term
     penalizes underconfidence.
 
     The model output has shape (batch, 2, n_parameters):
@@ -83,8 +84,8 @@ class HeteroscedasticLoss(nn.Module):
 
     Examples:
         >>> loss_fn = HeteroscedasticLoss(scatter_floor=0.01, n_parameters=11)
-        >>> output = model(x)  # Shape: (batch, 2, 11)
-        >>> target = labels    # Shape: (batch, 3, 11) - [y, sigma, mask]
+        >>> output = model(x)  # Shape: (batch, 2, n_parameters)
+        >>> target = labels  # (batch, 3, n_parameters) = [y, label errors, mask]
         >>> loss = loss_fn(output, target)
     """
 
@@ -240,6 +241,8 @@ class HeteroscedasticLoss(nn.Module):
         - Mean component per parameter: (mu - y)² / s²
         - Scatter component per parameter: log(s²)
 
+        Both components are averaged over the valid entries of each parameter.
+
         Args:
             output: Model predictions of shape (batch_size, 2, n_parameters).
             target: Target values of shape (batch_size, 3, n_parameters).
@@ -252,9 +255,13 @@ class HeteroscedasticLoss(nn.Module):
                 - 'loss': Total scalar loss (reduced)
                 - 'mean_component': Per-parameter mean loss, shape (n_parameters,)
                 - 'scatter_component': Per-parameter scatter loss, shape (n_parameters,)
-                - 'residuals': Raw residuals (mu - y), shape (batch, n_parameters)
+                - 'residuals': mu - y, shape (batch, n_parameters); 0 at masked
+                  entries
                 - 'y_pred': Predicted means, shape (batch, n_parameters)
                 - 'pred_scatter': Predicted scatter, shape (batch, n_parameters)
+
+        Raises:
+            ValueError: If output or target shapes don't match expectations.
         """
         self._check_shapes(output, target)
         mu = output[:, 0, :]
@@ -313,6 +320,16 @@ class MaskedMSELoss(nn.Module):
     """
 
     def __init__(self, n_parameters: int = 11, reduction: str = "mean") -> None:
+        """Initialize the loss.
+
+        Args:
+            n_parameters: Number of stellar parameters being predicted.
+            reduction: 'none' returns the loss per element, 'mean' averages
+                over the valid elements, 'sum' adds them.
+
+        Raises:
+            ValueError: If reduction is not one of 'none', 'mean', 'sum'.
+        """
         super().__init__()
         if reduction not in ("none", "mean", "sum"):
             raise ValueError(
@@ -328,6 +345,18 @@ class MaskedMSELoss(nn.Module):
 
         ``beta`` has no effect: the squared error is the negative
         log-likelihood with unit variance, whose β-NLL weight is 1.
+
+        Args:
+            output: Model predictions of shape (batch_size, 2, n_parameters).
+            target: Targets of shape (batch_size, 3, n_parameters) holding
+                [labels, label errors, mask].
+            beta: Ignored.
+
+        Returns:
+            Tensor of shape (batch_size, n_parameters).
+
+        Raises:
+            ValueError: If output or target shapes don't match expectations.
         """
         if output.shape[1:] != (2, self.n_parameters) or target.shape[1:] != (
             3,
@@ -342,6 +371,19 @@ class MaskedMSELoss(nn.Module):
         return torch.where(mask > 0, sq, torch.zeros_like(sq))
 
     def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute the masked mean squared error.
+
+        Args:
+            output: Model predictions of shape (batch_size, 2, n_parameters).
+            target: Targets of shape (batch_size, 3, n_parameters) holding
+                [labels, label errors, mask].
+
+        Returns:
+            The loss, reduced according to self.reduction.
+
+        Raises:
+            ValueError: If output or target shapes don't match expectations.
+        """
         loss = self.element_losses(output, target)
         if self.reduction == "none":
             return loss
@@ -352,7 +394,22 @@ class MaskedMSELoss(nn.Module):
     def forward_detailed(
         self, output: torch.Tensor, target: torch.Tensor
     ) -> dict[str, torch.Tensor]:
-        """Per-parameter MSE as the mean component (scatter component is 0)."""
+        """Per-parameter MSE as the mean component (scatter component is 0).
+
+        Args:
+            output: Model predictions of shape (batch_size, 2, n_parameters).
+            target: Targets of shape (batch_size, 3, n_parameters).
+
+        Returns:
+            Dictionary with the keys 'loss' (reduced), 'mean_component' and
+            'scatter_component' (both shape (n_parameters,)), 'residuals'
+            (mu - y, shape (batch, n_parameters), taken from the stored labels
+            also at masked entries) and 'y_pred' (predicted means). Unlike
+            HeteroscedasticLoss it has no 'pred_scatter'.
+
+        Raises:
+            ValueError: If output or target shapes don't match expectations.
+        """
         loss = self.element_losses(output, target)
         valid_counts = (target[:, 2, :] > 0).sum(dim=0).clamp(min=1)
         mean_component = loss.sum(dim=0) / valid_counts
