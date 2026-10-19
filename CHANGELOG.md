@@ -78,6 +78,9 @@
 
 ### Fixed
 
+- `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
+  `union` or `intersection`. It used to treat any other value as
+  `intersection`.
 - The `plot_*` functions in `visualization.training_plots` accept a `str`
   output directory. They raised `TypeError`.
 - `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer
