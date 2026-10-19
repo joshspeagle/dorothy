@@ -177,8 +177,9 @@ class HeteroscedasticLoss(nn.Module):
         variance = self.get_predicted_scatter(output) ** 2
 
         nll = (mu - y) ** 2 / variance + torch.log(variance)
-        weight = mask * variance.detach() ** beta
-        return torch.where(mask > 0, nll * weight, torch.zeros_like(nll))
+        return torch.where(
+            mask > 0, nll * variance.detach() ** beta, torch.zeros_like(nll)
+        )
 
     def forward(
         self,
@@ -338,7 +339,7 @@ class MaskedMSELoss(nn.Module):
             )
         y, mask = _safe_targets(output[:, 0, :], target)
         sq = (output[:, 0, :] - y) ** 2
-        return torch.where(mask > 0, sq * mask, torch.zeros_like(sq))
+        return torch.where(mask > 0, sq, torch.zeros_like(sq))
 
     def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         loss = self.element_losses(output, target)
