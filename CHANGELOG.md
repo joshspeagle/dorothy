@@ -246,6 +246,11 @@
   lists one size per grid point, with repeats.
 - `multi_head_model.head_dropout` applies to the head of a multi-head model
   with one label source. Before, it was ignored.
+- `label_source="default"` (and `--label-source default`) no longer selects
+  the head of a single-label multi-head model, including one loaded from an
+  old checkpoint; use the label source name. New checkpoints store that head
+  under `output_heads.<source>`, so `--resume` between single-head runs with
+  different label sources now fails instead of reusing the head.
 - `training.label_source_weights` applies to a model with one label source.
   Before, it was ignored. A weight of 0 gives a zero loss, and other weights
   can change the loss by rounding.

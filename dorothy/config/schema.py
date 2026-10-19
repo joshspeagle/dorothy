@@ -337,7 +337,6 @@ class MultiHeadModelConfig(_ConfigModel):
         output_hidden: Hidden layer sizes for output head(s).
         combination_mode: How to combine multi-survey embeddings.
         label_sources: Label sources of the output heads, one head each.
-            ExperimentConfig sets None to the first of ``data.label_sources``.
         normalization: Type of normalization layer.
         activation: Activation function type.
         dropout: Dropout probability.
@@ -389,8 +388,8 @@ class MultiHeadModelConfig(_ConfigModel):
     label_sources: list[str] | None = Field(
         default=None,
         description="Label sources of the output heads, one head each (e.g., "
-        "['apogee', 'galah']). None gives one head, named after the first of "
-        "data.label_sources.",
+        "['apogee', 'galah']). None or an empty list gives one head, named after "
+        "the first of data.label_sources.",
     )
     normalization: NormalizationType = Field(
         default=NormalizationType.LAYERNORM,
@@ -981,7 +980,7 @@ class ExperimentConfig(_ConfigModel):
                 f"{sorted(unknown)}; configured: {self.data.label_sources}"
             )
         if self.multi_head_model is not None:
-            if self.multi_head_model.label_sources is None:
+            if not self.multi_head_model.label_sources:
                 self.multi_head_model = self.multi_head_model.model_copy(
                     update={"label_sources": self.data.label_sources[:1]}
                 )

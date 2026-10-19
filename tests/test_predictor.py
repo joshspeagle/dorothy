@@ -558,9 +558,12 @@ def test_old_checkpoint_predicts_exactly_as_before(tmp_path, multi_head):
         # The forward pass before label-aware uncertainty
         old_input = model.get_embeddings(X, "boss", level="trunk") if multi_head else X
         expected = old(old_input).view(9, 2, 3)
-    kwargs = {"label_source": "apogee"} if multi_head else {}
-    predictor = Predictor.load(path, device="cpu", **kwargs)
+    predictor = Predictor.load(path, device="cpu")
     result = predictor.predict(X)
+    if multi_head:
+        # dorothy predict --label-source names the head after its source
+        named = Predictor.load(path, device="cpu", label_source="apogee")
+        np.testing.assert_array_equal(named.predict(X).raw_output, result.raw_output)
 
     # predict_from_fits and evaluation preprocess as this setting says
     assert predictor.config.data.precision_encoding is False
