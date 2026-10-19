@@ -255,8 +255,7 @@ class HeteroscedasticLoss(nn.Module):
                 - 'loss': Total scalar loss (reduced)
                 - 'mean_component': Per-parameter mean loss, shape (n_parameters,)
                 - 'scatter_component': Per-parameter scatter loss, shape (n_parameters,)
-                - 'residuals': mu - y, shape (batch, n_parameters); 0 at masked
-                  entries
+                - 'residuals': mu - y, shape (batch, n_parameters), 0 where masked
                 - 'y_pred': Predicted means, shape (batch, n_parameters)
                 - 'pred_scatter': Predicted scatter, shape (batch, n_parameters)
 
