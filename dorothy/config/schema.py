@@ -485,8 +485,8 @@ class SchedulerConfig(_ConfigModel):
 
     @model_validator(mode="after")
     def validate_lr_range(self) -> SchedulerConfig:
-        """Ensure base_lr <= max_lr."""
-        if self.base_lr > self.max_lr:
+        """Ensure base_lr <= max_lr for the cyclic schedule, the one that uses both."""
+        if self.type == SchedulerType.CYCLIC and self.base_lr > self.max_lr:
             raise ValueError(
                 f"base_lr ({self.base_lr}) must be <= max_lr ({self.max_lr})"
             )

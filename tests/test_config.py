@@ -200,7 +200,7 @@ class TestSchedulerConfig:
     def test_base_lr_cannot_exceed_max_lr(self):
         """Test that base_lr must be <= max_lr."""
         with pytest.raises(ValidationError) as exc_info:
-            SchedulerConfig(base_lr=1e-2, max_lr=1e-4)
+            SchedulerConfig(type=SchedulerType.CYCLIC, base_lr=1e-2, max_lr=1e-4)
 
         assert "must be <=" in str(exc_info.value)
 

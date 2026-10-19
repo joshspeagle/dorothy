@@ -205,6 +205,8 @@
   `multi_head_model.label_sources`, the configuration sets it to the first
   of `data.label_sources`. Checkpoints with a "default" head load unchanged.
   `Trainer.label_keys` of a plain MLP is also its label source.
+- `scheduler.base_lr` must not exceed `scheduler.max_lr` only for the
+  `cyclic` schedule, the one that uses it.
 
 ### Behaviour changes
 
