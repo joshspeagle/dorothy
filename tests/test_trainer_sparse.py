@@ -149,7 +149,7 @@ class TestSparseSingleLabel:
         assert len(history.grad_norms) == 4
 
     def test_loss_decreases(self, tmp_path):
-        trainer = Trainer(make_config(tmp_path, epochs=15, learning_rate=3e-3))
+        trainer = Trainer(make_config(tmp_path, epochs=15))
         train_idx, val_idx = split()
         history = trainer.fit_multi_survey_sparse(
             make_sparse_data(), train_idx, val_idx
@@ -228,11 +228,7 @@ class TestSparseSingleLabel:
         assert all(np.isfinite(history.val_losses))
 
     def test_early_stopping(self, tmp_path):
-        trainer = Trainer(
-            make_config(
-                tmp_path, epochs=50, early_stopping_patience=2, learning_rate=1e-6
-            )
-        )
+        trainer = Trainer(make_config(tmp_path, epochs=50, early_stopping_patience=2))
         train_idx, val_idx = split()
         history = trainer.fit_multi_survey_sparse(
             make_sparse_data(), train_idx, val_idx
@@ -255,9 +251,7 @@ class TestSparseMultiLabel:
         assert all(np.isfinite(history.val_losses))
 
     def test_both_heads_learn(self, tmp_path):
-        trainer = Trainer(
-            make_config(tmp_path, multi_label=True, epochs=15, learning_rate=3e-3)
-        )
+        trainer = Trainer(make_config(tmp_path, multi_label=True, epochs=15))
         train_idx, val_idx = split()
         history = trainer.fit_multi_survey_sparse(
             make_sparse_data(multi_label=True), train_idx, val_idx
