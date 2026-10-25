@@ -38,7 +38,7 @@ dorothy predict --checkpoint <checkpoint_dir> --input spectra.fits --survey boss
 ```
 
 The [quick start](https://joshspeagle.com/dorothy/start/quickstart.html) runs these
-steps and shows the Python API. `examples/` has configurations for single- and
+steps on a small synthetic catalogue. `examples/` has configurations for single- and
 multi-survey models with one or two label sources.
 
 ## Development
