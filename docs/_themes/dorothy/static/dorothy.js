@@ -51,6 +51,11 @@
       if (i === current) a.setAttribute("aria-current", "location"); else a.removeAttribute("aria-current");
     });
   }
-  addEventListener("scroll", mark, { passive: true });
+  var pending = false;
+  addEventListener("scroll", function () {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () { pending = false; mark(); });
+  }, { passive: true });
   mark();
 })();
