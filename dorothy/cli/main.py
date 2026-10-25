@@ -697,7 +697,11 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     split_file = checkpoint_path / SPLIT_FILE
     if split_file.exists():
         print(f"  Loading saved data split from {split_file}")
-        split = DataSplit.load(checkpoint_path, data)
+        try:
+            split = DataSplit.load(checkpoint_path, data)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return 1
     else:
         print(f"  No saved data split found. Recreating from config seed={config.seed}")
         split = data.split(config.data.train_ratio, config.data.val_ratio, config.seed)
