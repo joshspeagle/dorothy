@@ -1,7 +1,7 @@
 # API reference
 
-Generated from the docstrings. Each page lists a module's classes and
-functions, with links to the source.
+This reference documents every module, class and function of the `dorothy`
+package, generated from the docstrings. Each page links to the source.
 
 ```{eval-rst}
 .. autosummary::
