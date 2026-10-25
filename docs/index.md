@@ -102,6 +102,7 @@ guides/python
 :caption: How it works
 :hidden:
 
+methods/overview
 methods/preprocessing
 methods/model
 methods/uncertainties
