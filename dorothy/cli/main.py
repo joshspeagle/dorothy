@@ -690,7 +690,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     print(f"\nLoading data from {config.data.catalogue_path}")
     try:
         data = load_training_data(config)
-    except ValueError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"Error: {e}")
         return 1
 

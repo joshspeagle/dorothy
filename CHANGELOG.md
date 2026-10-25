@@ -4,6 +4,9 @@
 
 ### Added
 
+- `examples/synthetic_quickstart.py` writes a small synthetic catalogue, a
+  configuration and a FITS file of spectra, so the quick start runs without
+  the real catalogue.
 - `TrainingHistory.nll_warmup_epochs` records the length of the β-NLL
   warm-up, and `plot_loss_curves` shades it.
 - Per-spectrum flux normalization (`data.normalize_spectra`, default true):
@@ -81,6 +84,8 @@
 - `dorothy train` completes a configuration that uses the `survey` or
   `label_source` alias for those surveys and label sources. It completed it
   for the defaults, BOSS and APOGEE.
+- `dorothy evaluate` prints an error and exits with code 1 when the
+  catalogue is missing. It ended with a traceback.
 - The `plot_*` functions in `visualization.training_plots` accept a `str`
   output directory. They raised `TypeError`.
 - `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer

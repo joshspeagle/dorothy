@@ -7,7 +7,7 @@ DOROTHY infers stellar parameters, abundances and their uncertainties from spect
 - `dorothy/`: the package. `config/` holds the experiment configuration, `data/` catalogue loading and training data, `models/`, `losses/`, `training/`, `inference/` (checkpoints, prediction, evaluation), `analysis/` (saliency, anomaly detection, label-source comparison), `visualization/` and `cli/` (the `dorothy` command).
 - `scripts/build_catalogue_v2.py`: builds the super-catalogue from the cross-matched FITS files in `data/raw_catalogues/`. `scripts/legacy/` holds the deprecated v1 pipeline.
 - `tests/`: the test suite. `tests/synthetic.py` writes small v2 catalogues (all four surveys, both label sources) for end-to-end tests.
-- `examples/`: training configurations (`variant*.yaml`) and saliency scripts.
+- `examples/`: training configurations (`variant*.yaml`), saliency scripts and `synthetic_quickstart.py`, which writes the inputs of the docs quick start from `tests/synthetic.py`.
 - `docs/`: the documentation site (Sphinx with its own theme in `docs/_themes/dorothy/`, Markdown pages through MyST, `docs/conf.py`), published to https://joshspeagle.com/dorothy/. `docs/figures/` holds its SVG figures, `docs/_static/` the logos, `docs/references.bib` the bibliography; `docs/dev/` holds development notes, which the site excludes.
 - `CHANGELOG.md`: user-visible changes since the last release.
 - `d5martin/`: the original notebooks (gitignored).

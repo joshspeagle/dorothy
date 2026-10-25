@@ -1,5 +1,7 @@
 # Glossary
 
+This page defines the terms that these docs use, each in one meaning.
+
 ```{glossary}
 :sorted:
 
@@ -12,7 +14,8 @@ calibration factor
 checkpoint
   The directory a training run writes: the best and final weights, the
   calibration factors, the configuration, the label normalization and the
-  data split. See [Training](../methods/training.md#checkpoints).
+  data split. See
+  [File formats](file-formats.md#checkpoint-directory).
 
 encoder
   The part of a multi-head model that maps one survey's spectrum to a vector
@@ -26,7 +29,7 @@ flag
 
 has_data
   A boolean per star and survey: whether the star has a spectrum from that
-  survey in the batch. Missing surveys are skipped by the model.
+  survey in the batch. The model skips a survey that a star lacks.
 
 head
   The part of a multi-head model that predicts the labels of one label source
@@ -38,8 +41,8 @@ label
   catalogue, for example `teff`, `logg`, `fe_h` and `mg_fe`.
 
 label source
-  A high-resolution survey whose labels are the training targets: APOGEE or
-  GALAH.
+  A high-resolution survey whose labels the model learns to predict: APOGEE
+  or GALAH. Each label source has its own {term}`head`.
 
 mask
   A channel that marks valid entries with 1 and invalid ones with 0: valid
@@ -59,6 +62,10 @@ normalized units
   divided by its training interquartile range, with Teff in log10. See
   [Preprocessing](../methods/preprocessing.md#labels).
 
+prediction
+  The model's value μ of a label, in {term}`normalized units` or, after the
+  inverse normalization, in physical units.
+
 predicted scatter
   The model's estimate s of the spread of the measured labels around its
   prediction, label noise included: s = sqrt(exp(2 ln s) + s₀²), where ln s
@@ -67,6 +74,10 @@ predicted scatter
 scatter floor
   The smallest predicted scatter, s₀ (`training.scatter_floor`, in normalized
   units).
+
+spectrum
+  One observation of one star by one {term}`survey`: its flux and
+  {term}`ivar` on the survey's wavelength grid.
 
 split
   The division of the usable stars into training, validation and test sets,
@@ -84,6 +95,12 @@ survey
 trunk
   The part of a multi-head model that combines the encoders' vectors and
   passes its output to every head.
+
+uncertainty
+  The spread that DOROTHY reports with a {term}`prediction`: c s, the
+  {term}`calibration factor` times the {term}`predicted scatter`, or s for a
+  checkpoint without calibration factors. See
+  [Calibration factors](../methods/uncertainties.md#calibration-factors).
 
 z-score
   The residual of a prediction divided by its predicted scatter:

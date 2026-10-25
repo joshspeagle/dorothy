@@ -1,42 +1,102 @@
 # What is in the super-catalogue
 
-The super-catalogue is one HDF5 file with every star's spectra and labels.
-Each row is one star, identified by its Gaia DR3 source ID. For each survey,
-the star's row holds its spectrum, or zeros if the survey did not observe it;
-for each label source, its labels, or zeros if the source did not measure
-them.
+The {term}`super-catalogue` is one HDF5 file. Each row is one star, matched
+across {term}`surveys <survey>` by its Gaia DR3 source ID
+{cite:p}`gaia2023dr3`. A row holds the star's spectra and its
+{term}`labels <label>`, wherever they exist.
 
+## One row per star
+
+::::{container} d-figure
 ```{raw} html
 :file: ../figures/catalogue.svg
+:class: wide-only
 ```
 
-## Layout
-
+```{raw} html
+:file: ../figures/catalogue-narrow.svg
+:class: narrow-only
 ```
+
+:::{container} caption
+A row is a star, a filled label cell means the label source has a row of
+labels for it, and most cells are empty; the stars are illustrative.
+:::
+::::
+
+The rows are sorted by Gaia DR3 source ID, and row *i* is the same star in
+every group of the file. Most stars appear in only one or two surveys.
+
+Where a survey did not observe a star, the star's spectrum for that survey is
+empty: flux 0, inverse variance ({term}`ivar`) 0 and S/N 0. All its pixels
+count as missing. Where a {term}`label source` did not measure a star, the star's labels from that
+source are empty: value 0, error 0 and {term}`flag` 0. All these labels count
+as missing. Every star with a spectrum also has a label row from the label
+source of that spectrum's input file, though its labels may all be invalid.
+
+## The groups
+
+| Group | Contents | One entry per star |
+|-------|----------|--------------------|
+| `metadata/` | Gaia DR3 source ID, RA and Dec | three numbers |
+| `surveys/desi/`, `surveys/boss/`, `surveys/lamost_lrs/` | flux, inverse variance and S/N of one spectrum, and the survey's wavelength grid | one spectrum |
+| `surveys/lamost_mrs/` | flux and inverse variance of the blue and red arms, S/N, and one wavelength grid per arm | two arms |
+| `labels/apogee/`, `labels/galah/` | value, error and quality flag of every parameter | one label per parameter |
+
+## The datasets
+
+N is the number of stars, P the number of parameters, and `n_wavelengths`
+the number of pixels of a survey's spectrum.
+
+```text
 super_catalogue.h5
 ├── metadata/
-│   ├── gaia_id          (N,) int64, sorted; the row's star
-│   ├── ra, dec          (N,) float64, degrees (0 where unknown)
+│   ├── gaia_id       (N,)        int64, sorted
+│   └── ra, dec       (N,)        float64, degrees
 ├── surveys/
 │   ├── desi/, boss/, lamost_lrs/
-│   │   ├── flux         (N, n_wavelengths) float32, 0 where missing
-│   │   ├── ivar         (N, n_wavelengths) float32, 0 where missing or masked
-│   │   ├── wavelength   (n_wavelengths,) float32, Å
-│   │   └── snr          (N,) float32, 0 where missing
+│   │   ├── flux        (N, n_wavelengths)  float32
+│   │   ├── ivar        (N, n_wavelengths)  float32
+│   │   ├── wavelength  (n_wavelengths,)    float32, Å
+│   │   └── snr         (N,)                float32
 │   └── lamost_mrs/
-│       ├── spectra      (N, 4, max(n_b, n_r)) float32: flux_b, ivar_b, flux_r, ivar_r
-│       ├── wavelength_b (n_b,) float32, Å
-│       ├── wavelength_r (n_r,) float32, Å
-│       └── snr          (N,) float32
+│       ├── spectra       (N, 4, n_max)  float32
+│       ├── wavelength_b  (n_b,)         float32, Å
+│       ├── wavelength_r  (n_r,)         float32, Å
+│       └── snr           (N,)           float32
 └── labels/
-    ├── apogee/, galah/
-    │   ├── values       (N, P) float32, 0 where missing
-    │   ├── errors       (N, P) float32, 0 where missing or not measured
-    │   ├── flags        (N, P) uint8, 0 = no warning
-    │   └── gaia_id      (N,) int64, same as metadata/gaia_id
+    └── apogee/, galah/
+        ├── values   (N, P)  float32
+        ├── errors   (N, P)  float32
+        ├── flags    (N, P)  uint8
+        └── gaia_id  (N,)    int64
 ```
 
-The file attributes are `n_stars`, `parameter_names`, `abundance_scale`
-(`x_fe` or `x_h`), `survey_names`, `label_sources`, `creation_date` and
-`version`. The LAMOST MRS arms are padded to the longer arm; the loaders trim
-each arm to its wavelength grid and concatenate them, blue then red.
+An inverse variance of 0 marks a missing pixel. RA and Dec are 0 where they
+are unknown. A label group's `gaia_id` equals `metadata/gaia_id`.
+[Labels and quality flags](labels.md) explains the parameters, their units and
+the flags. [How the catalogue is built](build.md#repeat-observations) defines
+the S/N.
+
+## The LAMOST MRS arms
+
+A LAMOST MRS spectrum has a blue arm with `n_b` pixels and a red arm with
+`n_r` pixels. The file stores both arms in one `spectra` array, with the
+channels [flux_b, ivar_b, flux_r, ivar_r]. Each arm is padded with zeros to
+the longer arm, `n_max` = max(`n_b`, `n_r`) pixels.
+{py:class}`~dorothy.data.catalogue_loader.CatalogueLoader` cuts each arm to its wavelength grid and joins them, blue then red, into one
+spectrum of `n_b + n_r` pixels.
+
+## File attributes
+
+| Attribute | Value |
+|-----------|-------|
+| `n_stars` | N, the number of rows |
+| `parameter_names` | the P parameter names, in column order |
+| `abundance_scale` | `x_fe` for [X/Fe] abundances, `x_h` for [X/H] |
+| `survey_names` | `boss`, `desi`, `lamost_lrs`, `lamost_mrs`, always all four, even when a survey has no group because it had no input files |
+| `label_sources` | `apogee`, `galah` |
+| `creation_date` | the build time, in ISO 8601 format |
+| `version` | the version of the file layout, `2.0.0` |
+
+[Read the catalogue in Python](python.md) shows how to load each group.

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig start-ovl" viewBox="0 0 760 180" width="760" height="180" role="img" aria-labelledby="start-overlap-title">
+<title id="start-overlap-title">Stars in common: a survey observes many stars and a label source fewer; the network trains on the stars that have both a spectrum and labels, and predicts labels for the stars that have only a spectrum. Proportions are illustrative.</title>
+<style>
+.start-ovl text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.start-ovl .h { font-weight: 700; font-size: 13px; }
+.start-ovl .n { font-weight: 700; font-size: 12.5px; }
+.start-ovl .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.start-ovl .tick { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11px; fill: var(--d-faint, #5F6A85); }
+.start-ovl .mt { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 16px; fill: var(--d-teal, #1D7468); }
+.start-ovl .mg { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 16px; fill: var(--d-gold, #8C5D00); }
+.start-ovl .tt { font-size: 12px; fill: var(--d-teal, #1D7468); }
+.start-ovl .tg { font-size: 12px; fill: var(--d-gold, #8C5D00); }
+.start-ovl .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.start-ovl .labbar { fill: var(--d-gold-tint, #FCF0D6); stroke: var(--d-gold-fill, #F2B84B); stroke-width: 1.5; }
+.start-ovl .spec { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.start-ovl .ax { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.start-ovl .guide { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; stroke-dasharray: 4 3; }
+.start-ovl .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.start-ovl .tip { fill: currentColor; }
+.start-ovl .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.start-ovl .mline { fill: none; stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.start-ovl .mtip { fill: var(--d-teal, #1D7468); }
+.start-ovl .goldf { fill: var(--d-gold-fill, #F2B84B); stroke: var(--d-gold, #8C5D00); stroke-width: 1; }
+</style>
+<rect class="in" x="190.0" y="10" width="569.5" height="40"/>
+<text class="n" x="200" y="35">Spectra from a survey</text>
+<rect class="labbar" x="0.75" y="62" width="402.1" height="40"/>
+<text class="n" x="10" y="87">Labels from a label source</text>
+<path class="guide" d="M190.0 4V122"/>
+<path class="guide" d="M402.8 4V122"/>
+<path class="arrow" d="M4.0 116V124H186.0V116"/>
+<text class="h" x="95" y="146" text-anchor="middle">Labels only</text>
+<text class="t" x="95" y="164" text-anchor="middle">not used</text>
+<path class="arrow" d="M194.0 116V124H398.8V116"/>
+<text class="h" x="296.4" y="146" text-anchor="middle">Both</text>
+<text class="t" x="296.4" y="164" text-anchor="middle">the network trains here</text>
+<path class="arrow" d="M406.8 116V124H756.0V116"/>
+<text class="h" x="581.4" y="146" text-anchor="middle">Spectrum only</text>
+<text class="t" x="581.4" y="164" text-anchor="middle">the network predicts the labels here</text>
+</svg>
