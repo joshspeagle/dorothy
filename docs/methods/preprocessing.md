@@ -7,7 +7,8 @@ units of every prediction.
 ## Spectra
 
 A spectrum enters the model as an array of shape `(3, n_wavelengths)` on its
-survey's wavelength grid, and a batch of N spectra as `(N, 3, n_wavelengths)`:
+survey's wavelength grid. A batch of N spectra has shape
+`(N, 3, n_wavelengths)`:
 
 | Channel | Content |
 |---------|---------|
@@ -80,7 +81,8 @@ precise pixels do not dominate the input.
 {py:func}`~dorothy.data.fits_loader.encode_precision` computes ρ after
 {py:func}`~dorothy.data.fits_loader.zero_invalid_pixels` and
 {py:func}`~dorothy.data.fits_loader.normalize_spectra`, for training,
-evaluation and prediction.
+evaluation and prediction. A checkpoint saved before the encoding reads σ in
+this channel ([Old checkpoints](../reference/old-checkpoints.md#precision-encoding)).
 
 ```{raw} html
 <link rel="stylesheet" href="../_static/explainers/explainer.css">
@@ -92,8 +94,9 @@ evaluation and prediction.
 
 ## Labels
 
-The labels of N stars have shape `(N, 3, n_parameters)`: the values y, their
-uncertainties σ_y, and a mask that is 1 for a valid label and 0 otherwise.
+The labels of N stars have shape `(N, 3, n_parameters)`. The three channels
+hold the values y, their uncertainties σ_y, and a mask that is 1 for a valid
+label.
 Code that reads the mask counts an entry as valid where it is greater than 0.
 [Labels and quality flags](../catalogue/labels.md) defines which labels are
 valid. The parameters, and their number, come from the catalogue.
@@ -110,7 +113,7 @@ $$
 
 For Teff, y is log10 Teff, and its uncertainty is first converted to
 σ / (Teff ln 10). One normalized unit of a parameter is therefore the
-interquartile range of its training labels: in dex for log g and the
+interquartile range of its training labels. It is in dex for log g and the
 abundances, and in dex of log10 Teff for Teff. The model predicts μ and the
 predicted scatter s in these units.
 

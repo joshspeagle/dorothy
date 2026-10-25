@@ -38,18 +38,18 @@ factor of 2, the loss of one valid label is
 
 $$
 \mathcal{L} = \frac{(\mu - y)^2}{s^2} + \ln s^2,
-\qquad s^2 = e^{2 \ln s} + s_0^2 ,
+\qquad s^2 = e^{2 \ln s} + s_0^2 .
 $$
 
-where ln s is the model output, clamped to [−10, 5], and $s_0$ is the
+Here ln s is the model output, clamped to [−10, 5], and $s_0$ is the
 {term}`scatter floor`. The first term rewards accurate predictions, weighted by
 the predicted variance. The second term stops the network from making s large
 to hide its errors. For a given residual μ − y, $\mathcal{L}$ is smallest
 where $s^2 = (\mu - y)^2$, so s learns the typical size of the residuals.
 
 :::{note}
-The scatter floor $s_0$ (0.01 normalized units by default) stops s from
-collapsing to zero.
+The scatter floor $s_0$, in normalized units, stops s from collapsing to
+zero. [Configuration](../reference/configuration.md) gives its default.
 :::
 
 The loss of a batch is the mean over its valid labels; masked labels add
@@ -57,15 +57,15 @@ nothing. {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` is the
 one definition of s, shared by the loss, validation, evaluation and
 prediction.
 
-`loss: mse` trains μ alone with a masked mean squared error and leaves ln s
-untrained.
+Training starts with a [warm-up](training.md#warm-up) of this loss. `loss: mse`
+trains μ alone with a masked mean squared error and leaves ln s untrained.
 
-## Scatter and label errors
+## The label-error decoder
 
 Every head has two parallel decoders that read the same head input x. The
 label decoder $D_\mu$ predicts μ from x alone. The error decoder $D_s$
-predicts ln s from x and from u, which holds for each parameter p the log of
-the label source's reported label error $\sigma_{y,p}$ in normalized units:
+predicts ln s from x and from u. For each parameter p, u holds the log of the
+label source's reported label error $\sigma_{y,p}$ in normalized units:
 
 $$
 \mu = D_\mu(x), \qquad
@@ -107,19 +107,20 @@ x ([Residual stream](model.md#residual-stream)). In the MLP, x is the input of
 the last hidden layer.
 
 The error decoder always has a hidden layer, so that ln s can be a nonlinear
-function of u. For example, if the true label noise is $\sqrt{a}\,\sigma_y$ and
-adds in quadrature to the model error $\varepsilon$,
+function of u. For example, take a true label noise $\sqrt{a}\,\sigma_y$ that adds in
+quadrature to the model error $\varepsilon$:
 
 $$
 s^2 = a \sigma_y^2 + \varepsilon^2, \qquad
-\ln s = \tfrac{1}{2} \ln\left(a\, e^{2u} + \varepsilon^2\right),
+\ln s = \tfrac{1}{2} \ln\left(a\, e^{2u} + \varepsilon^2\right) .
 $$
 
-which tends to ln ε for small label errors and to u + ½ ln a for large ones.
+ln s then tends to ln ε for small label errors and to u + ½ ln a for large ones.
 
 In training, masked labels always get m. A fraction
-`training.label_error_dropout` of the stars, drawn again for every batch and
-head from a generator seeded by `seed`, also get m for all their parameters.
+`training.label_error_dropout` of the stars also get m for all their
+parameters. A generator seeded by `seed` draws them again for every batch and
+head.
 The model so learns to predict without the label errors. Validation,
 evaluation and prediction always use m, so the best epoch is the best one for
 the reported uncertainties.
@@ -153,10 +154,10 @@ validation stars, the stars that also chose the best epoch:
 $$
 c = \frac{P_{84} - P_{16}}{2} \ \text{of} \ \frac{\mu - y}{s} ,
 \qquad
-\sigma_\mathrm{cal} = c\, s ,
+\sigma_\mathrm{cal} = c\, s .
 $$
 
-where μ and s are the predictions of the best epoch's weights with the
+Here μ and s are the predictions of the best epoch's weights with the
 missing vector, in normalized units. c is the validation `z_robust_scatter`,
 so the calibrated uncertainty $\sigma_\mathrm{cal}$ gives the validation
 z-scores a robust spread of 1. A factor that is not finite and positive is set

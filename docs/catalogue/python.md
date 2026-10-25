@@ -7,7 +7,7 @@ call returns. N is the number of stars and P the number of parameters.
 Training code does not call `CatalogueLoader` directly.
 {py:func}`~dorothy.data.training_data.load_training_data` selects and splits
 the stars for training
-([Training](../methods/training.md#data-selection-and-split)).
+([Training](../methods/training.md#the-data-split)).
 
 ## Open the file
 

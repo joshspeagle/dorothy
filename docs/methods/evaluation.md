@@ -7,8 +7,8 @@ defines the metrics, the z-scores and the two units that they are reported in.
 
 {py:func}`~dorothy.inference.evaluation_utils.evaluate_model` scores a model
 on a set of stars for every output head. It uses the batches, the label
-normalization and the predicted scatter of training, and the model reads no
-label errors, so it predicts with its {term}`missing vector`. On the
+normalization and the predicted scatter of training. The model reads no label
+errors, so it predicts with its {term}`missing vector`. On the
 validation stars, without calibration factors, its metrics therefore equal
 the ones recorded during training. Given a checkpoint's
 [calibration factors](uncertainties.md#calibration-factors), it scores the
@@ -48,8 +48,10 @@ $$
 
 with c = 1 without calibration factors. The predicted scatter already
 includes the label noise
-([Scatter and label errors](uncertainties.md#scatter-and-label-errors)), so
-z needs no other term. If the uncertainties are right, the z-scores of stars
+([The label-error decoder](uncertainties.md#the-label-error-decoder)), so
+z needs no other term. A checkpoint saved before the label-aware uncertainty
+divides by another scatter
+([Old checkpoints](../reference/old-checkpoints.md#label-aware-uncertainty)). If the uncertainties are right, the z-scores of stars
 the model did not train on follow a standard normal distribution.
 
 ::::{container} d-figure
@@ -80,7 +82,7 @@ model. `dorothy evaluate` plots a z-score histogram per parameter and label
 source. Calibration can differ between label sources, because each head
 predicts the scatter against its own source's labels.
 
-## Normalized and physical units
+## Units
 
 `dorothy evaluate` reports every metric in two units:
 
@@ -92,8 +94,8 @@ predicts the scatter against its own source's labels.
   converts μ and the uncertainty.
 
 For a parameter normalized linearly, the conversion multiplies the residual
-and the uncertainty by the same interquartile range q, so the z-scores are
-equal in both units. Teff is normalized in log10, so a normalized
+and the uncertainty by the same interquartile range q. Its z-scores are
+therefore equal in both units. Teff is normalized in log10, so a normalized
 uncertainty s becomes $\mathrm{Teff}\,\ln 10\; q\, s$ kelvin, with Teff the
 predicted value. Its z-scores in kelvin equal the normalized ones to first
 order in the residual.

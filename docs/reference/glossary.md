@@ -51,7 +51,7 @@ mask
 
 missing vector
   The learned input of a head's log-scatter that stands in for a missing
-  label error. See [Uncertainties](../methods/uncertainties.md#scatter-and-label-errors).
+  label error. See [Uncertainties](../methods/uncertainties.md#the-label-error-decoder).
 
 ivar
   The inverse variance of a flux measurement, 1/σ². A pixel with ivar = 0
@@ -82,7 +82,7 @@ spectrum
 split
   The division of the usable stars into training, validation and test sets,
   stored in the checkpoint as row indices. See
-  [Data selection and split](../methods/training.md#data-selection-and-split).
+  [The data split](../methods/training.md#the-data-split).
 
 super-catalogue
   The HDF5 file with every star's spectra and labels, one row per star. See

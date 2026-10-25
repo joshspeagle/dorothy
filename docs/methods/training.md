@@ -1,11 +1,10 @@
 # Training
 
 `dorothy train config.yaml` turns a configuration and the catalogue into a
-{term}`checkpoint`. This page explains how training selects and splits the
-stars, combines several label sources, warms up the loss, optimizes, averages
-the weights and masks the data.
+{term}`checkpoint`. This page explains each step of training. [Configuration](../reference/configuration.md)
+lists every setting and its default.
 
-## Data selection and split
+## The data split
 
 A star is used when it has a spectrum from at least one configured survey and
 at least one valid label from a configured label source.
@@ -15,18 +14,18 @@ for training, for `dorothy evaluate` and for the Python API alike.
 The split permutes the selected stars with
 `numpy.random.RandomState(seed)`. Of n stars, the first
 int(n · `train_ratio`) train, the next int(n · `val_ratio`) validate, and
-the rest form the test set (70%, 20% and 10% by default). The trainer fits the
+the rest form the test set. The trainer fits the
 [label normalization](preprocessing.md#label-normalization) on the training
-stars, chooses the best epoch and fits the
+stars. It chooses the best epoch and fits the
 [calibration factors](uncertainties.md#calibration-factors) on the validation
-stars, and leaves the test stars to `dorothy evaluate`.
+stars. The test stars are left to `dorothy evaluate`.
 
 ## Several label sources
 
-Each label source has its own {term}`head` and its own loss. With $S_k$ the
-summed loss of the $n_k$ valid labels of source k in a batch and $w_k$ its
-weight (`training.label_source_weights`, 1 by default),
-`training.label_source_weighting` combines them in one of two ways:
+Each label source has its own {term}`head` and its own loss. Let $S_k$ be the
+summed loss of the $n_k$ valid labels of source k in a batch, and $w_k$ its
+weight (`training.label_source_weights`).
+`training.label_source_weighting` combines the losses in one of two ways:
 
 $$
 \mathcal{L}_\text{per\_label} = \frac{\sum_k w_k S_k}{\sum_k w_k n_k},
@@ -36,9 +35,9 @@ $$
 \mathcal{L}_\text{per\_source} = \frac{\sum_k w_k S_k / n_k}{\sum_k w_k} .
 $$
 
-`per_label`, the default, counts every valid label equally, so a source with
+`per_label` counts every valid label equally, so a source with
 more labels in the batch weighs more. `per_source` counts each source's mean
-loss equally, whatever its number of labels; it sums over the sources with at
+loss equally, whatever its number of labels. It sums over the sources with at
 least one valid label in the batch. The validation loss combines the heads in
 the same way, and the training history also records each head's own best
 epoch.
@@ -68,11 +67,11 @@ $$
 $$
 
 $$
-W = \operatorname{round}(f\, n_\text{epochs}\, n_\text{steps}),
+W = \operatorname{round}(f\, n_\text{epochs}\, n_\text{steps}) .
 $$
 
-where t counts the optimizer steps of the run from 0, $n_\text{steps}$ is the
-number of steps per epoch and f is `training.nll_warmup_fraction`. f = 0
+Here t counts the optimizer steps of the run from 0, and $n_\text{steps}$ is
+the number of steps per epoch. f is `training.nll_warmup_fraction`. f = 0
 turns the warm-up off, and `loss: mse` has none.
 
 ::::{container} d-figure
@@ -103,12 +102,11 @@ ends mixes both losses.
 
 ## Optimization
 
-The default optimizer is AdamW {cite:p}`loshchilov2019adamw`, with weight
-decay on the weight matrices only: biases and normalization weights are not
-decayed. The default learning-rate schedule is one cycle
-{cite:p}`smith2019superconvergence`, which also cycles the momentum (β₁ of
-Adam and AdamW, or the momentum of SGD) between 0.85 and 0.95, opposite to
-the learning rate. Gradients are clipped to a norm of `training.gradient_clip`.
+The optimizer is AdamW {cite:p}`loshchilov2019adamw`, Adam or SGD. Weight
+decay applies to the weight matrices only, not to biases and normalization
+weights. The one-cycle learning-rate schedule
+{cite:p}`smith2019superconvergence` also cycles the momentum between 0.85 and
+0.95, opposite to the learning rate. The momentum is β₁ for Adam and AdamW. Gradients are clipped to a norm of `training.gradient_clip`.
 The batches are shuffled by a generator seeded by `seed`.
 
 With mixed precision (`training.amp`, CUDA only), the training forward pass
@@ -143,12 +141,12 @@ schedule and every saved weight file. After training the model holds the
 averaged weights of the best epoch. The training steps, and the weight norms
 and updates in the history, use the trained weights.
 
-The average lags the trained weights: the weights from n steps before have the
-share $(1 - d)\,d^n$, a mean age of $d/(1 - d)$ steps (999 for d = 0.999).
+The average lags the trained weights. The weights from n steps before have the
+share $(1 - d)\,d^n$, so their mean age is $d/(1 - d)$ steps: 999 for
+d = 0.999.
 Averaging the weights along the training trajectory can improve
 generalization {cite:p}`izmailov2018swa`, and it makes the result depend less
-on the exact stopping epoch. It is off by default, because it also lags a
-head that starts to overfit.
+on the exact stopping epoch. It also lags a head that starts to overfit.
 
 The average is one more copy of the weights on the training device, 4 bytes
 per parameter. Training with AdamW already holds five such copies: the
@@ -186,8 +184,9 @@ label sources and labels; the batch is illustrative.
 : Keeps each survey of a star with a probability drawn from
   [`p_survey_min`, `p_survey_max`]. A hidden survey is 0 in all three channels
   and counts as missing. Within each kept survey it hides blocks of pixels.
-  The block size is a fraction f of the N pixels of the spectrum, with ln f
-  drawn uniformly between ln(1/N), one pixel, and ln `f_max`. A random offset
+  The block size is a fraction f of the N pixels of the spectrum. ln f is
+  drawn uniformly between ln f_min and ln `f_max`. f_min is 1/N, one pixel,
+  unless `f_min_override` sets a larger fraction. A random offset
   moves the
   block boundaries, so no pixel always sits at an edge. Each block is kept
   with a probability drawn from [`p_block_min`, `p_block_max`]. With one
@@ -206,25 +205,8 @@ device mask the same entries.
 
 ## Checkpoints
 
-A run writes the checkpoint directory `<output_dir>/<name>/<name>_final/`:
-
-| File | Contents |
-|------|----------|
-| `best_model.pth` | Weights from the best epoch |
-| `final_model.pth` | Weights after the last epoch |
-| `calibration.json` | One factor per head and parameter that scales the predicted scatter of `best_model.pth` |
-| `config.yaml` | The completed configuration |
-| `normalizer.pkl` | The label normalization |
-| `data_split.pkl` | Rows of the training, validation and test sets |
-| `history_train_val.pkl` | Losses and metrics per epoch |
-| `learning_rates.pkl` | The learning rate after each optimizer step |
-| `plots/` | Training plots; the bar charts of validation metrics show the best epoch |
-
-`data_split.pkl` stores catalogue rows for the sparse layout and rows of the
-loaded arrays for the dense layouts. `training.save_every: N` also saves the
-weights, the configuration and the normalization every N epochs, in
-`epoch_N/`, without calibration factors. The weights there are
-`model_epoch_N.pth` and `best_model_epoch_N.pth`; `dorothy evaluate --model`
-loads them, and `dorothy predict` cannot.
+A run writes the checkpoint directory `<output_dir>/<name>/<name>_final/`.
+[File formats](../reference/file-formats.md#checkpoint-directory) lists its
+files, and the epoch checkpoints of `training.save_every`.
 `dorothy train config.yaml --resume <checkpoint>` starts from the weights of
 an earlier run, with a new optimizer, schedule and warm-up.

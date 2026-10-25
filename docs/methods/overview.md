@@ -26,7 +26,7 @@ each step.
    {py:func}`~dorothy.data.training_data.load_training_data` keeps the stars
    that have a spectrum from a configured survey and a valid label from a
    configured {term}`label source`. It splits them into training, validation
-   and test stars ([Training](training.md#data-selection-and-split)).
+   and test stars ([Training](training.md#the-data-split)).
 2. **Preprocess.** Each spectrum becomes three channels: flux, the precision
    encoding ρ and a mask. Each label is scaled by the median and
    interquartile range of the training labels
@@ -53,8 +53,8 @@ each step.
 
 ## One definition per step
 
-Training, evaluation and prediction call the same functions for the data
-selection, the preprocessing, the label normalization, the predicted scatter,
-its calibration and the forward pass. Evaluation on the validation stars
+Training, evaluation and prediction call the same functions for each step.
+These cover the data selection, the preprocessing, the label normalization,
+the predicted scatter, its calibration and the forward pass. Evaluation on the validation stars
 therefore reproduces the metrics recorded during training.
 [Shared definitions](../contribute/shared-definitions.md) lists the functions.
