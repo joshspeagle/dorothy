@@ -107,8 +107,8 @@ x ([Residual stream](model.md#residual-stream)). In the MLP, x is the input of
 the last hidden layer.
 
 The error decoder always has a hidden layer, so that ln s can be a nonlinear
-function of u. For example, take a true label noise $\sqrt{a}\,\sigma_y$ that adds in
-quadrature to the model error $\varepsilon$:
+function of u. For example, take a true label noise $\sqrt{a}\,\sigma_y$
+that adds in quadrature to the model error $\varepsilon$:
 
 $$
 s^2 = a \sigma_y^2 + \varepsilon^2, \qquad

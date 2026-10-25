@@ -51,8 +51,8 @@ includes the label noise
 ([The label-error decoder](uncertainties.md#the-label-error-decoder)), so
 z needs no other term. A checkpoint saved before the label-aware uncertainty
 divides by another scatter
-([Old checkpoints](../reference/old-checkpoints.md#label-aware-uncertainty)). If the uncertainties are right, the z-scores of stars
-the model did not train on follow a standard normal distribution.
+([Old checkpoints](../reference/old-checkpoints.md#label-aware-uncertainty)).
+If the uncertainties are right, the z-scores of stars the model did not train on follow a standard normal distribution.
 
 ::::{container} d-figure
 ```{raw} html

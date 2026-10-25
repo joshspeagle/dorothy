@@ -102,8 +102,9 @@ masks.
 
 The {py:class}`~dorothy.models.multi_head_mlp.SharedTrunk` passes the
 combined vector through the `trunk_hidden` layers, which form a
-[residual stream](#residual-stream) unless `residual_stream` is false. Its output describes the star whatever
-surveys observed it, and every head reads it.
+[residual stream](#residual-stream) unless `residual_stream` is false. Its
+output describes the star whatever surveys observed it, and every head reads
+it.
 
 ## Heads
 
@@ -134,8 +135,8 @@ normalization closes the stream.
 
 Each decoder of a head reads its own copy of the closed stream z. It adds one
 residual block of hidden size h for each entry h of `output_hidden`. A
-normalization and a linear map to one output per parameter follow. The error decoder adds a linear
-map of the log label errors u to its copy:
+normalization and a linear map to one output per parameter follow. The
+error decoder adds a linear map of the log label errors u to its copy:
 
 $$
 \mu = D_\mu(z), \qquad \ln s = D_s(z + W_u u),
@@ -148,8 +149,8 @@ function of u.
 128-number output, and error decoders that read u concatenated to their
 input. The block count follows the layer sizes, not the parameter count.
 Take one survey of 4506 wavelengths, 11 parameters and the default layer
-sizes of the [Configuration](../reference/configuration.md) reference. `count_parameters_by_component()`
-then reports 472,737 parameters for the residual trunk and head, and 316,513
+sizes of the [Configuration](../reference/configuration.md) reference.
+`count_parameters_by_component()` then reports 472,737 parameters for the residual trunk and head, and 316,513
 for the plain ones. The encoder, with 14,503,168, holds most of the
 parameters either way.
 

@@ -1,10 +1,11 @@
 /* Explainer: calibrate the uncertainties (How it works / Uncertainties).
 
    2,000 simulated validation stars have a predicted scatter 1.4 times too
-   small, so their raw z-scores are 1.4 times a standard normal draw. The reader scales s by c and sees the
-   histogram of z = r / (c s) against the standard normal density. "Fit c"
-   sets c to the robust spread (P84 - P16) / 2 of the raw z-scores, as the
-   trainer does. Seeded, so every load is identical. */
+   small, so their raw z-scores are 1.4 times a standard normal draw. The
+   reader scales s by c and sees the histogram of z = r / (c s) against the
+   standard normal density. "Fit c" sets c to the robust spread
+   (P84 - P16) / 2 of the raw z-scores, as the trainer does. Seeded, so
+   every load is identical. */
 (function () {
   "use strict";
   var NS = "http://www.w3.org/2000/svg";

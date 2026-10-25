@@ -55,6 +55,6 @@ each step.
 
 Training, evaluation and prediction call the same functions for each step.
 These cover the data selection, the preprocessing, the label normalization,
-the predicted scatter, its calibration and the forward pass. Evaluation on the validation stars
-therefore reproduces the metrics recorded during training.
+the predicted scatter, its calibration and the forward pass. Evaluation on
+the validation stars therefore reproduces the metrics recorded during training.
 [Shared definitions](../contribute/shared-definitions.md) lists the functions.

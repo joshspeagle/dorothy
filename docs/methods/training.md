@@ -1,8 +1,9 @@
 # Training
 
 `dorothy train config.yaml` turns a configuration and the catalogue into a
-{term}`checkpoint`. This page explains each step of training. [Configuration](../reference/configuration.md)
-lists every setting and its default.
+{term}`checkpoint`. This page explains each step of training.
+[Configuration](../reference/configuration.md) lists every setting and its
+default.
 
 ## The data split
 
@@ -104,9 +105,10 @@ ends mixes both losses.
 
 The optimizer is AdamW {cite:p}`loshchilov2019adamw`, Adam or SGD. Weight
 decay applies to the weight matrices only, not to biases and normalization
-weights. The one-cycle learning-rate schedule
+weights. The learning-rate schedule `one_cycle`
 {cite:p}`smith2019superconvergence` also cycles the momentum between 0.85 and
-0.95, opposite to the learning rate. The momentum is β₁ for Adam and AdamW. Gradients are clipped to a norm of `training.gradient_clip`.
+0.95, opposite to the learning rate. The momentum is β₁ for Adam and AdamW.
+Gradients are clipped to a norm of `training.gradient_clip`.
 The batches are shuffled by a generator seeded by `seed`.
 
 With mixed precision (`training.amp`, CUDA only), the training forward pass
