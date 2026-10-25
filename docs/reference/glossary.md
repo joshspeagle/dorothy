@@ -60,7 +60,7 @@ ivar
 normalized units
   The units the model predicts in: each parameter minus its training median,
   divided by its training interquartile range, with Teff in log10. See
-  [Preprocessing](../methods/preprocessing.md#labels).
+  [Preprocessing](../methods/preprocessing.md#label-normalization).
 
 prediction
   The model's value μ of a label, in {term}`normalized units` or, after the
@@ -104,5 +104,5 @@ uncertainty
 
 z-score
   The residual of a prediction divided by its predicted scatter:
-  z = (μ − y) / s. See [Calibration](../methods/uncertainties.md#calibration).
+  z = (μ − y) / s. See [Z-scores](../methods/evaluation.md#z-scores).
 ```

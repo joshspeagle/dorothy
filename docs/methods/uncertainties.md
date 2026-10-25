@@ -60,11 +60,6 @@ prediction.
 `loss: mse` trains μ alone with a masked mean squared error and leaves ln s
 untrained.
 
-### Warm-up
-
-Training starts with a variant of this loss that helps μ converge first
-([Training](training.md#warm-up)).
-
 ## Scatter and label errors
 
 Every head has two parallel decoders that read the same head input x. The
