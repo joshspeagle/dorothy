@@ -4,6 +4,11 @@
 super-catalogue. This page shows one task per code block, with the shapes each
 call returns. N is the number of stars and P the number of parameters.
 
+Training code does not call `CatalogueLoader` directly.
+{py:func}`~dorothy.data.training_data.load_training_data` selects and splits
+the stars for training
+([Training](../methods/training.md#data-selection-and-split)).
+
 ## Open the file
 
 ```python
@@ -13,9 +18,10 @@ loader = CatalogueLoader("data/super_catalogue.h5")
 loader.info()
 ```
 
-`info()` prints, for each survey, the number of stars with a spectrum and the
-wavelength grid. It then prints the number of stars with labels from each
-label source, and the parameter names.
+`info()` prints, for each {term}`survey`, the number of stars with a spectrum
+and the wavelength grid. It then prints the number of stars with
+{term}`labels <label>` from each {term}`label source`, and the parameter
+names.
 
 ## List the parameters
 
@@ -67,7 +73,7 @@ It holds the arrays as stored: `data.flux` and `data.ivar` of shape
 `data.label_errors` and `data.label_flags` of shape `(n_stars, P)`.
 `data.gaia_ids` gives each star's source ID.
 
-## Read one survey as model inputs
+## Inspect one survey as model inputs
 
 ```python
 X, y = loader.load_for_training(
@@ -79,7 +85,8 @@ X, y = loader.load_for_training(
 shape `(n_stars, 3, P)` = [values, errors, mask]. The stars are those of the
 previous task, without the stars that have more flagged labels than
 `max_flag_bits`. `normalize_spectra=True` matches the default training
-configuration.
+configuration. Use this call to inspect one survey's inputs, not to train: it
+does not split the stars.
 
 ## Read one label source's labels
 
@@ -88,7 +95,7 @@ y = loader.load_labels("galah", max_flag_bits=0)
 ```
 
 `y` has shape `(N, 3, P)` = [values, errors, mask], one row per catalogue
-star, with no spectra. The mask is 1 where a label is valid, and 0 for stars
+star, with no spectra. The {term}`mask` is 1 where a label is valid, and 0 for stars
 that GALAH did not measure. [Labels and quality flags](labels.md#when-a-label-is-valid)
 defines a valid label and `max_flag_bits`.
 
