@@ -1097,6 +1097,13 @@ class TestCLIEvaluateSingleSurvey:
 
         return checkpoint_path
 
+    def test_evaluate_reports_a_missing_catalogue(
+        self, single_survey_checkpoint, tmp_path, capsys
+    ):
+        (tmp_path / "test_catalogue.h5").unlink()
+        assert main(["evaluate", str(single_survey_checkpoint)]) == 1
+        assert "Error: Catalogue not found" in capsys.readouterr().out
+
     def test_evaluate_single_survey_works(self, single_survey_checkpoint, capsys):
         """Test that evaluate works on single-survey (variant1-style) checkpoint."""
         result = main(["evaluate", str(single_survey_checkpoint)])
