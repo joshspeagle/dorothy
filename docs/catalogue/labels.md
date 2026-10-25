@@ -1,38 +1,77 @@
 # Labels and quality flags
 
+Each label source stores a value, an error and a quality flag for every
+parameter of every star. This page lists the parameters and says when a label
+is valid.
+
 ## Parameters
 
-The parameters are chosen when building and recorded in the file's
-`parameter_names` attribute, in the order of the label columns; APOGEE and
-GALAH use the same order. The default build has 11:
+The file's `parameter_names` attribute lists the parameters in the order of
+the label columns. APOGEE and GALAH use the same order. A default build has
+11 parameters:
 
-| Index | Name | Parameter | Units |
-|-------|------|-----------|-------|
-| 0 | `teff` | Effective temperature | K |
-| 1 | `logg` | Surface gravity | dex (log cm s⁻²) |
+| Column | Name | Parameter | Units |
+|--------|------|-----------|-------|
+| 0 | `teff` | effective temperature | K |
+| 1 | `logg` | surface gravity, log g | dex, with g in cm s⁻² |
 | 2 | `fe_h` | [Fe/H] | dex |
-| 3–10 | `mg_fe`, `c_fe`, `si_fe`, `ni_fe`, `al_fe`, `ca_fe`, `n_fe`, `mn_fe` | [X/Fe] | dex |
+| 3–10 | `mg_fe`, `c_fe`, `si_fe`, `ni_fe`, `al_fe`, `ca_fe`, `n_fe`, `mn_fe` | [X/Fe] of Mg, C, Si, Ni, Al, Ca, N and Mn | dex |
 
-`--elements extended` adds O, Na, K, Ti, V, Cr, Co, Ba and Sr (20 parameters).
-`--abundance-scale x_h` stores [X/H] instead of [X/Fe]: APOGEE's own X_H
-values where the allStar file has them, otherwise [X/Fe] + [Fe/H] with the
-errors added in quadrature. An element a label source does not measure is
-stored with error 0, which masks it.
+## The extended set
 
-## Quality flags
+With the option `--elements extended`, `scripts/build_catalogue_v2.py` adds
+nine elements after Mn: O, Na, K, Ti, V, Cr, Co, Ba and Sr. The catalogue
+then has 20 parameters.
 
-A label is valid when its error is positive and its flag is 0. The builder
-derives the flags from each catalogue's own flags, and also sets them when a
-value or error is not finite:
+A label source does not measure every element. If a label source's input file
+has no column for an element, the builder stores that element with error 0, so
+its labels are never valid.
 
-| Parameter | APOGEE | GALAH |
-|-----------|--------|-------|
-| `teff` | ASPCAPFLAG bit 0 (TEFF_WARN) or 16 (TEFF_BAD) | `flag_sp` ≠ 0 |
-| `logg` | ASPCAPFLAG bit 1 (LOGG_WARN) or 17 (LOGG_BAD) | `flag_sp` ≠ 0 |
+## [X/Fe] and [X/H]
+
+By default the abundances are relative to iron, [X/Fe]. With the option
+`--abundance-scale x_h`, the builder stores them relative to hydrogen, [X/H],
+and the names end in `_h`, such as `mg_h`. The file's `abundance_scale`
+attribute records the choice.
+
+The builder derives [X/H] from [X/Fe] and [Fe/H]:
+
+$$
+[\mathrm{X/H}] = [\mathrm{X/Fe}] + [\mathrm{Fe/H}], \qquad
+\sigma_{\mathrm{X/H}} = \sqrt{\sigma_{\mathrm{X/Fe}}^2 + \sigma_{\mathrm{Fe/H}}^2},
+$$
+
+where σ is the error of each abundance. A derived [X/H] is flagged when its
+[X/Fe] or its [Fe/H] is flagged. APOGEE is the exception for most elements:
+where its input file has the allStar `X_H` column, the builder copies [X/H]
+from it, and the error from `X_H_ERR`. The builder reads no `X_H` entry for Ba
+and Sr, so it derives them.
+
+## When a label is valid
+
+A label is valid when its error is positive and its flag is 0. The loaders
+mask every other label. The builder also flags a label whose value or error
+is not finite, and stores it with value 0 and error 0.
+
+In a built catalogue each flag is 0 or 1. The loaders take a `max_flag_bits`
+argument, which limits the number of flagged labels of a star. A star with
+more flagged labels loses all its labels: `load_labels` and
+`load_merged_sparse` mask them, and `load_for_training` drops the star. With
+0, one flagged label removes the whole star. With −1, the loaders remove only
+the flagged labels.
+
+## Quality flags per label source
+
+The builder sets a label's flag from the flags of its label source:
+
+| Parameter | APOGEE flag set when | GALAH flag set when |
+|-----------|----------------------|---------------------|
+| `teff` | `ASPCAPFLAG` bit 0 (TEFF_WARN) or bit 16 (TEFF_BAD) | `flag_sp` ≠ 0 |
+| `logg` | `ASPCAPFLAG` bit 1 (LOGG_WARN) or bit 17 (LOGG_BAD) | `flag_sp` ≠ 0 |
 | `fe_h` | `FE_H_FLAG` ≠ 0 | `flag_fe_h` ≠ 0 |
-| [X/Fe] | `X_FE_FLAG` ≠ 0 | `flag_x_fe` ≠ 0 |
+| each [X/Fe] | `X_FE_FLAG` ≠ 0, such as `MG_FE_FLAG` | `flag_x_fe` ≠ 0, such as `flag_mg_fe` |
 
-Other ASPCAPFLAG bits (such as VMICRO_WARN) do not flag Teff or log g. A
-derived [X/H] is also flagged when [Fe/H] is flagged. References:
-[APOGEE bitmasks](https://www.sdss4.org/dr17/irspec/apogee-bitmasks/),
-[GALAH flags](https://www.galah-survey.org/dr4/flags/).
+Other `ASPCAPFLAG` bits, such as VMICRO_WARN, do not flag Teff or log g. The
+bits are defined in the
+[APOGEE bitmask documentation](https://www.sdss4.org/dr17/irspec/apogee-bitmasks/)
+and the [GALAH flag documentation](https://www.galah-survey.org/dr4/flags/).
