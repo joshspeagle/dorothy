@@ -8,7 +8,7 @@ fills in each missing setting, and
 ## Missing settings
 
 A `config.yaml` without one of these settings loads with the value in the
-second column, so the model predicts and evaluates as it did when it was
+second column. The model then predicts and evaluates as it did when it was
 saved.
 
 | Setting | Loads as | Training |
@@ -61,8 +61,8 @@ A checkpoint saved before `label_aware_uncertainty` has the additive model.
 
 ## Residual stream
 
-A multi-head checkpoint saved before `residual_stream` has plain blocks: a
-trunk with a 128-number output, and heads whose error decoder concatenates
+A multi-head checkpoint saved before `residual_stream` has plain blocks. Its
+trunk has a 128-number output. The error decoder of each head concatenates
 the log label errors to its input. `dorothy train --resume` needs the same
 `residual_stream` value in the new configuration.
 
@@ -74,8 +74,8 @@ A checkpoint without `calibration.json` reports the raw predicted scatter $s$.
 ## Head names
 
 A multi-head model with one label source used to name its head `default`.
-Its weights load into a head named after the first label source, so select
-it with that name: `--label-source apogee`, not `--label-source default`.
+Its weights load into a head named after the first label source. Select the
+head by that name: `--label-source apogee`, not `--label-source default`.
 
 ## Several label sources
 
@@ -91,7 +91,8 @@ a data layout that this version no longer builds.
 
 | File | Behaviour |
 |------|-----------|
-| `data_split.pkl` without `index_space: rows` | Its indices point into the filtered arrays of the old loaders; `DataSplit.load` converts them to catalogue rows |
+| `data_split.pkl` of a dense layout without `index_space: rows` | Its indices point into the filtered arrays of the old loaders. `DataSplit.load` converts them to rows of the loaded arrays with `TrainingData.legacy_filtered_rows` |
+| `data_split.pkl` of sparse storage without `index_space: rows` | Its indices are already catalogue rows and load unchanged |
 | No `data_split.pkl` | `dorothy evaluate` recreates the split from the configured `seed` |
 
 ## Other settings

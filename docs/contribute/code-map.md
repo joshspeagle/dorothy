@@ -26,7 +26,7 @@ checkpoint, and evaluation and prediction read it.
 | {py:mod}`dorothy.inference` | Loads checkpoints, predicts, evaluates, calibrates | {py:func}`~dorothy.inference.checkpoint.load_checkpoint`, {py:class}`~dorothy.inference.predictor.Predictor`, {py:func}`~dorothy.inference.evaluation_utils.evaluate_model` |
 | {py:mod}`dorothy.analysis` | Saliency maps, anomaly detection, comparison of label sources | {py:class}`~dorothy.analysis.saliency.SaliencyAnalyzer`, {py:class}`~dorothy.analysis.knn_anomaly.AnomalyDetector`, {py:func}`~dorothy.analysis.label_comparison.compare_label_sources` |
 | {py:mod}`dorothy.visualization` | Training and evaluation plots | {py:func}`~dorothy.visualization.evaluation_plots.generate_evaluation_plots` |
-| {py:mod}`dorothy.cli` | The `dorothy` command | {py:func}`~dorothy.cli.main.main` |
+| {py:mod}`dorothy.cli` | The `dorothy` command | `main` in `dorothy/cli/main.py` |
 
 Outside the package:
 
@@ -40,7 +40,7 @@ Outside the package:
 
 ## Training
 
-`dorothy train` runs {py:func}`~dorothy.cli.main.cmd_train`, which calls these
+`dorothy train` runs `cmd_train` in `dorothy/cli/main.py`, which calls these
 functions in order.
 
 1. {py:func}`~dorothy.data.training_data.complete_config_from_catalogue` fills

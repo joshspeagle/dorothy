@@ -59,7 +59,7 @@ head, in normalized and physical units ([Evaluation](../methods/evaluation.md)).
 | Output | Content |
 |--------|---------|
 | Screen | The metrics of each head; with calibration factors, a table of the factors and the raw and calibrated `z_robust_scatter` |
-| `--format json` | The first head's metrics at the top level and every head's under `label_sources`. Each head has `normalized_space`, `physical_space` (with a normalizer) and, with calibration factors, `calibration_factors` and `uncalibrated_normalized_space`. Without `--output`, the JSON is the only screen output |
+| `--format json` | The first head's metrics at the top level and every head's under `label_sources`. Each head has `normalized_space`, `physical_space` (with a normalizer) and, with calibration factors, `calibration_factors` and `uncalibrated_normalized_space`. Without `--output`, the screen shows the JSON between progress lines; use `--output` for a clean JSON file |
 | Plots | Four per label source: `<label_source>_pred_vs_truth.png`, `_residuals.png`, `_histograms.png` and `_zscore_histograms.png` |
 
 ## predict
@@ -95,8 +95,7 @@ dorothy info outputs/run/run_final
 |----------|---------|--------|
 | `checkpoint` | required | The checkpoint directory |
 
-The command prints these parts of the checkpoint. A file that it cannot read
-prints an error line, and the command goes on.
+The command prints these parts of the checkpoint.
 
 | Part | Content |
 |------|---------|
@@ -112,5 +111,9 @@ prints an error line, and the command goes on.
 | Code | Meaning |
 |------|---------|
 | 0 | Success, `--help` or `--version` |
-| 1 | An error, printed as `Error: …` |
+| 1 | An error that the command reports as `Error: …`, or an uncaught exception, with its traceback |
 | 2 | Invalid arguments |
+
+`dorothy info` exits with 1 only when the checkpoint directory does not
+exist. For a file that it cannot read, it prints an `Error loading …` line,
+goes on and exits with 0.

@@ -8,7 +8,7 @@ the package reads any survey that the catalogue holds.
 
 The builder reads one cross-matched FITS file per pair of a survey and a
 label source, in `data/raw_catalogues/`. Each file has these binary-table
-extensions, with one row per spectrum.
+extensions. All but `WAVELENGTH` have one row per spectrum.
 
 | Extension | Columns | Content |
 |-----------|---------|---------|
@@ -32,13 +32,15 @@ it becomes the group `surveys/<name>/` and the name in configurations.
 1. Add one entry per label source to `INPUT_FILE_CANDIDATES`:
    `("weave", "apogee"): ["WEAVExAPOGEE_training.fits"]`, and the same for
    `galah`.
-2. Add the name to the survey lists in `build_catalogue`: the dry-run loop,
-   the survey loop of pass 2, the label loop of pass 3 and the
-   `survey_names` file attribute.
+2. Add the name to the four survey lists in `build_catalogue`:
+   - the dry-run loop;
+   - the survey loop of pass 2;
+   - the label loop of pass 3;
+   - the `survey_names` file attribute.
 
 A survey with two arms, like LAMOST MRS, also needs the `lamost_mrs`
-branches of pass 2, which read `SPECTRA_B`, `SPECTRA_R` and their `IVAR` and
-`WAVELENGTH` extensions.
+branches of pass 2. These branches read the `SPECTRA_B` and `SPECTRA_R`
+extensions, with their `IVAR` and `WAVELENGTH` extensions.
 
 ## Step 3: Build the catalogue
 
@@ -91,4 +93,7 @@ dorothy predict --checkpoint outputs/run/run_final --input weave.fits \
 2. Add its input files to the table in
    [How the catalogue is built](../catalogue/build.md).
 3. Add it to the data table of the home page, `docs/index.md`.
-4. Add a line under "Unreleased" in `CHANGELOG.md`.
+4. Add it to the `survey` entry of the [glossary](../reference/glossary.md)
+   and to the terms table of the [writing guide](writing.md).
+5. Add it where `README.md` and `CLAUDE.md` name the four surveys.
+6. Add a line under "Unreleased" in `CHANGELOG.md`.

@@ -63,12 +63,14 @@ to it.
 
 ## Add a figure
 
-1. Draw the SVG in `docs/figures/`, in the style of `multi-head.svg`: a
-   `<title>`, `role="img"`, ink in `currentColor` and role colours from the
-   theme tokens with fallbacks, such as `var(--d-teal, #1D7468)`.
-2. If its text would render under 11 px on a 360 px screen, also draw a
-   narrow variant, `<name>-narrow.svg`, 360 units wide.
-3. Include it with a caption of one sentence:
+1. Draw the SVG in `docs/figures/`, in the style of `multi-head.svg`. Give it
+   a `<title>` and `role="img"`.
+2. Draw ink in `currentColor`. Take role colours from the theme tokens with
+   fallbacks, such as `var(--d-teal, #1D7468)`.
+3. Check the text size of the figure on a 360 px screen. If text renders
+   under 11 px, also draw a narrow variant, `<name>-narrow.svg`, 360 units
+   wide.
+4. Include it with a caption of one sentence:
 
    ````md
    ::::{container} d-figure
@@ -94,21 +96,36 @@ to it.
 
 ## Add an explainer
 
-An explainer is an interactive figure.
+An explainer is an interactive figure on a How it works page. Each explainer
+is one script in `docs/_static/explainers/`, such as `precision.js`. All
+explainers share the styles in `docs/_static/explainers/explainer.css`.
 
-1. Write one self-contained JavaScript file in `docs/_static/explainers/`. It
-   uses no external library, seeds its random numbers, takes colours from
-   the `--d-*` tokens, has controls that work from the keyboard and reports
-   its result in an element with `aria-live="polite"`.
-2. Load it on its page with a `{raw} html` block that holds its container
-   and the script:
+1. Write the script without external libraries. It finds its container by
+   its id, `d-<name>`, and builds the plot, the readout and the controls in
+   it.
+2. Draw the plot as an SVG with `role="img"` and an `aria-label`. Redraw it
+   in a narrow layout at 600 px and less (`matchMedia`).
+3. Put the readout in an element with `class="d-readout"` and
+   `aria-live="polite"`.
+4. Use native controls, which work from the keyboard. Use `<button>`
+   elements, with `aria-pressed` for a toggle. Where the reader sets a
+   number, use an `<input type="range">` slider with `aria-valuetext`.
+5. If the explainer draws random numbers, seed them with `mulberry32`, as
+   `calibration.js` does, so that every load is identical.
+6. Take colours only from the `--d-*` theme tokens, through the classes of
+   `explainer.css`.
+7. Load the styles, the container and the script with a `{raw} html` block
+   on the page:
 
    ````md
    ```{raw} html
-   <div id="name-explainer"></div>
+   <link rel="stylesheet" href="../_static/explainers/explainer.css">
+   <div class="d-lab" id="d-name">
+   <p class="d-lab-h">One sentence that tells the reader what to do.</p>
+   </div>
    <script src="../_static/explainers/name.js" defer></script>
    ```
    ````
 
-   The path is relative to the page, so a page in a section folder starts
-   it with `../`.
+   The paths are relative to the page. A page in a section folder starts
+   them with `../`.
