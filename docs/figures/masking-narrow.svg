@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-mask-n" viewBox="0 0 360 406" width="360" height="406" role="img" aria-labelledby="f-mask-n-title">
+<title id="f-mask-n-title">The two masking augmentations on one illustrative batch of three stars. Input masking hides whole surveys of a star and blocks of pixels within the surveys it keeps; the blocks of one survey share their size and boundaries within the batch. Label masking hides whole label sources of a star and single labels within the sources it keeps. Every star keeps at least one survey, one block, one label source and one label.</title>
+<style>
+.dfig.f-mask-n text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-mask-n .h { font-weight: 700; font-size: 13px; }
+.dfig.f-mask-n .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-mask-n .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mask-n .mono { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mask-n .faint { fill: var(--d-faint, #5F6A85); }
+.dfig.f-mask-n .lab { font-weight: 700; font-size: 12.5px; fill: var(--d-gold, #8C5D00); }
+.dfig.f-mask-n .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-mask-n .spec { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.dfig.f-mask-n .goldm { fill: var(--d-gold-fill, #F2B84B); stroke: currentColor; stroke-width: 1; }
+.dfig.f-mask-n .missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-mask-n .arrow-missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+</style>
+<text class="h" x="10" y="18">Input masking</text>
+<text class="n" x="131" y="40" text-anchor="middle">BOSS</text>
+<text class="n" x="281" y="40" text-anchor="middle">DESI</text>
+<text class="t" x="10" y="76">star 1</text>
+<rect class="in" x="62" y="50" width="138" height="44"/>
+<path class="spec" d="M68.0 59.8L70.1 60.0L72.3 59.4L74.4 59.8L76.5 60.3L78.7 59.6L80.8 59.2L82.9 61.0L85.1 66.7L87.2 74.4L89.4 78.9L91.5 76.1L93.6 71.6L95.8 67.5L97.9 71.5L100.0 74.8L102.2 73.1L104.3 67.4L106.4 62.2L108.6 59.7L110.7 60.1L112.8 59.3L115.0 62.6L117.1 66.7M151.3 58.8L153.4 60.8L155.6 58.7L157.7 58.9L159.8 59.3L162.0 59.7L164.1 60.1L166.2 58.8L168.4 58.4L170.5 58.5L172.6 58.9L174.8 59.6L176.9 60.8L179.1 59.9L181.2 59.4L183.3 60.8L185.5 59.6L187.6 59.5L189.7 59.3L191.9 60.8L194.0 60.4"/>
+<path class="arrow-missing" d="M119.3 88H149.2"/>
+<rect class="in" x="212" y="50" width="138" height="44"/>
+<path class="spec" d="M218.0 60.7L220.1 60.4L222.3 60.5L224.4 59.7L226.5 60.1L228.7 60.1L230.8 60.9L232.9 64.8L235.1 71.3L237.2 76.1L239.4 73.9L241.5 67.7L243.6 62.6L245.8 60.4L247.9 60.7L250.0 60.7L252.2 59.6L254.3 61.2L256.4 60.0L258.6 59.5M275.7 59.1L277.8 59.1L279.9 59.4L282.1 60.0L284.2 61.2L286.3 59.7L288.5 60.0L290.6 59.8L292.7 58.7L294.9 59.7L297.0 59.7L299.2 59.4L301.3 60.1L303.4 60.6L305.6 61.8M324.8 64.5L326.9 60.4L329.1 60.3L331.2 60.2L333.3 59.4L335.5 61.5L337.6 60.8L339.7 60.2L341.9 59.7L344.0 60.4"/>
+<path class="arrow-missing" d="M260.7 88H273.5"/>
+<path class="arrow-missing" d="M307.7 88H322.6"/>
+<text class="t" x="10" y="132">star 2</text>
+<rect class="in" x="62" y="106" width="138" height="44"/>
+<path class="spec" d="M87.2 119.2L89.4 116.6L91.5 115.6L93.6 116.4L95.8 116.0L97.9 116.2L100.0 115.4L102.2 115.8L104.3 116.1L106.4 116.5L108.6 116.1L110.7 115.9L112.8 116.1L115.0 114.9L117.1 115.1L119.3 117.9L121.4 117.3L123.5 116.0L125.7 116.2L127.8 115.7L129.9 115.7L132.1 114.3L134.2 116.7L136.3 116.3L138.5 115.4L140.6 119.3L142.7 124.7L144.9 130.6L147.0 132.3L149.2 129.6L151.3 130.1L153.4 131.1L155.6 126.7L157.7 120.8L159.8 118.0L162.0 116.2L164.1 115.8L166.2 115.8L168.4 116.2L170.5 115.4L172.6 115.2L174.8 115.6L176.9 116.5L179.1 115.3L181.2 116.2"/>
+<path class="arrow-missing" d="M68.0 144H85.1"/>
+<path class="arrow-missing" d="M183.3 144H194.0"/>
+<rect class="missing" x="212.5" y="106.5" width="137" height="43"/>
+<text class="t faint" x="281" y="132" text-anchor="middle">survey hidden</text>
+<text class="t" x="10" y="188">star 3</text>
+<rect class="missing" x="62.5" y="162.5" width="137" height="43"/>
+<text class="t faint" x="131" y="188" text-anchor="middle">survey hidden</text>
+<rect class="in" x="212" y="162" width="138" height="44"/>
+<path class="spec" d="M218.0 171.9L220.1 171.1L222.3 171.3L224.4 171.3L226.5 170.7M243.6 173.3L245.8 171.8L247.9 172.5L250.0 170.5L252.2 171.2L254.3 171.2L256.4 171.9L258.6 171.4L260.7 171.4L262.8 172.1L265.0 172.3L267.1 172.3L269.3 174.1L271.4 178.4L273.5 185.4L275.7 192.7L277.8 195.4L279.9 197.1L282.1 190.7L284.2 183.7L286.3 176.7L288.5 174.0L290.6 172.1L292.7 172.1L294.9 171.7L297.0 172.3L299.2 171.8L301.3 170.5L303.4 171.6L305.6 172.3L307.7 171.2L309.8 172.0L312.0 171.7L314.1 173.0L316.2 177.8L318.4 186.2L320.5 190.6L322.6 188.3M339.7 171.0L341.9 171.0L344.0 170.2"/>
+<path class="arrow-missing" d="M228.7 200H241.5"/>
+<path class="arrow-missing" d="M324.8 200H337.6"/>
+<text class="h" x="10" y="242">Label masking</text>
+<text class="lab" x="130" y="264" text-anchor="middle">APOGEE</text>
+<text class="t" x="10" y="288">star 1</text>
+<rect class="goldm" x="92" y="276" width="16" height="16"/>
+<rect class="missing" x="112.5" y="276.5" width="15" height="15"/>
+<rect class="goldm" x="132" y="276" width="16" height="16"/>
+<rect class="goldm" x="152" y="276" width="16" height="16"/>
+<text class="t" x="10" y="316">star 2</text>
+<rect class="goldm" x="92" y="304" width="16" height="16"/>
+<rect class="goldm" x="112" y="304" width="16" height="16"/>
+<rect class="goldm" x="132" y="304" width="16" height="16"/>
+<rect class="goldm" x="152" y="304" width="16" height="16"/>
+<text class="t" x="10" y="344">star 3</text>
+<rect class="goldm" x="92" y="332" width="16" height="16"/>
+<rect class="goldm" x="112" y="332" width="16" height="16"/>
+<rect class="missing" x="132.5" y="332.5" width="15" height="15"/>
+<rect class="goldm" x="152" y="332" width="16" height="16"/>
+<text class="lab" x="280" y="264" text-anchor="middle">GALAH</text>
+<rect class="goldm" x="242" y="276" width="16" height="16"/>
+<rect class="goldm" x="262" y="276" width="16" height="16"/>
+<rect class="missing" x="282.5" y="276.5" width="15" height="15"/>
+<rect class="goldm" x="302" y="276" width="16" height="16"/>
+<rect class="missing" x="242.5" y="304.5" width="15" height="15"/>
+<rect class="missing" x="262.5" y="304.5" width="15" height="15"/>
+<rect class="missing" x="282.5" y="304.5" width="15" height="15"/>
+<rect class="missing" x="302.5" y="304.5" width="15" height="15"/>
+<rect class="missing" x="242.5" y="332.5" width="15" height="15"/>
+<rect class="goldm" x="262" y="332" width="16" height="16"/>
+<rect class="goldm" x="282" y="332" width="16" height="16"/>
+<rect class="missing" x="302.5" y="332.5" width="15" height="15"/>
+<text class="mono" x="100" y="366" text-anchor="end" transform="rotate(-50 100 366)">teff</text>
+<text class="mono" x="120" y="366" text-anchor="end" transform="rotate(-50 120 366)">logg</text>
+<text class="mono" x="140" y="366" text-anchor="end" transform="rotate(-50 140 366)">fe_h</text>
+<text class="mono" x="160" y="366" text-anchor="end" transform="rotate(-50 160 366)">mg_fe</text>
+<text class="mono" x="250" y="366" text-anchor="end" transform="rotate(-50 250 366)">teff</text>
+<text class="mono" x="270" y="366" text-anchor="end" transform="rotate(-50 270 366)">logg</text>
+<text class="mono" x="290" y="366" text-anchor="end" transform="rotate(-50 290 366)">fe_h</text>
+<text class="mono" x="310" y="366" text-anchor="end" transform="rotate(-50 310 366)">mg_fe</text>
+</svg>

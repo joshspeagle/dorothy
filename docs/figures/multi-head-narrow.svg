@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-mh-n" viewBox="0 0 360 452" width="360" height="452" role="img" aria-labelledby="f-mh-n-title-n">
+<title id="f-mh-n-title-n">The multi-head model: each survey's spectrum goes through its own encoder to a vector of fixed length; the vectors of the surveys a star has are concatenated or averaged, passed through shared layers, and one head per label source predicts the value and log-scatter of every parameter.</title>
+<style>
+.dfig.f-mh-n text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-mh-n .h { font-weight: 700; font-size: 13px; }
+.dfig.f-mh-n .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-mh-n .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mh-n .mono { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mh-n .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; fill: var(--d-gold, #8C5D00); }
+.dfig.f-mh-n .lab { font-weight: 700; font-size: 12.5px; fill: var(--d-gold, #8C5D00); }
+.dfig.f-mh-n .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-mh-n .spec { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.dfig.f-mh-n .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.dfig.f-mh-n .vec { fill: var(--d-teal-fill, #2A9D8F); stroke: none; }
+.dfig.f-mh-n .missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-mh-n .missing-t { font-size: 12px; fill: var(--d-faint, #5F6A85); }
+.dfig.f-mh-n .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dfig.f-mh-n .arrow-missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-mh-n .tip { fill: currentColor; }
+.dfig.f-mh-n .tip-missing { fill: var(--d-axis, #9AA5BC); }
+</style>
+<text class="h" x="4" y="14">Spectra</text>
+<rect class="in" x="4" y="22" width="112" height="62"/>
+<text class="n" x="11" y="38">BOSS</text><text class="mono" x="11" y="52">3 × 4506</text>
+<path class="spec" d="M11.0 70.6L13.1 69.3L15.3 68.9L17.4 69.2L19.5 70.1L21.7 72.5L23.8 71.0L25.9 68.8L28.0 65.4L30.2 64.1L32.3 63.5L34.4 62.6L36.6 62.9L38.7 61.8L40.8 62.3L43.0 61.6L45.1 62.1L47.2 63.7L49.3 65.2L51.5 65.8L53.6 62.9L55.7 62.7L57.9 62.0L60.0 62.6L62.1 63.1L64.3 63.3L66.4 65.6L68.5 68.0L70.7 72.3L72.8 72.3L74.9 70.3L77.0 68.2L79.2 67.2L81.3 68.3L83.4 68.0L85.6 69.5L87.7 69.7L89.8 72.1L92.0 74.2L94.1 72.6L96.2 71.2L98.3 69.9L100.5 70.7L102.6 70.0L104.7 70.4L106.9 70.4L109.0 70.0"/>
+<path class="arrow" d="M60 86L60 110"/><path class="tip" d="M60.0 110.0L56.8 103.0L63.2 103.0Z"/>
+<path class="model" d="M18 112H102L84 148H36Z"/>
+<text class="t" x="60" y="134" text-anchor="middle" style="fill:currentColor">encoder</text>
+<rect class="vec" x="44" y="154" width="32" height="10"/>
+<path class="arrow" d="M60 166L150.0 204"/><path class="tip" d="M150.0 204.0L142.3 204.2L144.8 198.3Z"/>
+<rect class="in" x="124" y="22" width="112" height="62"/>
+<text class="n" x="131" y="38">DESI</text><text class="mono" x="131" y="52">3 × 7650</text>
+<path class="spec" d="M131.0 70.6L133.1 69.3L135.3 68.9L137.4 69.2L139.5 70.1L141.7 72.5L143.8 71.0L145.9 68.8L148.0 65.4L150.2 64.1L152.3 63.5L154.4 62.6L156.6 62.9L158.7 61.8L160.8 62.3L163.0 61.6L165.1 62.1L167.2 63.7L169.3 65.2L171.5 65.8L173.6 62.9L175.7 62.7L177.9 62.0L180.0 62.6L182.1 63.1L184.3 63.3L186.4 65.6L188.5 68.0L190.7 72.3L192.8 72.3L194.9 70.3L197.0 68.2L199.2 67.2L201.3 68.3L203.4 68.0L205.6 69.5L207.7 69.7L209.8 72.1L212.0 74.2L214.1 72.6L216.2 71.2L218.3 69.9L220.5 70.7L222.6 70.0L224.7 70.4L226.9 70.4L229.0 70.0"/>
+<path class="arrow" d="M180 86L180 110"/><path class="tip" d="M180.0 110.0L176.8 103.0L183.2 103.0Z"/>
+<path class="model" d="M138 112H222L204 148H156Z"/>
+<text class="t" x="180" y="134" text-anchor="middle" style="fill:currentColor">encoder</text>
+<rect class="vec" x="164" y="154" width="32" height="10"/>
+<path class="arrow" d="M180 166L180.0 204"/><path class="tip" d="M180.0 204.0L176.8 197.0L183.2 197.0Z"/>
+<rect class="missing" x="244.5" y="22.5" width="111" height="61"/>
+<text class="n" x="251" y="38">LAMOST</text><text class="n" x="251" y="53">MRS</text><text class="missing-t" x="251" y="74">not observed</text>
+<path class="arrow-missing" d="M300 86L300 110"/><path class="tip-missing" d="M300.0 110.0L296.8 103.0L303.2 103.0Z"/>
+<path class="missing" d="M258 112H342L324 148H276Z"/>
+<rect class="missing" x="284.5" y="154.5" width="31" height="9"/>
+<path class="arrow-missing" d="M300 166L210.0 204"/><path class="tip-missing" d="M210.0 204.0L215.2 198.3L217.7 204.2Z"/>
+<text class="t" x="240" y="222">missing: zeros</text><text class="t" x="240" y="236">(concat) or</text><text class="t" x="240" y="250">skipped (mean)</text>
+<rect class="model" x="130" y="206" width="100" height="40"/><text class="t" x="180" y="230" text-anchor="middle" style="fill:currentColor">concat or mean</text>
+<text class="h" x="4" y="230">Combine</text>
+<path class="arrow" d="M180 248L180 270"/><path class="tip" d="M180.0 270.0L176.8 263.0L183.2 263.0Z"/>
+<rect class="model" x="110" y="272" width="140" height="40"/><text class="t" x="180" y="296" text-anchor="middle" style="fill:currentColor">shared layers</text>
+<text class="h" x="4" y="296">Trunk</text>
+<text class="h" x="4" y="356">Heads</text>
+<path class="arrow" d="M180 314V324H104V338"/><path class="tip" d="M104.0 338.0L100.8 331.0L107.2 331.0Z"/>
+<rect class="model" x="52" y="340" width="104" height="48"/>
+<text class="lab" x="104" y="360" text-anchor="middle">APOGEE</text><text class="t" x="104" y="377" text-anchor="middle">head</text>
+<path class="arrow" d="M104 390L104 410"/><path class="tip" d="M104.0 410.0L100.8 403.0L107.2 403.0Z"/>
+<text class="math" x="104" y="428" text-anchor="middle">μ<tspan style="font-style:normal">, ln </tspan>s</text><text class="t" x="104" y="444" text-anchor="middle">per parameter</text>
+<path class="arrow" d="M180 314V324H256V338"/><path class="tip" d="M256.0 338.0L252.8 331.0L259.2 331.0Z"/>
+<rect class="model" x="204" y="340" width="104" height="48"/>
+<text class="lab" x="256" y="360" text-anchor="middle">GALAH</text><text class="t" x="256" y="377" text-anchor="middle">head</text>
+<path class="arrow" d="M256 390L256 410"/><path class="tip" d="M256.0 410.0L252.8 403.0L259.2 403.0Z"/>
+<text class="math" x="256" y="428" text-anchor="middle">μ<tspan style="font-style:normal">, ln </tspan>s</text><text class="t" x="256" y="444" text-anchor="middle">per parameter</text>
+</svg>

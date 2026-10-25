@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-pipe-n" viewBox="0 0 360 718" width="360" height="718" role="img" aria-labelledby="f-pipe-n-title">
+<title id="f-pipe-n-title">The DOROTHY pipeline: the super-catalogue gives the stars; load_training_data selects and splits them; spectra and labels are preprocessed; the Trainer fits the model and its calibration factors; the checkpoint feeds dorothy evaluate, which scores the test stars, and dorothy predict, which gives labels with uncertainties for new spectra. Evaluation and prediction reuse the same selection, split and preprocessing.</title>
+<style>
+.dfig.f-pipe-n text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-pipe-n .h { font-weight: 700; font-size: 13px; }
+.dfig.f-pipe-n .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-pipe-n .cmd { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-weight: 600; font-size: 12px; }
+.dfig.f-pipe-n .mono { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11px; fill: var(--d-muted, #4A5675); }
+.dfig.f-pipe-n .gold { fill: var(--d-gold, #8C5D00); }
+.dfig.f-pipe-n .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-pipe-n .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.dfig.f-pipe-n .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dfig.f-pipe-n .tip { fill: currentColor; }
+.dfig.f-pipe-n .box { fill: none; stroke: currentColor; stroke-width: 1.2; }
+</style>
+<rect class="in" x="55" y="10" width="250" height="90"/>
+<text class="h" x="180" y="32" text-anchor="middle">Catalogue</text>
+<text class="t" x="180" y="51" text-anchor="middle">HDF5, one row</text>
+<text class="t" x="180" y="67" text-anchor="middle">per star</text>
+<text class="mono" x="180" y="87" text-anchor="middle">CatalogueLoader</text>
+<rect class="in" x="55" y="126" width="250" height="90"/>
+<text class="h" x="180" y="148" text-anchor="middle">Select and split</text>
+<text class="t" x="180" y="167" text-anchor="middle">stars with a spectrum</text>
+<text class="t" x="180" y="183" text-anchor="middle">and a valid label</text>
+<text class="mono" x="180" y="203" text-anchor="middle">load_training_data</text>
+<rect class="in" x="55" y="242" width="250" height="90"/>
+<text class="h" x="180" y="264" text-anchor="middle">Preprocess</text>
+<text class="t" x="180" y="283" text-anchor="middle">flux, ρ, mask;</text>
+<text class="t" x="180" y="299" text-anchor="middle">normalized labels</text>
+<text class="mono" x="180" y="319" text-anchor="middle">encode_precision</text>
+<rect class="model" x="55" y="358" width="250" height="90"/>
+<text class="h" x="180" y="380" text-anchor="middle">Train</text>
+<text class="t" x="180" y="399" text-anchor="middle">fit μ and ln s,</text>
+<text class="t" x="180" y="415" text-anchor="middle">then calibrate s</text>
+<text class="mono" x="180" y="435" text-anchor="middle">Trainer</text>
+<rect class="box" x="55" y="474" width="250" height="90"/>
+<text class="h" x="180" y="496" text-anchor="middle">Checkpoint</text>
+<text class="t" x="180" y="515" text-anchor="middle">weights, normalizer,</text>
+<text class="t" x="180" y="531" text-anchor="middle">factors, split</text>
+<text class="mono" x="180" y="551" text-anchor="middle">save_checkpoint</text>
+<path class="arrow" d="M180 101L180 124"/><path class="tip" d="M180.0 124.0L176.8 117.0L183.2 117.0Z"/>
+<path class="arrow" d="M180 217L180 240"/><path class="tip" d="M180.0 240.0L176.8 233.0L183.2 233.0Z"/>
+<path class="arrow" d="M180 333L180 356"/><path class="tip" d="M180.0 356.0L176.8 349.0L183.2 349.0Z"/>
+<path class="arrow" d="M180 449L180 472"/><path class="tip" d="M180.0 472.0L176.8 465.0L183.2 465.0Z"/>
+<rect class="box" x="10" y="604" width="166" height="66"/>
+<text class="cmd" x="93" y="626" text-anchor="middle">dorothy evaluate</text>
+<text class="t" x="93" y="645" text-anchor="middle">metrics on the</text>
+<text class="t" x="93" y="661" text-anchor="middle">test stars</text>
+<rect class="box" x="184" y="604" width="166" height="66"/>
+<text class="cmd" x="267" y="626" text-anchor="middle">dorothy predict</text>
+<text class="t" x="267" y="645" text-anchor="middle">new spectra in,</text>
+<text class="t gold" x="267" y="661" text-anchor="middle">labels μ ± c s out</text>
+<path class="arrow" d="M180.0 565V583"/>
+<path class="arrow" d="M180 583L93 583L93 602"/><path class="tip" d="M93.0 602.0L89.8 595.0L96.2 595.0Z"/>
+<path class="arrow" d="M180 583L267 583L267 602"/><path class="tip" d="M267.0 602.0L263.8 595.0L270.2 595.0Z"/>
+<text class="t" x="180" y="692" text-anchor="middle">Evaluation and prediction reuse the same</text>
+<text class="t" x="180" y="708" text-anchor="middle">selection, split and preprocessing.</text>
+</svg>

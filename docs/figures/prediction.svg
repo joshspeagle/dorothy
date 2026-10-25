@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-pred" viewBox="0 0 680 230" width="680" height="230" role="img" aria-labelledby="f-pred-title">
+<title id="f-pred-title">A prediction is a distribution: a normal curve centred on the prediction mu with width s, the predicted scatter. The label source's measurement y of the star falls inside the curve. Illustrative values.</title>
+<style>
+.dfig.f-pred text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-pred .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-pred .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; }
+.dfig.f-pred .gold { fill: var(--d-gold, #8C5D00); }
+.dfig.f-pred .tealt { fill: var(--d-teal, #1D7468); }
+.dfig.f-pred .data { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.dfig.f-pred .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.dfig.f-pred .mline { fill: none; stroke: var(--d-teal, #1D7468); stroke-width: 2; stroke-linejoin: round; }
+.dfig.f-pred .marea { fill: var(--d-teal-tint, #DCEFEC); stroke: none; }
+.dfig.f-pred .goldm { fill: var(--d-gold-fill, #F2B84B); stroke: currentColor; stroke-width: 1; }
+.dfig.f-pred .goldl { fill: none; stroke: var(--d-gold-fill, #F2B84B); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.dfig.f-pred .ax { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+</style>
+<path class="marea" d="M10.0 190L10.0 189.5L14.9 189.4L19.7 189.3L24.6 189.1L29.4 189.0L34.3 188.8L39.1 188.6L44.0 188.4L48.8 188.1L53.7 187.8L58.5 187.5L63.4 187.1L68.2 186.7L73.1 186.2L77.9 185.6L82.8 185.0L87.6 184.3L92.5 183.5L97.4 182.6L102.2 181.6L107.1 180.6L111.9 179.4L116.8 178.1L121.6 176.6L126.5 175.1L131.3 173.3L136.2 171.5L141.0 169.5L145.9 167.3L150.7 164.9L155.6 162.4L160.4 159.7L165.3 156.8L170.1 153.7L175.0 150.4L179.9 146.9L184.7 143.3L189.6 139.5L194.4 135.5L199.3 131.3L204.1 126.9L209.0 122.5L213.8 117.8L218.7 113.1L223.5 108.2L228.4 103.3L233.2 98.3L238.1 93.2L242.9 88.1L247.8 83.0L252.6 77.9L257.5 72.9L262.4 68.0L267.2 63.2L272.1 58.5L276.9 54.0L281.8 49.7L286.6 45.6L291.5 41.7L296.3 38.2L301.2 34.9L306.0 32.0L310.9 29.4L315.7 27.2L320.6 25.3L325.4 23.9L330.3 22.8L335.1 22.2L340.0 22.0L344.9 22.2L349.7 22.8L354.6 23.9L359.4 25.3L364.3 27.2L369.1 29.4L374.0 32.0L378.8 34.9L383.7 38.2L388.5 41.7L393.4 45.6L398.2 49.7L403.1 54.0L407.9 58.5L412.8 63.2L417.6 68.0L422.5 72.9L427.4 77.9L432.2 83.0L437.1 88.1L441.9 93.2L446.8 98.3L451.6 103.3L456.5 108.2L461.3 113.1L466.2 117.8L471.0 122.5L475.9 126.9L480.7 131.3L485.6 135.5L490.4 139.5L495.3 143.3L500.1 146.9L505.0 150.4L509.9 153.7L514.7 156.8L519.6 159.7L524.4 162.4L529.3 164.9L534.1 167.3L539.0 169.5L543.8 171.5L548.7 173.3L553.5 175.1L558.4 176.6L563.2 178.1L568.1 179.4L572.9 180.6L577.8 181.6L582.6 182.6L587.5 183.5L592.4 184.3L597.2 185.0L602.1 185.6L606.9 186.2L611.8 186.7L616.6 187.1L621.5 187.5L626.3 187.8L631.2 188.1L636.0 188.4L640.9 188.6L645.7 188.8L650.6 189.0L655.4 189.1L660.3 189.3L665.1 189.4L670.0 189.5L670.0 190Z"/>
+<path class="mline" d="M10.0 189.5L14.9 189.4L19.7 189.3L24.6 189.1L29.4 189.0L34.3 188.8L39.1 188.6L44.0 188.4L48.8 188.1L53.7 187.8L58.5 187.5L63.4 187.1L68.2 186.7L73.1 186.2L77.9 185.6L82.8 185.0L87.6 184.3L92.5 183.5L97.4 182.6L102.2 181.6L107.1 180.6L111.9 179.4L116.8 178.1L121.6 176.6L126.5 175.1L131.3 173.3L136.2 171.5L141.0 169.5L145.9 167.3L150.7 164.9L155.6 162.4L160.4 159.7L165.3 156.8L170.1 153.7L175.0 150.4L179.9 146.9L184.7 143.3L189.6 139.5L194.4 135.5L199.3 131.3L204.1 126.9L209.0 122.5L213.8 117.8L218.7 113.1L223.5 108.2L228.4 103.3L233.2 98.3L238.1 93.2L242.9 88.1L247.8 83.0L252.6 77.9L257.5 72.9L262.4 68.0L267.2 63.2L272.1 58.5L276.9 54.0L281.8 49.7L286.6 45.6L291.5 41.7L296.3 38.2L301.2 34.9L306.0 32.0L310.9 29.4L315.7 27.2L320.6 25.3L325.4 23.9L330.3 22.8L335.1 22.2L340.0 22.0L344.9 22.2L349.7 22.8L354.6 23.9L359.4 25.3L364.3 27.2L369.1 29.4L374.0 32.0L378.8 34.9L383.7 38.2L388.5 41.7L393.4 45.6L398.2 49.7L403.1 54.0L407.9 58.5L412.8 63.2L417.6 68.0L422.5 72.9L427.4 77.9L432.2 83.0L437.1 88.1L441.9 93.2L446.8 98.3L451.6 103.3L456.5 108.2L461.3 113.1L466.2 117.8L471.0 122.5L475.9 126.9L480.7 131.3L485.6 135.5L490.4 139.5L495.3 143.3L500.1 146.9L505.0 150.4L509.9 153.7L514.7 156.8L519.6 159.7L524.4 162.4L529.3 164.9L534.1 167.3L539.0 169.5L543.8 171.5L548.7 173.3L553.5 175.1L558.4 176.6L563.2 178.1L568.1 179.4L572.9 180.6L577.8 181.6L582.6 182.6L587.5 183.5L592.4 184.3L597.2 185.0L602.1 185.6L606.9 186.2L611.8 186.7L616.6 187.1L621.5 187.5L626.3 187.8L631.2 188.1L636.0 188.4L640.9 188.6L645.7 188.8L650.6 189.0L655.4 189.1L660.3 189.3L665.1 189.4L670.0 189.5"/>
+<path class="ax" d="M10 190H670"/>
+<path class="ax" d="M48.8 190v5"/>
+<path class="ax" d="M145.9 190v5"/>
+<path class="ax" d="M242.9 190v5"/>
+<path class="ax" d="M340.0 190v8"/>
+<path class="ax" d="M437.1 190v5"/>
+<path class="ax" d="M534.1 190v5"/>
+<path class="ax" d="M631.2 190v5"/>
+<path class="model" d="M340.0 190V18"/>
+<text class="math tealt" x="340" y="218" text-anchor="middle">μ</text>
+<path class="data" d="M340.0 88.1H437.1M437.1 83.1v10"/>
+<text class="math" x="388.5" y="79.1" text-anchor="middle">s</text>
+<path class="ax" d="M513.9 147.7l10 -16"/>
+<text class="t" x="527.9" y="113.7">where the label source's</text>
+<text class="t" x="527.9" y="129.7">measurements fall</text>
+<path class="goldl" d="M209.0 190V122.5"/>
+<rect class="goldm" x="204" y="185" width="10" height="10"/>
+<text class="math gold" x="209" y="218" text-anchor="middle">y</text>
+<text class="t" x="10" y="217">label value →</text>
+</svg>

@@ -1,62 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 276" width="100%" role="img" aria-labelledby="multi-head-title" font-family="sans-serif" font-size="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
-  <title id="multi-head-title">The multi-head model: each survey's spectrum goes through its own encoder to a vector of fixed length; the vectors of the surveys a star has are concatenated or averaged, passed through shared layers, and one head per label source predicts the value and log-scatter of every parameter.</title>
-  <defs>
-    <marker id="multi-head-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="currentColor" stroke="none"/>
-    </marker>
-  </defs>
-  <text x="80.0" y="18.0" font-size="13" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">Spectra</text>
-  <text x="232.0" y="18.0" font-size="13" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">Encoders</text>
-  <text x="352.0" y="18.0" font-size="13" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">Combine</text>
-  <text x="463.0" y="18.0" font-size="13" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">Trunk</text>
-  <text x="600.0" y="18.0" font-size="13" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">Heads</text>
-  <rect x="10.0" y="30.0" width="140.0" height="54.0" rx="5" fill="currentColor" fill-opacity="0.05"/>
-  <text x="18.0" y="46.0" font-size="12" text-anchor="start" font-weight="bold" stroke="none" fill="currentColor">BOSS</text>
-  <text x="142.0" y="46.0" font-size="10.5" text-anchor="end" stroke="none" style="fill: var(--d-muted, #4A5675)">3 × 4506</text>
-  <path d="M20.0 62.5 L22.4 61.5 L24.9 61.8 L27.3 63.4 L29.8 63.3 L32.2 63.7 L34.7 62.9 L37.1 63.8 L39.6 65.6 L42.0 75.4 L44.5 76.3 L46.9 70.8 L49.4 64.8 L51.8 64.5 L54.3 64.8 L56.7 64.3 L59.2 64.1 L61.6 65.1 L64.1 65.2 L66.5 64.6 L69.0 66.3 L71.4 70.3 L73.9 75.1 L76.3 70.6 L78.8 67.8 L81.2 66.8 L83.7 66.6 L86.1 67.4 L88.6 67.8 L91.0 66.6 L93.5 66.1 L95.9 67.6 L98.4 70.6 L100.8 76.5 L103.3 83.1 L105.7 82.0 L108.2 73.6 L110.6 68.4 L113.1 68.3 L115.5 68.8 L118.0 68.0 L120.4 71.6 L122.9 74.1 L125.3 69.9 L127.8 69.3 L130.2 69.6 L132.7 70.5 L135.1 69.1 L137.6 68.9 L140.0 70.1" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <path d="M185 33 L265 48 L265 66 L185 81 Z"/>
-  <line x1="152.0" y1="57.0" x2="182.0" y2="57.0" marker-end="url(#multi-head-arrow)"/>
-  <rect x="276.0" y="41.0" width="10.0" height="32.0" rx="2" fill="currentColor" fill-opacity="0.25"/>
-  <line x1="266.0" y1="57.0" x2="274.0" y2="57.0"/>
-  <line x1="288.0" y1="57.0" x2="314.0" y2="137.0" marker-end="url(#multi-head-arrow)"/>
-  <rect x="10.0" y="108.0" width="140.0" height="54.0" rx="5" fill="currentColor" fill-opacity="0.05"/>
-  <text x="18.0" y="124.0" font-size="12" text-anchor="start" font-weight="bold" stroke="none" fill="currentColor">DESI</text>
-  <text x="142.0" y="124.0" font-size="10.5" text-anchor="end" stroke="none" style="fill: var(--d-muted, #4A5675)">3 × 7650</text>
-  <path d="M20.0 140.5 L22.4 139.5 L24.9 139.8 L27.3 141.4 L29.8 141.3 L32.2 141.7 L34.7 140.9 L37.1 141.8 L39.6 143.6 L42.0 153.4 L44.5 154.3 L46.9 148.8 L49.4 142.8 L51.8 142.5 L54.3 142.8 L56.7 142.3 L59.2 142.1 L61.6 143.1 L64.1 143.2 L66.5 142.6 L69.0 144.3 L71.4 148.3 L73.9 153.1 L76.3 148.6 L78.8 145.8 L81.2 144.8 L83.7 144.6 L86.1 145.4 L88.6 145.8 L91.0 144.6 L93.5 144.1 L95.9 145.6 L98.4 148.6 L100.8 154.5 L103.3 161.1 L105.7 160.0 L108.2 151.6 L110.6 146.4 L113.1 146.3 L115.5 146.8 L118.0 146.0 L120.4 149.6 L122.9 152.1 L125.3 147.9 L127.8 147.3 L130.2 147.6 L132.7 148.5 L135.1 147.1 L137.6 146.9 L140.0 148.1" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <path d="M185 111 L265 126 L265 144 L185 159 Z"/>
-  <line x1="152.0" y1="135.0" x2="182.0" y2="135.0" marker-end="url(#multi-head-arrow)"/>
-  <rect x="276.0" y="119.0" width="10.0" height="32.0" rx="2" fill="currentColor" fill-opacity="0.25"/>
-  <line x1="266.0" y1="135.0" x2="274.0" y2="135.0"/>
-  <line x1="288.0" y1="135.0" x2="314.0" y2="137.0" marker-end="url(#multi-head-arrow)"/>
-  <rect x="10.0" y="186.0" width="140.0" height="54.0" rx="5" stroke-dasharray="4 3" stroke-opacity="0.45"/>
-  <text x="18.0" y="202.0" font-size="12" text-anchor="start" font-weight="bold" stroke="none" fill="currentColor">LAMOST MRS</text>
-  <text x="80.0" y="224.0" font-size="11" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">not observed</text>
-  <path d="M185 189 L265 204 L265 222 L185 237 Z" stroke-dasharray="5 4" stroke-opacity="0.45"/>
-  <line x1="152.0" y1="213.0" x2="182.0" y2="213.0" marker-end="url(#multi-head-arrow)" stroke-opacity="0.45"/>
-  <rect x="276.0" y="197.0" width="10.0" height="32.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.45"/>
-  <line x1="266.0" y1="213.0" x2="274.0" y2="213.0" stroke-opacity="0.45"/>
-  <line x1="288.0" y1="213.0" x2="314.0" y2="137.0" marker-end="url(#multi-head-arrow)" stroke-opacity="0.45"/>
-  <text x="281.0" y="252.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">zeros (concat)</text>
-  <text x="281.0" y="265.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">or skipped (mean)</text>
-  <rect x="316.0" y="107.0" width="72.0" height="60.0" rx="6"/>
-  <text x="352.0" y="133.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">concat</text>
-  <text x="352.0" y="150.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">or mean</text>
-  <line x1="390.0" y1="137.0" x2="414.0" y2="137.0" marker-end="url(#multi-head-arrow)"/>
-  <rect x="416.0" y="102.0" width="94.0" height="70.0" rx="6" fill="currentColor" fill-opacity="0.06"/>
-  <text x="463.0" y="134.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">shared</text>
-  <text x="463.0" y="150.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">layers</text>
-  <path d="M512 137 L530 137 L530 85 L548 85" marker-end="url(#multi-head-arrow)"/>
-  <rect x="550.0" y="58.0" width="100.0" height="54.0" rx="6"/>
-  <text x="600.0" y="81.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">APOGEE</text>
-  <text x="600.0" y="98.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">head</text>
-  <line x1="652.0" y1="85.0" x2="676.0" y2="85.0" marker-end="url(#multi-head-arrow)"/>
-  <text x="682.0" y="80.0" font-size="12" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ, ln s</text>
-  <text x="682.0" y="96.0" font-size="10.5" text-anchor="start" stroke="none" style="fill: var(--d-muted, #4A5675)">per parameter</text>
-  <path d="M512 137 L530 137 L530 187 L548 187" marker-end="url(#multi-head-arrow)"/>
-  <rect x="550.0" y="160.0" width="100.0" height="54.0" rx="6"/>
-  <text x="600.0" y="183.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">GALAH</text>
-  <text x="600.0" y="200.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">head</text>
-  <line x1="652.0" y1="187.0" x2="676.0" y2="187.0" marker-end="url(#multi-head-arrow)"/>
-  <text x="682.0" y="182.0" font-size="12" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ, ln s</text>
-  <text x="682.0" y="198.0" font-size="10.5" text-anchor="start" stroke="none" style="fill: var(--d-muted, #4A5675)">per parameter</text>
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-mh" viewBox="0 0 760 290" width="760" height="290" role="img" aria-labelledby="f-mh-title">
+<title id="f-mh-title">The multi-head model: each survey's spectrum goes through its own encoder to a vector of fixed length; the vectors of the surveys a star has are concatenated or averaged, passed through shared layers, and one head per label source predicts the value and log-scatter of every parameter.</title>
+<style>
+.dfig.f-mh text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-mh .h { font-weight: 700; font-size: 13px; }
+.dfig.f-mh .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-mh .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mh .mono { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mh .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; fill: var(--d-gold, #8C5D00); }
+.dfig.f-mh .lab { font-weight: 700; font-size: 12.5px; fill: var(--d-gold, #8C5D00); }
+.dfig.f-mh .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-mh .spec { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.dfig.f-mh .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.dfig.f-mh .vec { fill: var(--d-teal-fill, #2A9D8F); stroke: none; }
+.dfig.f-mh .missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-mh .missing-t { font-size: 12px; fill: var(--d-faint, #5F6A85); }
+.dfig.f-mh .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dfig.f-mh .arrow-missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-mh .tip { fill: currentColor; }
+.dfig.f-mh .tip-missing { fill: var(--d-axis, #9AA5BC); }
+</style>
+<text class="h" x="80" y="18" text-anchor="middle">Spectra</text>
+<text class="h" x="225" y="18" text-anchor="middle">Encoders</text>
+<text class="h" x="352" y="18" text-anchor="middle">Combine</text>
+<text class="h" x="463" y="18" text-anchor="middle">Trunk</text>
+<text class="h" x="600" y="18" text-anchor="middle">Heads</text>
+<text class="h" x="712" y="18" text-anchor="middle">Outputs</text>
+<rect class="in" x="10" y="36" width="140" height="54"/>
+<text class="n" x="18" y="52">BOSS</text><text class="mono" x="142" y="52" text-anchor="end">3 × 4506</text>
+<path class="spec" d="M18.0 75.3L20.7 73.7L23.4 73.2L26.1 73.6L28.8 74.6L31.5 77.5L34.2 75.7L36.9 73.1L39.6 69.1L42.3 67.6L45.0 66.9L47.7 65.7L50.3 66.2L53.0 64.8L55.7 65.4L58.4 64.6L61.1 65.2L63.8 67.1L66.5 68.9L69.2 69.5L71.9 66.2L74.6 65.9L77.3 65.1L80.0 65.8L82.7 66.3L85.4 66.6L88.1 69.4L90.8 72.2L93.5 77.3L96.2 77.3L98.9 75.0L101.6 72.4L104.3 71.3L107.0 72.5L109.7 72.2L112.3 74.0L115.0 74.2L117.7 77.0L120.4 79.5L123.1 77.6L125.8 76.0L128.5 74.4L131.2 75.4L133.9 74.6L136.6 75.0L139.3 75.0L142.0 74.6"/>
+<path class="arrow" d="M152 63L182 63"/><path class="tip" d="M182.0 63.0L175.0 66.2L175.0 59.8Z"/>
+<path class="model" d="M185 39L265 54V72L185 87Z"/>
+<path class="arrow" d="M266 63H274"/><rect class="vec" x="276" y="47" width="10" height="32"/>
+<path class="arrow" d="M288 63L314 137"/><path class="tip" d="M314.0 137.0L308.7 131.5L314.7 129.3Z"/>
+<rect class="in" x="10" y="114" width="140" height="54"/>
+<text class="n" x="18" y="130">DESI</text><text class="mono" x="142" y="130" text-anchor="end">3 × 7650</text>
+<path class="spec" d="M18.0 153.3L20.7 151.7L23.4 151.2L26.1 151.6L28.8 152.6L31.5 155.5L34.2 153.7L36.9 151.1L39.6 147.1L42.3 145.6L45.0 144.9L47.7 143.7L50.3 144.2L53.0 142.8L55.7 143.4L58.4 142.6L61.1 143.2L63.8 145.1L66.5 146.9L69.2 147.5L71.9 144.2L74.6 143.9L77.3 143.1L80.0 143.8L82.7 144.3L85.4 144.6L88.1 147.4L90.8 150.2L93.5 155.3L96.2 155.3L98.9 153.0L101.6 150.4L104.3 149.3L107.0 150.5L109.7 150.2L112.3 152.0L115.0 152.2L117.7 155.0L120.4 157.5L123.1 155.6L125.8 154.0L128.5 152.4L131.2 153.4L133.9 152.6L136.6 153.0L139.3 153.0L142.0 152.6"/>
+<path class="arrow" d="M152 141L182 141"/><path class="tip" d="M182.0 141.0L175.0 144.2L175.0 137.8Z"/>
+<path class="model" d="M185 117L265 132V150L185 165Z"/>
+<path class="arrow" d="M266 141H274"/><rect class="vec" x="276" y="125" width="10" height="32"/>
+<path class="arrow" d="M288 141L314 137"/><path class="tip" d="M314.0 137.0L307.6 141.2L306.6 134.9Z"/>
+<rect class="missing" x="10.5" y="192.5" width="139" height="53"/>
+<text class="n" x="18" y="208">LAMOST MRS</text><text class="missing-t" x="80" y="232" text-anchor="middle">not observed</text>
+<path class="arrow-missing" d="M152 219L182 219"/><path class="tip-missing" d="M182.0 219.0L175.0 222.2L175.0 215.8Z"/>
+<path class="missing" d="M185 195L265 210V228L185 243Z"/>
+<path class="arrow-missing" d="M266 219H274"/><rect class="missing" x="276.5" y="203.5" width="9" height="31"/>
+<path class="arrow-missing" d="M288 219L314 139"/><path class="tip-missing" d="M314.0 139.0L314.9 146.6L308.8 144.7Z"/>
+<text class="t" x="281" y="264" text-anchor="middle">zeros (concat)</text><text class="t" x="281" y="279" text-anchor="middle">or skipped (mean)</text>
+<rect class="model" x="316" y="107" width="72" height="60"/>
+<text class="t" x="352" y="134" text-anchor="middle" style="fill:currentColor">concat</text><text class="t" x="352" y="150" text-anchor="middle" style="fill:currentColor">or mean</text>
+<path class="arrow" d="M390 137L414 137"/><path class="tip" d="M414.0 137.0L407.0 140.2L407.0 133.8Z"/>
+<rect class="model" x="416" y="102" width="94" height="70"/>
+<text class="t" x="463" y="134" text-anchor="middle" style="fill:currentColor">shared</text><text class="t" x="463" y="150" text-anchor="middle" style="fill:currentColor">layers</text>
+<path class="arrow" d="M512 137H530V85H548"/><path class="tip" d="M548.0 85.0L541.0 88.2L541.0 81.8Z"/>
+<rect class="model" x="550" y="58" width="100" height="54"/>
+<text class="lab" x="600" y="81" text-anchor="middle">APOGEE</text><text class="t" x="600" y="98" text-anchor="middle">head</text>
+<path class="arrow" d="M652 85L676 85"/><path class="tip" d="M676.0 85.0L669.0 88.2L669.0 81.8Z"/>
+<text class="math" x="682" y="82">μ<tspan style="font-style:normal">, ln </tspan>s</text><text class="t" x="682" y="98">per parameter</text>
+<path class="arrow" d="M512 137H530V189H548"/><path class="tip" d="M548.0 189.0L541.0 192.2L541.0 185.8Z"/>
+<rect class="model" x="550" y="162" width="100" height="54"/>
+<text class="lab" x="600" y="185" text-anchor="middle">GALAH</text><text class="t" x="600" y="202" text-anchor="middle">head</text>
+<path class="arrow" d="M652 189L676 189"/><path class="tip" d="M676.0 189.0L669.0 192.2L669.0 185.8Z"/>
+<text class="math" x="682" y="186">μ<tspan style="font-style:normal">, ln </tspan>s</text><text class="t" x="682" y="202">per parameter</text>
 </svg>

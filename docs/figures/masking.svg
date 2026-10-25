@@ -1,82 +1,89 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 232" width="100%" role="img" aria-labelledby="masking-title" font-family="sans-serif" font-size="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
-  <title id="masking-title">Augmentation: input masking hides whole surveys of a star and blocks of pixels within the kept surveys; label masking hides individual labels and whole label sources. Each star keeps at least one survey, block, label source and label.</title>
-  <defs>
-    <marker id="masking-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="currentColor" stroke="none"/>
-    </marker>
-  </defs>
-  <text x="225.0" y="20.0" font-size="13" text-anchor="middle" font-weight="bold" font-family="monospace" stroke="none" fill="currentColor">input_masking</text>
-  <text x="616.0" y="20.0" font-size="13" text-anchor="middle" font-weight="bold" font-family="monospace" stroke="none" fill="currentColor">label_masking</text>
-  <text x="126.0" y="42.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">BOSS</text>
-  <text x="251.0" y="42.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">DESI</text>
-  <text x="376.0" y="42.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">LAMOST LRS</text>
-  <text x="56.0" y="82.0" font-size="11.5" text-anchor="end" stroke="none" style="fill: var(--d-muted, #4A5675)">star 1</text>
-  <rect x="70.0" y="64.0" width="112.0" height="32.0" rx="3"/>
-  <path d="M74.0 78.0 L75.8 78.5 L77.5 77.7 L79.3 77.2 L81.1 76.6 L82.8 77.6 L84.6 78.3 L86.3 78.6 L88.1 77.4 L89.9 77.3 L91.6 81.4 L93.4 88.1 L95.2 90.1 L96.9 83.6 L98.7 80.3 L100.4 80.5 L102.2 78.8 L104.0 79.9 L105.7 79.5 L107.5 79.5 L109.3 79.7 L111.0 78.7 L112.8 79.4 L114.5 79.9 L116.3 79.2 L118.1 80.5 L119.8 87.5 L121.6 86.8 L123.4 82.7 L125.1 80.3 L126.9 81.2 L128.6 80.1 L130.4 80.3 L132.2 80.6 L133.9 81.3 L135.7 80.9 L137.5 81.6 L139.2 82.1 L141.0 81.7 L142.7 85.8 L144.5 88.9 L146.3 93.4 L148.0 94.7 L149.8 87.8 L151.6 84.8 L153.3 82.0 L155.1 81.6 L156.8 83.4 L158.6 81.9 L160.4 83.0 L162.1 87.5 L163.9 85.4 L165.7 81.5 L167.4 83.2 L169.2 82.6 L170.9 83.1 L172.7 81.2 L174.5 82.1 L176.2 80.5 L178.0 82.2" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="130.0" y="66.0" width="14.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="162.0" y="66.0" width="20.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="195.0" y="64.0" width="112.0" height="32.0" rx="3"/>
-  <path d="M199.0 78.0 L200.8 78.5 L202.5 77.7 L204.3 77.2 L206.1 76.6 L207.8 77.6 L209.6 78.3 L211.3 78.6 L213.1 77.4 L214.9 77.3 L216.6 81.4 L218.4 88.1 L220.2 90.1 L221.9 83.6 L223.7 80.3 L225.4 80.5 L227.2 78.8 L229.0 79.9 L230.7 79.5 L232.5 79.5 L234.3 79.7 L236.0 78.7 L237.8 79.4 L239.5 79.9 L241.3 79.2 L243.1 80.5 L244.8 87.5 L246.6 86.8 L248.4 82.7 L250.1 80.3 L251.9 81.2 L253.6 80.1 L255.4 80.3 L257.2 80.6 L258.9 81.3 L260.7 80.9 L262.5 81.6 L264.2 82.1 L266.0 81.7 L267.7 85.8 L269.5 88.9 L271.3 93.4 L273.0 94.7 L274.8 87.8 L276.6 84.8 L278.3 82.0 L280.1 81.6 L281.8 83.4 L283.6 81.9 L285.4 83.0 L287.1 87.5 L288.9 85.4 L290.7 81.5 L292.4 83.2 L294.2 82.6 L295.9 83.1 L297.7 81.2 L299.5 82.1 L301.2 80.5 L303.0 82.2" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="279.0" y="66.0" width="14.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="287.0" y="66.0" width="14.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="320.0" y="64.0" width="112.0" height="32.0" rx="3" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <text x="376.0" y="85.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">survey hidden</text>
-  <text x="56.0" y="132.0" font-size="11.5" text-anchor="end" stroke="none" style="fill: var(--d-muted, #4A5675)">star 2</text>
-  <rect x="70.0" y="114.0" width="112.0" height="32.0" rx="3"/>
-  <path d="M74.0 128.0 L75.8 128.5 L77.5 127.7 L79.3 127.2 L81.1 126.6 L82.8 127.6 L84.6 128.3 L86.3 128.6 L88.1 127.4 L89.9 127.3 L91.6 131.4 L93.4 138.1 L95.2 140.1 L96.9 133.6 L98.7 130.3 L100.4 130.5 L102.2 128.8 L104.0 129.9 L105.7 129.5 L107.5 129.5 L109.3 129.7 L111.0 128.7 L112.8 129.4 L114.5 129.9 L116.3 129.2 L118.1 130.5 L119.8 137.5 L121.6 136.8 L123.4 132.7 L125.1 130.3 L126.9 131.2 L128.6 130.1 L130.4 130.3 L132.2 130.6 L133.9 131.3 L135.7 130.9 L137.5 131.6 L139.2 132.1 L141.0 131.7 L142.7 135.8 L144.5 138.9 L146.3 143.4 L148.0 144.7 L149.8 137.8 L151.6 134.8 L153.3 132.0 L155.1 131.6 L156.8 133.4 L158.6 131.9 L160.4 133.0 L162.1 137.5 L163.9 135.4 L165.7 131.5 L167.4 133.2 L169.2 132.6 L170.9 133.1 L172.7 131.2 L174.5 132.1 L176.2 130.5 L178.0 132.2" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="98.0" y="116.0" width="20.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="106.0" y="116.0" width="14.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="195.0" y="114.0" width="112.0" height="32.0" rx="3" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <text x="251.0" y="135.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">survey hidden</text>
-  <rect x="320.0" y="114.0" width="112.0" height="32.0" rx="3"/>
-  <path d="M324.0 128.0 L325.8 128.5 L327.5 127.7 L329.3 127.2 L331.1 126.6 L332.8 127.6 L334.6 128.3 L336.3 128.6 L338.1 127.4 L339.9 127.3 L341.6 131.4 L343.4 138.1 L345.2 140.1 L346.9 133.6 L348.7 130.3 L350.4 130.5 L352.2 128.8 L354.0 129.9 L355.7 129.5 L357.5 129.5 L359.3 129.7 L361.0 128.7 L362.8 129.4 L364.5 129.9 L366.3 129.2 L368.1 130.5 L369.8 137.5 L371.6 136.8 L373.4 132.7 L375.1 130.3 L376.9 131.2 L378.6 130.1 L380.4 130.3 L382.2 130.6 L383.9 131.3 L385.7 130.9 L387.5 131.6 L389.2 132.1 L391.0 131.7 L392.7 135.8 L394.5 138.9 L396.3 143.4 L398.0 144.7 L399.8 137.8 L401.6 134.8 L403.3 132.0 L405.1 131.6 L406.8 133.4 L408.6 131.9 L410.4 133.0 L412.1 137.5 L413.9 135.4 L415.7 131.5 L417.4 133.2 L419.2 132.6 L420.9 133.1 L422.7 131.2 L424.5 132.1 L426.2 130.5 L428.0 132.2" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="332.0" y="116.0" width="8.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="388.0" y="116.0" width="14.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <text x="56.0" y="182.0" font-size="11.5" text-anchor="end" stroke="none" style="fill: var(--d-muted, #4A5675)">star 3</text>
-  <rect x="70.0" y="164.0" width="112.0" height="32.0" rx="3" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <text x="126.0" y="185.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">survey hidden</text>
-  <rect x="195.0" y="164.0" width="112.0" height="32.0" rx="3"/>
-  <path d="M199.0 178.0 L200.8 178.5 L202.5 177.7 L204.3 177.2 L206.1 176.6 L207.8 177.6 L209.6 178.3 L211.3 178.6 L213.1 177.4 L214.9 177.3 L216.6 181.4 L218.4 188.1 L220.2 190.1 L221.9 183.6 L223.7 180.3 L225.4 180.5 L227.2 178.8 L229.0 179.9 L230.7 179.5 L232.5 179.5 L234.3 179.7 L236.0 178.7 L237.8 179.4 L239.5 179.9 L241.3 179.2 L243.1 180.5 L244.8 187.5 L246.6 186.8 L248.4 182.7 L250.1 180.3 L251.9 181.2 L253.6 180.1 L255.4 180.3 L257.2 180.6 L258.9 181.3 L260.7 180.9 L262.5 181.6 L264.2 182.1 L266.0 181.7 L267.7 185.8 L269.5 188.9 L271.3 193.4 L273.0 194.7 L274.8 187.8 L276.6 184.8 L278.3 182.0 L280.1 181.6 L281.8 183.4 L283.6 181.9 L285.4 183.0 L287.1 187.5 L288.9 185.4 L290.7 181.5 L292.4 183.2 L294.2 182.6 L295.9 183.1 L297.7 181.2 L299.5 182.1 L301.2 180.5 L303.0 182.2" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="223.0" y="166.0" width="14.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="279.0" y="166.0" width="20.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="320.0" y="164.0" width="112.0" height="32.0" rx="3"/>
-  <path d="M324.0 178.0 L325.8 178.5 L327.5 177.7 L329.3 177.2 L331.1 176.6 L332.8 177.6 L334.6 178.3 L336.3 178.6 L338.1 177.4 L339.9 177.3 L341.6 181.4 L343.4 188.1 L345.2 190.1 L346.9 183.6 L348.7 180.3 L350.4 180.5 L352.2 178.8 L354.0 179.9 L355.7 179.5 L357.5 179.5 L359.3 179.7 L361.0 178.7 L362.8 179.4 L364.5 179.9 L366.3 179.2 L368.1 180.5 L369.8 187.5 L371.6 186.8 L373.4 182.7 L375.1 180.3 L376.9 181.2 L378.6 180.1 L380.4 180.3 L382.2 180.6 L383.9 181.3 L385.7 180.9 L387.5 181.6 L389.2 182.1 L391.0 181.7 L392.7 185.8 L394.5 188.9 L396.3 193.4 L398.0 194.7 L399.8 187.8 L401.6 184.8 L403.3 182.0 L405.1 181.6 L406.8 183.4 L408.6 181.9 L410.4 183.0 L412.1 187.5 L413.9 185.4 L415.7 181.5 L417.4 183.2 L419.2 182.6 L420.9 183.1 L422.7 181.2 L424.5 182.1 L426.2 180.5 L428.0 182.2" stroke-width="1" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="332.0" y="166.0" width="20.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <rect x="356.0" y="166.0" width="20.0" height="28.0" rx="1" fill="currentColor" fill-opacity="0.35" stroke-opacity="0"/>
-  <text x="225.0" y="222.0" font-size="11" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">blocks of pixels hidden; sizes drawn log-uniformly up to f_max</text>
-  <text x="538.0" y="42.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">APOGEE</text>
-  <text x="676.0" y="42.0" font-size="11.5" text-anchor="middle" stroke="none" fill="currentColor">GALAH</text>
-  <rect x="481.0" y="67.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="511.0" y="67.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="541.0" y="67.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="571.0" y="67.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="619.0" y="67.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="649.0" y="67.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="679.0" y="67.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="709.0" y="67.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="481.0" y="117.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="511.0" y="117.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="541.0" y="117.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="571.0" y="117.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="619.0" y="117.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="649.0" y="117.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="679.0" y="117.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="709.0" y="117.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="481.0" y="167.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="511.0" y="167.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="541.0" y="167.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <rect x="571.0" y="167.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="619.0" y="167.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="649.0" y="167.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="679.0" y="167.0" width="24.0" height="24.0" rx="2" fill="currentColor" fill-opacity="0.25" style="stroke: var(--d-teal, #1D7468)"/>
-  <rect x="709.0" y="167.0" width="24.0" height="24.0" rx="2" stroke-dasharray="4 3" stroke-opacity="0.4"/>
-  <text x="493.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">teff</text>
-  <text x="631.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">teff</text>
-  <text x="523.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">logg</text>
-  <text x="661.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">logg</text>
-  <text x="553.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">fe_h</text>
-  <text x="691.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">fe_h</text>
-  <text x="583.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">mg_fe</text>
-  <text x="721.0" y="206.0" font-size="8.5" text-anchor="middle" font-family="monospace" stroke="none" style="fill: var(--d-muted, #4A5675)">mg_fe</text>
-  <text x="616.0" y="222.0" font-size="11" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">labels and label sources hidden</text>
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-mask" viewBox="0 0 760 280" width="760" height="280" role="img" aria-labelledby="f-mask-title">
+<title id="f-mask-title">The two masking augmentations on one illustrative batch of three stars. Input masking hides whole surveys of a star and blocks of pixels within the surveys it keeps; the blocks of one survey share their size and boundaries within the batch. Label masking hides whole label sources of a star and single labels within the sources it keeps. Every star keeps at least one survey, one block, one label source and one label.</title>
+<style>
+.dfig.f-mask text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-mask .h { font-weight: 700; font-size: 13px; }
+.dfig.f-mask .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-mask .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mask .mono { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11px; fill: var(--d-muted, #4A5675); }
+.dfig.f-mask .faint { fill: var(--d-faint, #5F6A85); }
+.dfig.f-mask .lab { font-weight: 700; font-size: 12.5px; fill: var(--d-gold, #8C5D00); }
+.dfig.f-mask .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-mask .spec { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.dfig.f-mask .goldm { fill: var(--d-gold-fill, #F2B84B); stroke: currentColor; stroke-width: 1; }
+.dfig.f-mask .missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-mask .arrow-missing { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+</style>
+<text class="h" x="258" y="18" text-anchor="middle">Input masking</text>
+<text class="h" x="640" y="18" text-anchor="middle">Label masking</text>
+<text class="n" x="127" y="42" text-anchor="middle">BOSS</text>
+<text class="n" x="265" y="42" text-anchor="middle">DESI</text>
+<text class="n" x="403" y="42" text-anchor="middle">LAMOST LRS</text>
+<text class="t" x="10" y="80">star 1</text>
+<rect class="in" x="64" y="54" width="126" height="44"/>
+<path class="spec" d="M70.0 63.8L71.9 64.0L73.9 63.4L75.8 63.8L77.7 64.3L79.7 63.6L81.6 63.2L83.5 65.0L85.5 70.7L87.4 78.4L89.3 82.9L91.3 80.1L93.2 75.6L95.1 71.5L97.1 75.5L99.0 78.8L100.9 77.1L102.8 71.4L104.8 66.2L106.7 63.7L108.6 64.1L110.6 63.3L112.5 66.6L114.4 70.7M145.4 62.8L147.3 64.8L149.2 62.7L151.2 62.9L153.1 63.3L155.0 63.7L156.9 64.1L158.9 62.8L160.8 62.4L162.7 62.5L164.7 62.9L166.6 63.6L168.5 64.8L170.5 63.9L172.4 63.4L174.3 64.8L176.3 63.6L178.2 63.5L180.1 63.3L182.1 64.8L184.0 64.4"/>
+<path class="arrow-missing" d="M116.4 92H143.4"/>
+<rect class="in" x="202" y="54" width="126" height="44"/>
+<path class="spec" d="M208.0 64.7L209.9 64.4L211.9 64.5L213.8 63.7L215.7 64.1L217.7 64.1L219.6 64.9L221.5 68.8L223.5 75.3L225.4 80.1L227.3 77.9L229.3 71.7L231.2 66.6L233.1 64.4L235.1 64.7L237.0 64.7L238.9 63.6L240.8 65.2L242.8 64.0L244.7 63.5M260.2 63.1L262.1 63.1L264.0 63.4L266.0 64.0L267.9 65.2L269.8 63.7L271.8 64.0L273.7 63.8L275.6 62.7L277.6 63.7L279.5 63.7L281.4 63.4L283.4 64.1L285.3 64.6L287.2 65.8M304.6 68.5L306.5 64.4L308.5 64.3L310.4 64.2L312.3 63.4L314.3 65.5L316.2 64.8L318.1 64.2L320.1 63.7L322.0 64.4"/>
+<path class="arrow-missing" d="M246.6 92H258.2"/>
+<path class="arrow-missing" d="M289.2 92H302.7"/>
+<rect class="missing" x="340.5" y="54.5" width="125" height="43"/>
+<text class="t faint" x="403" y="80" text-anchor="middle">survey hidden</text>
+<text class="t" x="10" y="138">star 2</text>
+<rect class="in" x="64" y="112" width="126" height="44"/>
+<path class="spec" d="M87.4 125.2L89.3 122.6L91.3 121.6L93.2 122.4L95.1 122.0L97.1 122.2L99.0 121.4L100.9 121.8L102.8 122.1L104.8 122.5L106.7 122.1L108.6 121.9L110.6 122.1L112.5 120.9L114.4 121.1L116.4 123.9L118.3 123.3L120.2 122.0L122.2 122.2L124.1 121.7L126.0 121.7L128.0 120.3L129.9 122.7L131.8 122.3L133.8 121.4L135.7 125.3L137.6 130.7L139.6 136.6L141.5 138.3L143.4 135.6L145.4 136.1L147.3 137.1L149.2 132.7L151.2 126.8L153.1 124.0L155.0 122.2L156.9 121.8L158.9 121.8L160.8 122.2L162.7 121.4L164.7 121.2L166.6 121.6L168.5 122.5L170.5 121.3L172.4 122.2"/>
+<path class="arrow-missing" d="M70.0 150H85.5"/>
+<path class="arrow-missing" d="M174.3 150H184.0"/>
+<rect class="missing" x="202.5" y="112.5" width="125" height="43"/>
+<text class="t faint" x="265" y="138" text-anchor="middle">survey hidden</text>
+<rect class="in" x="340" y="112" width="126" height="44"/>
+<path class="spec" d="M346.0 121.6L347.9 120.7L349.9 123.2L351.8 120.6L353.7 121.9L355.7 122.5L357.6 122.5L359.5 122.7L361.5 122.0L363.4 121.2L365.3 121.4L367.3 121.4L369.2 123.1L371.1 123.0L373.1 120.7L375.0 121.1L376.9 120.2L378.8 121.0L380.8 123.2L382.7 123.5L384.6 129.4L386.6 137.1L388.5 141.1L390.4 136.1L392.4 128.8L394.3 123.3L396.2 122.2L398.2 120.7L400.1 122.6L402.0 122.2M442.6 125.0L444.5 121.6L446.5 120.9L448.4 122.8L450.3 121.0L452.3 123.2L454.2 122.4L456.1 122.0L458.1 121.8L460.0 122.6"/>
+<path class="arrow-missing" d="M404.0 150H440.7"/>
+<text class="t" x="10" y="196">star 3</text>
+<rect class="missing" x="64.5" y="170.5" width="125" height="43"/>
+<text class="t faint" x="127" y="196" text-anchor="middle">survey hidden</text>
+<rect class="in" x="202" y="170" width="126" height="44"/>
+<path class="spec" d="M208.0 179.9L209.9 179.1L211.9 179.3L213.8 179.3L215.7 178.7M231.2 181.3L233.1 179.8L235.1 180.5L237.0 178.5L238.9 179.2L240.8 179.2L242.8 179.9L244.7 179.4L246.6 179.4L248.6 180.1L250.5 180.3L252.4 180.3L254.4 182.1L256.3 186.4L258.2 193.4L260.2 200.7L262.1 203.4L264.0 205.1L266.0 198.7L267.9 191.7L269.8 184.7L271.8 182.0L273.7 180.1L275.6 180.1L277.6 179.7L279.5 180.3L281.4 179.8L283.4 178.5L285.3 179.6L287.2 180.3L289.2 179.2L291.1 180.0L293.0 179.7L294.9 181.0L296.9 185.8L298.8 194.2L300.7 198.6L302.7 196.3M318.1 179.0L320.1 179.0L322.0 178.2"/>
+<path class="arrow-missing" d="M217.7 208H229.3"/>
+<path class="arrow-missing" d="M304.6 208H316.2"/>
+<rect class="in" x="340" y="170" width="126" height="44"/>
+<path class="spec" d="M365.3 179.6L367.3 179.7L369.2 181.7L371.1 189.7L373.1 200.0L375.0 210.2L376.9 210.8L378.8 203.2L380.8 192.0L382.7 184.0L384.6 180.6L386.6 181.0L388.5 179.3L390.4 180.0L392.4 180.7L394.3 182.2L396.2 184.0L398.2 191.2L400.1 195.2L402.0 192.4L404.0 184.5L405.9 182.3L407.8 179.4L409.8 178.9L411.7 181.6L413.6 178.9L415.6 180.0L417.5 180.7L419.4 180.3L421.4 179.4L423.3 179.6L425.2 179.5L427.2 180.4L429.1 178.9L431.0 178.7L432.9 178.5L434.9 179.1L436.8 178.5L438.7 178.3L440.7 179.3L442.6 179.2L444.5 179.4L446.5 179.5L448.4 179.2L450.3 181.1L452.3 180.1L454.2 179.5L456.1 181.4L458.1 180.9L460.0 178.7"/>
+<path class="arrow-missing" d="M346.0 208H363.4"/>
+<text class="lab" x="586" y="42" text-anchor="middle">APOGEE</text>
+<rect class="goldm" x="548" y="68" width="16" height="16"/>
+<rect class="missing" x="568.5" y="68.5" width="15" height="15"/>
+<rect class="goldm" x="588" y="68" width="16" height="16"/>
+<rect class="goldm" x="608" y="68" width="16" height="16"/>
+<rect class="goldm" x="548" y="126" width="16" height="16"/>
+<rect class="goldm" x="568" y="126" width="16" height="16"/>
+<rect class="goldm" x="588" y="126" width="16" height="16"/>
+<rect class="goldm" x="608" y="126" width="16" height="16"/>
+<rect class="goldm" x="548" y="184" width="16" height="16"/>
+<rect class="goldm" x="568" y="184" width="16" height="16"/>
+<rect class="missing" x="588.5" y="184.5" width="15" height="15"/>
+<rect class="goldm" x="608" y="184" width="16" height="16"/>
+<text class="lab" x="686" y="42" text-anchor="middle">GALAH</text>
+<rect class="goldm" x="648" y="68" width="16" height="16"/>
+<rect class="goldm" x="668" y="68" width="16" height="16"/>
+<rect class="missing" x="688.5" y="68.5" width="15" height="15"/>
+<rect class="goldm" x="708" y="68" width="16" height="16"/>
+<rect class="missing" x="648.5" y="126.5" width="15" height="15"/>
+<rect class="missing" x="668.5" y="126.5" width="15" height="15"/>
+<rect class="missing" x="688.5" y="126.5" width="15" height="15"/>
+<rect class="missing" x="708.5" y="126.5" width="15" height="15"/>
+<text class="t faint" x="686" y="158" text-anchor="middle">source hidden</text>
+<rect class="missing" x="648.5" y="184.5" width="15" height="15"/>
+<rect class="goldm" x="668" y="184" width="16" height="16"/>
+<rect class="goldm" x="688" y="184" width="16" height="16"/>
+<rect class="missing" x="708.5" y="184.5" width="15" height="15"/>
+<text class="mono" x="556" y="236" text-anchor="end" transform="rotate(-50 556 236)">teff</text>
+<text class="mono" x="576" y="236" text-anchor="end" transform="rotate(-50 576 236)">logg</text>
+<text class="mono" x="596" y="236" text-anchor="end" transform="rotate(-50 596 236)">fe_h</text>
+<text class="mono" x="616" y="236" text-anchor="end" transform="rotate(-50 616 236)">mg_fe</text>
+<text class="mono" x="656" y="236" text-anchor="end" transform="rotate(-50 656 236)">teff</text>
+<text class="mono" x="676" y="236" text-anchor="end" transform="rotate(-50 676 236)">logg</text>
+<text class="mono" x="696" y="236" text-anchor="end" transform="rotate(-50 696 236)">fe_h</text>
+<text class="mono" x="716" y="236" text-anchor="end" transform="rotate(-50 716 236)">mg_fe</text>
+<path class="arrow-missing" d="M64 236H100"/>
+<text class="t" x="108" y="240">hidden pixels: 0 in all three channels</text>
 </svg>

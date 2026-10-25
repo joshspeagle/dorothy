@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-warm-n" viewBox="0 0 360 210" width="360" height="210" role="img" aria-labelledby="f-warm-n-title">
+<title id="f-warm-n-title">The warm-up of the loss: beta starts at 1, where the gradient for mu is that of the squared error, falls linearly to 0 over the first W optimizer steps, and stays 0, the plain negative log-likelihood, until the last step. Early stopping counts only the epochs that end after the warm-up.</title>
+<style>
+.dfig.f-warm-n text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-warm-n .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-warm-n .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-warm-n .tick { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11.5px; fill: var(--d-faint, #5F6A85); }
+.dfig.f-warm-n .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; }
+.dfig.f-warm-n .panel { fill: var(--d-surface, #F1F4F9); stroke: none; }
+.dfig.f-warm-n .mline { fill: none; stroke: var(--d-teal, #1D7468); stroke-width: 2; stroke-linejoin: round; }
+.dfig.f-warm-n .ax { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+</style>
+<rect class="panel" x="46" y="22" width="90" height="138"/>
+<path class="ax" d="M46 22V160H346"/>
+<path class="ax" d="M41 160H46"/>
+<text class="tick" x="37" y="164" text-anchor="end">0</text>
+<path class="ax" d="M41 32H46"/>
+<text class="tick" x="37" y="36" text-anchor="end">1</text>
+<text class="math" x="16" y="98">β</text>
+<path class="mline" d="M46 32L136.0 160H346"/>
+<path class="ax" d="M46.0 160v6"/>
+<path class="ax" d="M136.0 160v6"/>
+<path class="ax" d="M346.0 160v6"/>
+<text class="tick" x="46" y="180" text-anchor="middle">0</text>
+<text class="math" x="136" y="180" text-anchor="middle">W</text>
+<text class="tick" x="346" y="180" text-anchor="end">last step</text>
+<text class="t" x="346" y="200" text-anchor="end">optimizer step t</text>
+<text class="n" x="91" y="36" text-anchor="middle">warm-up</text>
+<text class="t" x="146" y="56">β = 0: the loss ℒ;</text>
+<text class="t" x="146" y="72">early stopping counts</text>
+<text class="t" x="146" y="88">the epochs from here</text>
+</svg>
