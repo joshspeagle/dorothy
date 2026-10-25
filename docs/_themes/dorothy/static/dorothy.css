@@ -328,7 +328,7 @@ span.highlighted { background: var(--d-surface-2); }
 .home h1 { font-size: 92px; font-weight: 800; letter-spacing: 0.01em; line-height: 0.9; padding-top: 56px; }
 .home .headerlink { display: none; }
 .home .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); column-gap: 24px; align-items: center; margin: 32px 0; }
-.home .hero p { font-size: 20px; line-height: 1.5; margin: 0; max-width: 60ch; }
+.home .hero p { font-size: 20px; line-height: 1.5; margin: 0 0 12px; max-width: 60ch; }
 .home .hero img { display: block; margin: 0; }
 .home section > svg[role="img"] { max-width: 960px; margin: 48px auto 0; }
 .home section > section { margin-top: 80px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 24px; }
