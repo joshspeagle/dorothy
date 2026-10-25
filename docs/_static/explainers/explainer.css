@@ -1,0 +1,65 @@
+/* Interactive explainers of the How it works pages: a surface panel with a
+   teal top edge, a plot, a readout and the controls (DESIGN.md, Interactive
+   style). Colours come from the theme tokens only. */
+
+.d-lab { border-top: 3px solid var(--d-teal-fill); background: var(--d-surface); margin: 24px 0; }
+.d-lab-h { margin: 0 !important; padding: 16px 20px 0; color: var(--d-muted); font-size: 16px; }
+.d-lab-plot { padding: 8px 20px 0; }
+.d-lab .d-lab-plot svg[role="img"] { display: block; width: 100%; height: auto; margin: 0; overflow: visible; }
+.d-readout { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: baseline; margin: 12px 20px 0; padding: 14px 20px; background: var(--d-bg); border: 1px solid var(--d-rule); }
+.d-readout .k { display: block; font-size: 14px; color: var(--d-muted); }
+.d-readout .big { font-family: var(--d-mono); font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.d-readout .mid { font-size: 20px; }
+.d-verdict { font-size: 20px; font-weight: 700; color: var(--d-coral); }
+.d-verdict.ok { color: var(--d-teal); }
+.d-lab-ctl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 24px; align-items: end; padding: 16px 20px 20px; }
+.d-lab-ctl.wrap { display: flex; flex-wrap: wrap; align-items: center; }
+
+/* slider: square thumb on a 2 px ink track, with a mono scale */
+.d-slider label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 15px; font-weight: 600; }
+.d-slider label .num { font-family: var(--d-mono); font-weight: 500; }
+.d-lab input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; margin: 0; background: transparent; cursor: pointer; }
+.d-lab input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--d-ink); }
+.d-lab input[type="range"]::-moz-range-track { height: 2px; background: var(--d-ink); }
+.d-lab input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 22px; margin-top: -10px; background: var(--d-teal-fill); border: 2px solid var(--d-ink); border-radius: 0; }
+.d-lab input[type="range"]::-moz-range-thumb { width: 10px; height: 18px; background: var(--d-teal-fill); border: 2px solid var(--d-ink); border-radius: 0; }
+.d-scale { display: flex; justify-content: space-between; margin-top: 2px; font-family: var(--d-mono); font-size: 12px; color: var(--d-faint); }
+
+/* buttons: primary solid ink; toggles are outlined and fill when pressed */
+.d-btn { height: 40px; padding: 0 16px; font: 600 15px var(--d-sans); color: var(--d-btn-ink); background: var(--d-btn-bg); border: 1px solid var(--d-btn-bg); border-radius: 2px; cursor: pointer; }
+.d-btn:hover { color: var(--d-ink); background: transparent; }
+.d-toggles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.d-toggles legend { width: 100%; margin-bottom: 8px; padding: 0; font-size: 15px; font-weight: 600; }
+.d-toggle { height: 40px; padding: 0 14px; font: 500 15px var(--d-sans); color: var(--d-ink); background: transparent; border: 1px solid var(--d-ink); border-radius: 2px; cursor: pointer; }
+.d-toggle[aria-pressed="true"] { color: var(--d-btn-ink); background: var(--d-btn-bg); }
+
+/* SVG roles inside the plots */
+.d-lab svg text { font-family: var(--d-sans); font-size: 13px; fill: var(--d-muted); }
+.d-lab svg .tick { font-family: var(--d-mono); font-size: 11.5px; fill: var(--d-faint); }
+.d-lab svg .sym { font-family: KaTeX_Math, "Times New Roman", serif; font-style: italic; font-size: 16px; fill: var(--d-ink); }
+.d-lab svg .ink { fill: var(--d-ink); }
+.d-lab svg .head { font-weight: 700; fill: var(--d-ink); }
+.d-lab svg .mono { font-family: var(--d-mono); font-size: 12px; fill: var(--d-ink); }
+.d-lab svg .ax { fill: none; stroke: var(--d-axis); stroke-width: 1; }
+.d-lab svg .curve { fill: none; stroke: var(--d-ink); stroke-width: 2; }
+.d-lab svg .guide { fill: none; stroke: var(--d-ink); stroke-width: 1.2; stroke-dasharray: 2 3; }
+.d-lab svg .mline { fill: none; stroke: var(--d-teal); stroke-width: 2; }
+.d-lab svg .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal); stroke-width: 1.5; }
+.d-lab svg .bar, .d-lab svg .vec { fill: var(--d-teal-fill); stroke: none; }
+.d-lab svg .dot { fill: var(--d-teal); stroke: none; }
+.d-lab svg .in { fill: var(--d-bg); stroke: var(--d-axis); stroke-width: 1; }
+.d-lab svg .missing { fill: none; stroke: var(--d-axis); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.d-lab svg .zero { fill: var(--d-bg); stroke: var(--d-axis); stroke-width: 1; stroke-dasharray: 4 3; }
+.d-lab svg .arrow { fill: none; stroke: var(--d-ink); stroke-width: 1.2; }
+.d-lab svg .arrow-missing { fill: none; stroke: var(--d-axis); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.d-lab svg .tip { fill: var(--d-ink); }
+.d-lab svg .tip-missing { fill: var(--d-axis); }
+.d-lab svg .warn { fill: var(--d-coral); }
+.d-lab svg .onfill { font-family: var(--d-mono); font-size: 12px; fill: var(--d-on-fill); }
+
+@media (max-width: 600px) {
+  .d-lab-h, .d-lab-plot { padding-left: 16px; padding-right: 16px; }
+  .d-readout { margin: 12px 16px 0; padding: 12px 14px; }
+  .d-readout .big { font-size: 22px; }
+  .d-lab-ctl { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+}
