@@ -62,50 +62,72 @@ spectra of every survey that observed the star and the labels of every
 
 ## Where to start
 
-- [Concepts](background/concepts.md) explains the problem and the approach.
-- [Quick start](guide/quickstart.md) builds a catalogue, trains a model and
+- [Concepts](start/what-it-does.md) explains the problem and the approach.
+- [Quick start](start/quickstart.md) builds a catalogue, trains a model and
   uses it.
-- [Code map](guide/code-map.md) shows where each step lives in the code, and
+- [Code map](contribute/code-map.md) shows where each step lives in the code, and
   the [API reference](reference/api.md) documents every module.
 
 ```{toctree}
-:caption: Background
+:caption: Start
 :hidden:
 
-background/concepts
-background/glossary
+start/what-it-does
+start/install
+start/quickstart
 ```
 
 ```{toctree}
-:caption: Methods
+:caption: The catalogue
 :hidden:
 
-methods/catalogue
+catalogue/contents
+catalogue/labels
+catalogue/build
+catalogue/python
+```
+
+```{toctree}
+:caption: Guides
+:hidden:
+
+guides/train
+guides/read-predictions
+guides/inspect
+guides/compare-labels
+guides/python
+```
+
+```{toctree}
+:caption: How it works
+:hidden:
+
 methods/preprocessing
-methods/models
+methods/model
+methods/uncertainties
 methods/training
 methods/evaluation
-methods/analysis
-```
-
-```{toctree}
-:caption: Using DOROTHY
-:hidden:
-
-guide/installation
-guide/quickstart
-guide/configuration
-guide/commands
-guide/python-api
-guide/code-map
 ```
 
 ```{toctree}
 :caption: Reference
 :hidden:
 
+reference/commands
+reference/configuration
+reference/surveys
+reference/glossary
 reference/api
-reference/line-spread-functions
 reference/changelog
 reference/bibliography
+```
+
+```{toctree}
+:caption: Contribute
+:hidden:
+
+contribute/code-map
+contribute/shared-definitions
+contribute/writing
+contribute/build-docs
 ```

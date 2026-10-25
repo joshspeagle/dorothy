@@ -1,4 +1,4 @@
-# Concepts
+# What DOROTHY does
 
 ## Labels from spectra
 
@@ -33,7 +33,7 @@ Stars are matched across surveys by their Gaia DR3 source ID
 {cite:p}`gaia2023dr3`. The cross-matched files for each pair of a survey and a
 label source go into the {term}`super-catalogue`, with one row per star. A
 star can have spectra from several surveys and labels from both label sources,
-or any subset of them ([The super-catalogue](../methods/catalogue.md)).
+or any subset of them ([The super-catalogue](../catalogue/contents.md)).
 
 ## One model for several surveys
 
@@ -42,7 +42,7 @@ cannot read their spectra with the same input layer. A multi-head model gives
 each survey its own {term}`encoder`, which maps the survey's spectrum to a
 vector of fixed length. A shared {term}`trunk` combines the vectors of
 whatever surveys a star has, and one output {term}`head` per label source
-predicts that source's labels ([Models](../methods/models.md)).
+predicts that source's labels ([Models](../methods/model.md)).
 
 Two choices follow from this design:
 
@@ -58,7 +58,7 @@ Two choices follow from this design:
 The network predicts, for every label, a value μ and a
 {term}`predicted scatter` s. Training maximizes the likelihood of the measured
 label y under a normal distribution with mean μ and variance s²
-([Loss](../methods/training.md#the-loss)). μ depends on the spectrum alone.
+([Loss](../methods/uncertainties.md#the-loss)). μ depends on the spectrum alone.
 s can also read the label's reported uncertainty σ_y; prediction replaces σ_y
 with a learned {term}`missing vector`. The predicted scatter is the expected
 spread of the measured labels around μ, label noise included: it is large
@@ -67,7 +67,7 @@ is heteroscedastic regression {cite:p}`nix1994mean,kendall2017uncertainties`.
 
 The predictions are calibrated when the {term}`z-scores <z-score>`
 z = (μ − y) / s of held-out stars have unit scatter
-([Calibration](../methods/evaluation.md#calibration)). After training, one
+([Calibration](../methods/uncertainties.md#calibration)). After training, one
 {term}`calibration factor` per head and parameter rescales s so that the
 z-scores of the validation stars have unit scatter, and prediction reports
 the rescaled uncertainty.

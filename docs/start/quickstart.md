@@ -11,7 +11,7 @@ python scripts/build_catalogue_v2.py
 ```
 
 The builder writes `data/super_catalogue.h5`. The
-[super-catalogue](../methods/catalogue.md) page describes the inputs, the options
+[super-catalogue](../catalogue/contents.md) page describes the inputs, the options
 and the file layout.
 
 ## 2. Train
@@ -22,7 +22,7 @@ dorothy train examples/variant2_multi_survey.yaml
 
 The configuration names the surveys (`boss`, `desi`), the label source
 (`apogee`), the model and the training settings
-([Configuration](configuration.md)). Training prints the losses per epoch and
+([Configuration](../guides/train.md)). Training prints the losses per epoch and
 writes a checkpoint directory:
 
 ```
@@ -50,10 +50,10 @@ dorothy predict \
 
 The CSV has one row per spectrum, with each parameter and its uncertainty
 (`teff`, `teff_err`, ...) in physical units. The uncertainties include the
-[calibration factors](../methods/evaluation.md#calibration-factors) that
+[calibration factors](../methods/uncertainties.md#calibration-factors) that
 training fit.
 
 ## From Python
 
 The same steps, and the objects behind them, are on the
-[Python API](python-api.md) page.
+[Python API](../guides/python.md) page.
