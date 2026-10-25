@@ -1,4 +1,4 @@
-# Models
+# The model
 
 Both models are multilayer perceptrons. Each hidden layer is a linear map
 followed by a normalization (`layernorm` {cite:p}`ba2016layernorm` or
@@ -11,7 +11,7 @@ of every parameter, in {term}`normalized units`.
 Both end in a {py:class}`~dorothy.models.output.LabelAwareOutput`: a label
 decoder predicts μ, and a parallel error decoder predicts ln s from the same
 input and the reported label errors
-([Scatter and label errors](training.md#scatter-and-label-errors)).
+([Scatter and label errors](uncertainties.md#scatter-and-label-errors)).
 
 ## MLP
 
@@ -89,7 +89,7 @@ Each head's two decoders read the closed stream. Each decoder adds one
 residual block of hidden size h for each entry h of `output_hidden`, then a
 normalization and a linear map to one output per parameter. The error
 decoder adds a linear map of the log label errors u (see
-[Scatter and label errors](training.md#scatter-and-label-errors)) to its copy
+[Scatter and label errors](uncertainties.md#scatter-and-label-errors)) to its copy
 of the stream instead of concatenating u:
 
 $$
@@ -112,6 +112,6 @@ survey encoders hold most of the parameters in either case.
 a survey encoder's vector (`level="encoder"`) or the trunk output
 (`level="trunk"`), which for a residual stream is the closed stream. Trunk
 embeddings place stars from different surveys in one space;
-[anomaly detection](analysis.md#anomaly-detection) uses them. For the
+[anomaly detection](../guides/read-predictions.md#anomaly-detection) uses them. For the
 MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns the input of
 the decoders by default.

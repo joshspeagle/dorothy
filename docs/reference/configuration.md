@@ -1,62 +1,8 @@
 # Configuration
 
-An experiment is one YAML file, loaded into
-{py:class}`~dorothy.config.schema.ExperimentConfig`. The
-{py:mod}`configuration reference <dorothy.config.schema>` lists every field
-with its type, default and allowed range. This page explains how the sections
-fit together.
-
-```yaml
-name: multi_survey_experiment
-output_dir: outputs
-seed: 42
-device: auto                 # auto, cuda, mps or cpu
-
-data:
-  catalogue_path: data/super_catalogue.h5
-  surveys: [boss, desi]
-  label_sources: [apogee]
-  max_flag_bits: -1
-  normalize_spectra: true
-
-multi_head_model:
-  latent_dim: 256
-  encoder_hidden: [1024, 512]
-  trunk_hidden: [512, 256]
-  output_hidden: [64]
-  combination_mode: concat
-
-training:
-  epochs: 100
-  batch_size: 512
-  loss: heteroscedastic
-  optimizer:
-    type: adamw
-    weight_decay: 0.01
-  scheduler:
-    type: one_cycle
-    max_lr: 0.001
-
-label_masking:
-  enabled: false
-input_masking:
-  enabled: false
-```
-
-The files in `examples/` cover these setups:
-
-| File | Surveys | Label sources | Masking |
-|------|---------|---------------|---------|
-| `boss_training.yaml` | BOSS | APOGEE | no |
-| `variant1_boss_apogee.yaml` | BOSS | APOGEE | no |
-| `variant2_multi_survey.yaml` | BOSS, DESI | APOGEE | no |
-| `variant3_multi_labelset.yaml` | LAMOST LRS, LAMOST MRS | APOGEE, GALAH | yes |
-| `variant4_all_surveys.yaml` | all four | APOGEE | no |
-| `variant5_all_surveys_masked.yaml` | all four | APOGEE | yes |
-| `variant6_galah_xh_extended.yaml` | all four | APOGEE, GALAH | yes |
-
-`variant6` uses the 20-parameter [X/H] catalogue
-(`data/super_catalogue_xh_extended.h5`) and `per_source` loss weighting.
+This page lists the rules for configuration files and what each section
+sets. The {py:mod}`configuration reference <dorothy.config.schema>` lists
+every field with its type, default and allowed range.
 
 ## Rules
 
@@ -84,7 +30,7 @@ The files in `examples/` cover these setups:
 :   `model` is a plain MLP for one survey and one label source.
     `multi_head_model` is required for several surveys or label sources: one
     encoder per survey, a shared trunk and one output head per label source
-    (see [Models](../methods/models.md)). A single-survey configuration can
+    (see [The model](../methods/model.md)). A single-survey configuration can
     also use `multi_head_model`.
 
 `training`
@@ -93,7 +39,7 @@ The files in `examples/` cover these setups:
     averaging (`ema_decay`, `ema_cpu_every`, see
     [Training](../methods/training.md#weight-averaging)), the warm-up of the
     loss (`nll_warmup_fraction`, see
-    [Training](../methods/training.md#warm-up)), the fraction of
+    [Uncertainties](../methods/uncertainties.md#warm-up)), the fraction of
     stars trained without their label errors (`label_error_dropout`), the
     calibration factors fit after training (`calibrate_uncertainties`) and,
     with several label sources, how their losses combine

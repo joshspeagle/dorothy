@@ -1,4 +1,4 @@
-# Python API
+# Use DOROTHY from Python
 
 The command-line tools are thin wrappers around these functions. The same
 steps in Python:
