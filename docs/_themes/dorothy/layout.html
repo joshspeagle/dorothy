@@ -10,11 +10,6 @@
     {{ super() }}
 {%- endblock %}
 
-{%- block scripts %}
-    {{ super() }}
-    <script src="{{ pathto('_static/dorothy.js', 1) }}" defer></script>
-{%- endblock %}
-
 {%- block header %}
 <a class="skip" href="#main">Skip to content</a>
 <header class="topbar">
@@ -42,7 +37,7 @@
 {%- block content %}
 <div class="docs">
   <nav class="side" id="sidebar" aria-label="Documentation">
-    {{ toctree(collapse=False, titles_only=True, maxdepth=2, includehidden=True) }}
+    {{ toctree(collapse=True, titles_only=True, maxdepth=2, includehidden=True) }}
   </nav>
   <main class="article{% if section and section.docname == pagename %} landing{% endif %}" id="main">
     {%- if section %}

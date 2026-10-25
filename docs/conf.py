@@ -7,7 +7,6 @@ from importlib import metadata
 import pybtex.plugin
 import sphinxcontrib.bibtex.plugin
 from docutils import nodes
-from docutils.parsers.rst.directives.admonitions import BaseAdmonition
 from pybtex.richtext import Tag, Text
 from pybtex.style.formatting.alpha import Style as AlphaStyle
 from pybtex.style.template import (
@@ -46,7 +45,7 @@ extensions = [
     "sphinxcontrib.bibtex",
 ]
 
-exclude_patterns = ["_build", "_themes", "dev", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "dev", "Thumbs.db", ".DS_Store"]
 # The citation style classes below cannot be pickled into the cache, and
 # names such as `type` (a builtin and a config field) are ambiguous references
 suppress_warnings = ["config.cache", "ref.python"]
@@ -226,17 +225,6 @@ def _field_table(app, what, name, obj, options, lines):
 # -- Theme -------------------------------------------------------------------
 
 
-class DorothyNote(BaseAdmonition):
-    """The ``{dorothy}`` directive: Dorothy's note, one tip for students."""
-
-    node_class = nodes.admonition
-
-    def run(self):
-        self.arguments = ["Dorothy's note"]
-        self.options["class"] = ["dorothy"]
-        return super().run()
-
-
 def _page_context(app, pagename, templatename, context, doctree):
     """Give the templates the sections (the root toctrees) and the outline.
 
@@ -245,11 +233,11 @@ def _page_context(app, pagename, templatename, context, doctree):
     """
     env = app.env
     root = app.config.root_doc
-    toctrees = list(env.get_doctree(root).findall(addnodes.toctree))
+    toctrees = list(env.master_doctree.findall(addnodes.toctree))
     context["dorothy_sections"] = [
         {"caption": t["caption"], "docname": t["entries"][0][1]} for t in toctrees
     ]
-    parents = env.collect_relations()
+    parents = app.builder.relations
     top = pagename
     while top in parents and parents[top][0] not in (root, None):
         top = parents[top][0]
@@ -266,5 +254,5 @@ def _page_context(app, pagename, templatename, context, doctree):
 
 def setup(app):
     app.connect("autodoc-process-docstring", _field_table)
-    app.add_directive("dorothy", DorothyNote)
+    app.add_js_file("dorothy.js", loading_method="defer")
     app.connect("html-page-context", _page_context)
