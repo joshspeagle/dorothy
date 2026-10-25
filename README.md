@@ -21,8 +21,10 @@ python examples/synthetic_quickstart.py   # writes a small synthetic catalogue
 dorothy train quickstart/config.yaml      # trains in seconds on a CPU
 ```
 
-The [quick start](https://joshspeagle.com/dorothy/start/quickstart.html)
-continues with evaluation and prediction.
+To train on a GPU, first install the PyTorch build for your CUDA version
+([Install](https://joshspeagle.com/dorothy/start/install.html)). The
+[quick start](https://joshspeagle.com/dorothy/start/quickstart.html) continues
+with evaluation and prediction.
 
 ## Read more
 
@@ -35,8 +37,11 @@ continues with evaluation and prediction.
 | Look up a command or setting | [Reference](https://joshspeagle.com/dorothy/reference/commands.html) |
 | Change the code or the docs | [Contribute](https://joshspeagle.com/dorothy/contribute/code-map.html) |
 
-[`CHANGELOG.md`](CHANGELOG.md) lists the changes since the last release.
+[`CLAUDE.md`](https://github.com/joshspeagle/dorothy/blob/main/CLAUDE.md)
+holds the project's conventions and the test and lint commands that CI runs.
+[`CHANGELOG.md`](https://github.com/joshspeagle/dorothy/blob/main/CHANGELOG.md)
+lists the changes since the last release.
 
 ## License
 
-MIT License. See [`LICENSE`](LICENSE).
+MIT License. See [`LICENSE`](https://github.com/joshspeagle/dorothy/blob/main/LICENSE).
