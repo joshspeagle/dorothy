@@ -233,6 +233,9 @@
   one it trained on. A checkpoint saved with `multi_head_model`, one survey
   and several label sources trained one head; its split indexes the old
   layout, so `DataSplit.load` raises `ValueError` and asks for a retrain.
+- `FITSLoader` raises `ValueError` on construction for a parameter name it
+  cannot read. With `load(require_labels=False)`, a misspelled name gave
+  all-NaN labels.
 - `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
   `union` or `intersection`, which it treated as `intersection`, and for an
   empty `surveys` list.

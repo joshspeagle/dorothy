@@ -473,12 +473,21 @@ class FITSLoader:
             parameters: Parameter names to load, keys of
                 ``APOGEE_COLUMN_MAP``. If None, loads all of them in the order
                 of the map.
+
+        Raises:
+            ValueError: If a parameter is not a key of ``APOGEE_COLUMN_MAP``.
         """
         self.fits_path = Path(fits_path)
 
         if parameters is None:
             parameters = list(APOGEE_COLUMN_MAP.keys())
-        self.parameters = parameters
+        unknown = [p for p in parameters if p not in APOGEE_COLUMN_MAP]
+        if unknown:
+            raise ValueError(
+                f"parameters has unknown names {unknown}; expected names from "
+                f"{list(APOGEE_COLUMN_MAP)}"
+            )
+        self.parameters = list(parameters)
 
     def load(
         self,
@@ -510,8 +519,8 @@ class FITSLoader:
         Raises:
             FileNotFoundError: If FITS file doesn't exist.
             ValueError: If a required extension is missing, or, with
-                require_labels, a parameter is not in ``APOGEE_COLUMN_MAP`` or
-                its columns are not in the APOGEE table.
+                require_labels, the APOGEE extension or a parameter's columns
+                are missing.
         """
         if not self.fits_path.exists():
             raise FileNotFoundError(f"FITS file not found: {self.fits_path}")
@@ -636,9 +645,6 @@ class FITSLoader:
         errors = np.zeros((n_samples, n_params), dtype=np.float32)
 
         for i, param_name in enumerate(self.parameters):
-            if param_name not in APOGEE_COLUMN_MAP:
-                raise ValueError(f"Unknown parameter: {param_name}")
-
             label_col, err_col = APOGEE_COLUMN_MAP[param_name]
 
             if label_col not in apogee_table.colnames:

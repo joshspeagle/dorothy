@@ -417,6 +417,10 @@ class TestFITSLoader:
         assert data.n_parameters == 3
         assert data.parameter_names == ["teff", "logg", "fe_h"]
 
+    def test_unknown_parameter_name_is_rejected(self, mock_fits_path):
+        with pytest.raises(ValueError, match="parameters has unknown names"):
+            FITSLoader(mock_fits_path, parameters=["teff", "feh"])
+
     def test_ids_extracted(self, mock_fits_path):
         """Test that star IDs are extracted correctly."""
         loader = FITSLoader(mock_fits_path)
