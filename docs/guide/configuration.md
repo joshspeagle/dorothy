@@ -43,7 +43,7 @@ input_masking:
   enabled: false
 ```
 
-The files in `examples/` cover the supported setups:
+The files in `examples/` cover these setups:
 
 | File | Surveys | Label sources | Masking |
 |------|---------|---------------|---------|

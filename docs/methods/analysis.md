@@ -11,10 +11,11 @@ Both analyzers take one spectrum as a torch tensor of shape
 `(3, n_wavelengths)`, preprocessed as in training (for example from
 {py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum` with
 the checkpoint's `data.normalize_spectra` and `data.precision_encoding`,
-converted with `torch.from_numpy`), and its wavelength grid. For a multi-survey model, `survey` selects the encoder.
-The analyzers set the masked pixels to zero in all three channels before the
-model sees them, so masked pixels may hold any value, including NaN. They use
-the model's predicted scatter s, without the
+converted with `torch.from_numpy`), and its wavelength grid. For a
+multi-survey model, `survey` selects the encoder. The analyzers set the
+masked pixels to zero in all three channels before the model sees them, so
+masked pixels may hold any value, including NaN. They use the model's
+predicted scatter s, without the
 [calibration factors](evaluation.md#calibration-factors).
 
 ### Gradient saliency

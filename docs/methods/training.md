@@ -275,7 +275,7 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 | `calibration.json` | One factor per head and parameter that scales the predicted scatter of `best_model.pth` |
 | `config.yaml` | The completed configuration |
 | `normalizer.pkl` | The label normalization |
-| `data_split.pkl` | Catalogue rows of the training, validation and test sets |
+| `data_split.pkl` | Rows of the training, validation and test sets ([Data selection and split](#data-selection-and-split)) |
 | `history_train_val.pkl` | Losses and metrics per epoch |
 | `learning_rates.pkl` | The learning rate after each optimizer step |
 | `plots/` | Training plots; the bar charts of validation metrics show the best epoch |
@@ -284,6 +284,6 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 an earlier run, with a new optimizer, schedule and warm-up.
 `training.save_every: N` also saves the weights, the configuration and the
 normalization every N epochs, in `epoch_N/`, without calibration factors.
-The weights there are `model_epoch_N.pth` and `best_model_epoch_N.pth`, so
-`dorothy evaluate` and `dorothy predict` need `--model` to load them.
+The weights there are `model_epoch_N.pth` and `best_model_epoch_N.pth`.
+`dorothy evaluate --model` loads them; `dorothy predict` cannot.
 BatchNorm needs at least two stars per batch in training.
