@@ -94,5 +94,6 @@ spectrum.
 - A pixel is valid when its flux is finite and its ivar is finite and
   positive; other pixels are masked.
 - Without an ID column, `star_id` is the row number, from 0.
-- The reader takes one `SPECTRA` extension, so it does not read LAMOST MRS
-  files with one extension per arm.
+- The reader takes one `SPECTRA` extension. For LAMOST MRS, write the blue
+  arm followed by the red arm in one `FLUX` row, each trimmed to its own
+  wavelength grid, as the catalogue loader joins them.
