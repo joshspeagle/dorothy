@@ -86,7 +86,7 @@
 <rect class="empty" x="295" y="258.5" width="40.5" height="15"/>
 <text class="id" x="0" y="290">…9953</text>
 <rect class="empty" x="64.5" y="278.5" width="40.5" height="15"/>
-<rect class="empty" x="109" y="278.5" width="40.5" height="15"/>
+<rect class="spec" x="108.5" y="278" width="41.5" height="16"/>
 <rect class="empty" x="153.5" y="278.5" width="40.5" height="15"/>
 <rect class="empty" x="198" y="278.5" width="40.5" height="15"/>
 <rect class="lab" x="250" y="278" width="41.5" height="16"/>
