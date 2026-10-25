@@ -7,6 +7,7 @@ from importlib import metadata
 import pybtex.plugin
 import sphinxcontrib.bibtex.plugin
 from docutils import nodes
+from docutils.parsers.rst.directives.admonitions import BaseAdmonition
 from pybtex.richtext import Tag, Text
 from pybtex.style.formatting.alpha import Style as AlphaStyle
 from pybtex.style.template import (
@@ -225,6 +226,17 @@ def _field_table(app, what, name, obj, options, lines):
 # -- Theme -------------------------------------------------------------------
 
 
+class DorothyNote(BaseAdmonition):
+    """The ``{dorothy}`` directive: Dorothy's note, one tip for students."""
+
+    node_class = nodes.admonition
+
+    def run(self):
+        self.arguments = ["Dorothy's note"]
+        self.options["class"] = ["dorothy"]
+        return super().run()
+
+
 def _page_context(app, pagename, templatename, context, doctree):
     """Give the templates the sections (the root toctrees) and the outline.
 
@@ -254,5 +266,6 @@ def _page_context(app, pagename, templatename, context, doctree):
 
 def setup(app):
     app.connect("autodoc-process-docstring", _field_table)
+    app.add_directive("dorothy", DorothyNote)
     app.add_js_file("dorothy.js", loading_method="defer")
     app.connect("html-page-context", _page_context)

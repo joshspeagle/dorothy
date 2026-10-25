@@ -155,6 +155,15 @@ div.admonition p { font-size: 16px; }
 div.admonition:is(.caution, .warning, .attention, .danger, .error) { background: var(--d-coral-tint); border-left-color: var(--d-coral-fill); }
 div.admonition:is(.caution, .warning, .attention, .danger, .error) > .admonition-title { color: var(--d-coral); }
 
+/* Dorothy's note: the one student tip on a page, with the pointing pose */
+div.admonition.dorothy { grid-template-columns: 112px minmax(0, 1fr); gap: 2px 20px; padding: 18px 22px 18px 16px; background: var(--d-band); color: var(--d-band-ink); border-left: 0; align-items: start; }
+div.admonition.dorothy::before { content: ""; grid-column: 1; grid-row: 1 / span 3; align-self: center; width: 112px; aspect-ratio: 214 / 116; background: url("dorothy-note.svg") no-repeat center / contain; }
+div.admonition.dorothy > .admonition-title { grid-column: 2; font-size: 15px; color: var(--d-band-muted); font-weight: 600; }
+div.admonition.dorothy > .admonition-title::before { display: none; }
+div.admonition.dorothy p strong { font-size: 18px; display: block; margin-bottom: 4px; line-height: 1.35; }
+div.admonition.dorothy a { color: var(--d-band-ink); text-decoration-color: var(--d-band-muted); }
+div.admonition.dorothy code.literal { background: var(--d-band-field); color: var(--d-band-ink); }
+
 /* ---------- tables ---------- */
 table.docutils { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 16px; }
 table.docutils th, table.docutils td { text-align: left; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--d-rule); vertical-align: top; }
@@ -215,6 +224,12 @@ table.autosummary td:first-child { white-space: nowrap; }
 .article dl:not(.py, .field-list, .footnote) > dt { font-weight: 700; }
 .article dl:not(.py, .field-list, .footnote) > dd { margin: 0 0 16px 24px; }
 .article dd > p:last-child { margin-bottom: 0; }
+/* steps: a section whose id starts "step-" sits on a rail */
+.article section > section[id^="step-"] { border-top: 0; margin-top: 0; padding: 30px 0 8px 28px; border-left: 2px solid var(--d-ink); }
+.article section > section:not([id^="step-"]) + section[id^="step-"] { margin-top: 52px; }
+.article section > section[id^="step-"] + section:not([id^="step-"]) { margin-top: 40px; }
+.article section > section[id^="step-"] > h2 { position: relative; }
+.article section > section[id^="step-"] > h2::before { content: ""; position: absolute; left: -36px; top: 8px; width: 14px; height: 14px; background: var(--d-ink); }
 .headerlink { visibility: hidden; margin-left: 8px; color: var(--d-axis); text-decoration: none; font-weight: 400; }
 :hover > .headerlink, .headerlink:focus { visibility: visible; }
 
@@ -367,7 +382,11 @@ span.highlighted { background: var(--d-surface-2); }
   table.autosummary, table.autosummary tbody, table.autosummary tr, table.autosummary td { display: block; }
   table.autosummary td:first-child { white-space: normal; border-bottom: 0; padding-bottom: 0; }
   div.admonition { grid-template-columns: minmax(0, 1fr); padding: 14px 16px; }
-  div.admonition > * { grid-column: 1; }
+  div.admonition > *, div.admonition.dorothy > .admonition-title { grid-column: 1; }
+  div.admonition.dorothy { grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 0; }
+  div.admonition.dorothy::before { grid-row: auto; width: 96px; margin-bottom: 8px; }
+  .article section > section[id^="step-"] { padding-left: 20px; }
+  .article section > section[id^="step-"] > h2::before { left: -28px; }
   dl.field-list, div.citation, aside.footnote { grid-template-columns: minmax(0, 1fr); }
   dl.field-list > dt { padding-bottom: 0; }
   dl.field-list > dd { border-top: 0; }
