@@ -121,7 +121,7 @@ def write_config(
         "  encoder_hidden: [32]\n"
         "  trunk_hidden: [32]\n"
         "  output_hidden: [16]\n"
-        if len(surveys) > 1
+        if len(surveys) > 1 or len(label_sources) > 1
         else "model:\n  hidden_layers: [32, 16]\n"
     )
     path.write_text(
