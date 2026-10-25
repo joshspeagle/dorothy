@@ -62,7 +62,7 @@ spectra of every survey that observed the star and the labels of every
 
 ## Where to start
 
-- [Concepts](start/what-it-does.md) explains the problem and the approach.
+- [What DOROTHY does](start/what-it-does.md) explains the problem and the approach.
 - [Quick start](start/quickstart.md) builds a catalogue, trains a model and
   uses it.
 - [Code map](contribute/code-map.md) shows where each step lives in the code, and

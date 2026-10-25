@@ -33,7 +33,7 @@ Stars are matched across surveys by their Gaia DR3 source ID
 {cite:p}`gaia2023dr3`. The cross-matched files for each pair of a survey and a
 label source go into the {term}`super-catalogue`, with one row per star. A
 star can have spectra from several surveys and labels from both label sources,
-or any subset of them ([The super-catalogue](../catalogue/contents.md)).
+or any subset of them ([What is in the super-catalogue](../catalogue/contents.md)).
 
 ## One model for several surveys
 
@@ -42,7 +42,7 @@ cannot read their spectra with the same input layer. A multi-head model gives
 each survey its own {term}`encoder`, which maps the survey's spectrum to a
 vector of fixed length. A shared {term}`trunk` combines the vectors of
 whatever surveys a star has, and one output {term}`head` per label source
-predicts that source's labels ([Models](../methods/model.md)).
+predicts that source's labels ([The model](../methods/model.md)).
 
 Two choices follow from this design:
 

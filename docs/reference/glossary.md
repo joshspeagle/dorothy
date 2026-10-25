@@ -17,7 +17,7 @@ checkpoint
 encoder
   The part of a multi-head model that maps one survey's spectrum to a vector
   of fixed length (`latent_dim`). Each survey has its own. See
-  [Models](../methods/model.md).
+  [The model](../methods/model.md).
 
 flag
   A quality flag of one label, 0 when the label source raises no warning. A
@@ -30,7 +30,7 @@ has_data
 
 head
   The part of a multi-head model that predicts the labels of one label source
-  from the trunk's output. See [Models](../methods/model.md).
+  from the trunk's output. See [The model](../methods/model.md).
 
 label
   One stellar parameter or abundance of one star, as measured by a label
@@ -48,7 +48,7 @@ mask
 
 missing vector
   The learned input of a head's log-scatter that stands in for a missing
-  label error. See [Training](../methods/uncertainties.md#scatter-and-label-errors).
+  label error. See [Uncertainties](../methods/uncertainties.md#scatter-and-label-errors).
 
 ivar
   The inverse variance of a flux measurement, 1/σ². A pixel with ivar = 0
@@ -75,7 +75,7 @@ split
 
 super-catalogue
   The HDF5 file with every star's spectra and labels, one row per star. See
-  [The super-catalogue](../catalogue/contents.md).
+  [What is in the super-catalogue](../catalogue/contents.md).
 
 survey
   A spectroscopic survey whose spectra are model inputs: DESI, BOSS, LAMOST

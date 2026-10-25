@@ -3,8 +3,7 @@
 An experiment is one YAML file, loaded into
 {py:class}`~dorothy.config.schema.ExperimentConfig`. The
 {py:mod}`configuration reference <dorothy.config.schema>` lists every field
-with its type, default and allowed range. This page explains how the sections
-fit together.
+with its type, default and allowed range.
 
 ```yaml
 name: multi_survey_experiment

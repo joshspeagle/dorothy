@@ -11,7 +11,7 @@ python scripts/build_catalogue_v2.py
 ```
 
 The builder writes `data/super_catalogue.h5`. The
-[super-catalogue](../catalogue/contents.md) page describes the inputs, the options
+[catalogue build](../catalogue/build.md) page describes the inputs, the options
 and the file layout.
 
 ## 2. Train
@@ -22,7 +22,7 @@ dorothy train examples/variant2_multi_survey.yaml
 
 The configuration names the surveys (`boss`, `desi`), the label source
 (`apogee`), the model and the training settings
-([Configuration](../guides/train.md)). Training prints the losses per epoch and
+([Configuration](../reference/configuration.md)). Training prints the losses per epoch and
 writes a checkpoint directory:
 
 ```
@@ -56,4 +56,4 @@ training fit.
 ## From Python
 
 The same steps, and the objects behind them, are on the
-[Python API](../guides/python.md) page.
+[Use DOROTHY from Python](../guides/python.md) page.

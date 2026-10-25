@@ -11,7 +11,7 @@ dorothy train config.yaml --device cuda --output-dir runs/
 dorothy train config.yaml --resume outputs/old_run/old_run_final
 ```
 
-Trains the model a configuration describes ([Configuration](../guides/train.md)),
+Trains the model a configuration describes ([Configuration](../reference/configuration.md)),
 fits its [calibration factors](../methods/uncertainties.md#calibration-factors)
 and writes the checkpoint directory `<output_dir>/<name>/<name>_final/`
 ([Checkpoints](../methods/training.md#checkpoints)).

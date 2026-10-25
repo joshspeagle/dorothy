@@ -1,5 +1,9 @@
 # Configuration
 
+This page lists the rules for configuration files and what each section
+sets. The {py:mod}`configuration reference <dorothy.config.schema>` lists
+every field with its type, default and allowed range.
+
 ## Rules
 
 - Unknown keys are errors, so a misspelled setting fails when the file is
@@ -26,7 +30,7 @@
 :   `model` is a plain MLP for one survey and one label source.
     `multi_head_model` is required for several surveys or label sources: one
     encoder per survey, a shared trunk and one output head per label source
-    (see [Models](../methods/model.md)). A single-survey configuration can
+    (see [The model](../methods/model.md)). A single-survey configuration can
     also use `multi_head_model`.
 
 `training`
@@ -35,7 +39,7 @@
     averaging (`ema_decay`, `ema_cpu_every`, see
     [Training](../methods/training.md#weight-averaging)), the warm-up of the
     loss (`nll_warmup_fraction`, see
-    [Training](../methods/uncertainties.md#warm-up)), the fraction of
+    [Uncertainties](../methods/uncertainties.md#warm-up)), the fraction of
     stars trained without their label errors (`label_error_dropout`), the
     calibration factors fit after training (`calibrate_uncertainties`) and,
     with several label sources, how their losses combine

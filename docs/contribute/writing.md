@@ -17,6 +17,8 @@ The rules follow ASD-STE100, Simplified Technical English, in spirit.
 - Do not use marketing words, such as "powerful" or "seamless", or em dashes.
 - State what the code does now. Why a change was made belongs in its pull
   request.
+- State only measured numbers, or numbers computed from them with the
+  computation shown.
 
 ## Terms
 
@@ -49,7 +51,8 @@ Each page has one job, and its section in the sidebar says which kind.
 | Contribute | helps a student change the code |
 
 - Open with one or two sentences that say what the page does for the reader.
-- Give each section one concept. If a heading needs "and", split the section.
+- Give each section one concept. If a heading joins two concepts with "and",
+  split the section.
 - Give each fact one home. Link to it instead of repeating it.
 - Leave defaults and setting names to the reference. An explanation names a
   setting only when the reader must change it.
@@ -58,9 +61,10 @@ Each page has one job, and its section in the sidebar says which kind.
 
 A figure shows one concept, the one its section explains.
 
-- Draw it as SVG in `docs/figures/`, in the style of `multi-head.svg`. Take
-  colours from the theme tokens with fallbacks, such as
-  `var(--d-teal, #1D7468)`, so the figure follows both themes.
+- Draw it as SVG in `docs/figures/`, in the style of `multi-head.svg`. Draw
+  ink with `currentColor`, and take role colours from the theme tokens with
+  fallbacks, such as `var(--d-teal, #1D7468)`, so the figure follows both
+  themes.
 - Use colour for its role only: gold for a label, teal for the model, coral
   for a warning. Ink and grey draw everything else.
 - Give the figure a `<title>` that describes it for a screen reader.
@@ -68,11 +72,16 @@ A figure shows one concept, the one its section explains.
 - Mark invented data: "illustrative" for a distribution, "example" for a
   value.
 
-## Equations and code
+## Equations
 
-- Show the equation a section implements, with `$$ … $$`, and define each
-  symbol in the next sentence.
-- Give each code block one task. Show the command or call, then say what it
-  writes or returns.
-- State only measured numbers, or numbers computed from them with the
-  computation shown.
+Show the equation a section implements, with `$$ … $$`, and define each
+symbol in the next sentence.
+
+## Code
+
+Give each code block one task. Show the command or call, then say what it
+writes or returns.
+
+## Citations
+
+Cite a paper with `{cite:p}` and an entry in `docs/references.bib`.
