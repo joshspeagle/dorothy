@@ -36,9 +36,10 @@ Outside the package:
 1. {py:func}`~dorothy.data.training_data.complete_config_from_catalogue` and
    {py:class}`~dorothy.config.schema.ExperimentConfig`, for the configuration;
 2. {py:func}`~dorothy.data.training_data.load_training_data`, which picks one
-   of three layouts: a single survey in dense arrays, several surveys in dense
-   arrays, or several surveys in sparse storage
-   ({py:class}`~dorothy.data.catalogue_loader.SparseMergedData`);
+   of three layouts: one survey and one label source in dense arrays, several
+   label sources in dense arrays (`data.use_dense_loading: true`), or sparse
+   storage ({py:class}`~dorothy.data.catalogue_loader.SparseMergedData`) for
+   every other configuration;
 3. {py:meth}`~dorothy.data.training_data.TrainingData.split` and
    {py:meth}`~dorothy.data.training_data.TrainingData.fit`, which hands the
    data to the matching `Trainer.fit*` method.

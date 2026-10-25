@@ -147,7 +147,8 @@ class DataConfig(_ConfigModel):
     )
     use_dense_loading: bool = Field(
         default=False,
-        description="Use dense loading for spectra (more memory than sparse loading)",
+        description="With several label sources, store spectra as dense arrays "
+        "instead of sparse storage (more memory). No effect with one label source.",
     )
     parameter_names: list[str] | None = Field(
         default=None,

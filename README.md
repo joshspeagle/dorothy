@@ -37,7 +37,7 @@ dorothy evaluate <checkpoint_dir>                     # metrics and plots on the
 dorothy predict --checkpoint <checkpoint_dir> --input spectra.fits --survey boss
 ```
 
-The [quick start](https://joshspeagle.com/dorothy/quickstart/) runs these
+The [quick start](https://joshspeagle.com/dorothy/guide/quickstart.html) runs these
 steps and shows the Python API. `examples/` has configurations for single- and
 multi-survey models with one or two label sources.
 
@@ -46,7 +46,7 @@ multi-survey models with one or two label sources.
 ```bash
 python -m pytest tests/ -q
 black --check dorothy tests scripts examples && ruff check dorothy tests scripts examples
-pip install --group docs && sphinx-build docs docs/_build/html   # build the documentation
+pip install --group docs && sphinx-build -W --keep-going docs docs/_build/html   # build the documentation
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the project's conventions and

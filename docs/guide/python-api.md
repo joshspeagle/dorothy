@@ -63,8 +63,9 @@ result.predictions, result.uncertainties  # each (n, n_parameters), physical uni
 {py:meth}`~dorothy.inference.predictor.Predictor.predict` takes an array of
 shape `(n, 3, n_wavelengths)` for a single survey (set with `survey=` when
 loading a multi-survey model), or a dict of such arrays per survey together
-with `has_data`, a dict of `(n,)` booleans. `label_source=` selects the head
-of a multi-head model. With `denormalize=False` (the default) the outputs
+with `has_data`, a dict of `(n,)` booleans. `label_source=` in
+{py:meth}`~dorothy.inference.predictor.Predictor.load` selects the head of a
+multi-head model. With `denormalize=False` (the default) the outputs
 stay in normalized units. A predictor from
 {py:meth}`~dorothy.inference.predictor.Predictor.load` multiplies the
 predicted scatter by the checkpoint's calibration factors for its head, when

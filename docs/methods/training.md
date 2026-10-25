@@ -23,7 +23,8 @@ at least one valid label from a configured label source. The split is a
 permutation of these stars drawn with `numpy.random.RandomState(seed)`: the
 first `data.train_ratio` of them train, the next `data.val_ratio` validate,
 and the rest form the test set (70%, 20% and 10% by default). The checkpoint
-stores the catalogue rows of each set in `data_split.pkl`.
+stores the rows of each set in `data_split.pkl`: catalogue rows for sparse
+storage, rows of the loaded arrays for the dense layouts.
 
 ## The loss
 
@@ -274,7 +275,7 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 | `calibration.json` | One factor per head and parameter that scales the predicted scatter of `best_model.pth` |
 | `config.yaml` | The completed configuration |
 | `normalizer.pkl` | The label normalization |
-| `data_split.pkl` | Catalogue rows of the training, validation and test sets |
+| `data_split.pkl` | Rows of the training, validation and test sets ([Data selection and split](#data-selection-and-split)) |
 | `history_train_val.pkl` | Losses and metrics per epoch |
 | `learning_rates.pkl` | The learning rate after each optimizer step |
 | `plots/` | Training plots; the bar charts of validation metrics show the best epoch |
@@ -283,4 +284,6 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 an earlier run, with a new optimizer, schedule and warm-up.
 `training.save_every: N` also saves the weights, the configuration and the
 normalization every N epochs, in `epoch_N/`, without calibration factors.
+The weights there are `model_epoch_N.pth` and `best_model_epoch_N.pth`.
+`dorothy evaluate --model` loads them; `dorothy predict` cannot.
 BatchNorm needs at least two stars per batch in training.

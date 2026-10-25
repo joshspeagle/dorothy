@@ -70,7 +70,8 @@ scatter floor
 
 split
   The division of the usable stars into training, validation and test sets,
-  stored in the checkpoint as catalogue rows.
+  stored in the checkpoint as row indices. See
+  [Data selection and split](../methods/training.md#data-selection-and-split).
 
 super-catalogue
   The HDF5 file with every star's spectra and labels, one row per star. See
