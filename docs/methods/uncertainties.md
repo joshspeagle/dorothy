@@ -143,6 +143,7 @@ validation stars test it: with right uncertainties, their robust spread
 <div class="d-lab" id="d-calibration">
 <p class="d-lab-h">Drag the slider to scale the predicted scatter of 2,000 simulated validation stars. Watch the z-score histogram match the standard normal curve.</p>
 </div>
+<script src="../_static/explainers/explainer.js" defer></script>
 <script src="../_static/explainers/calibration.js" defer></script>
 ```
 

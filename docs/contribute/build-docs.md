@@ -98,23 +98,30 @@ to it.
 
 An explainer is an interactive figure on a How it works page. Each explainer
 is one script in `docs/_static/explainers/`, such as `precision.js`. All
-explainers share the styles in `docs/_static/explainers/explainer.css`.
+explainers share the styles in `explainer.css` and the helpers in
+`explainer.js` in the same folder. `explainer.js` defines one global,
+`window.dExplainer`.
 
 1. Write the script without external libraries. It finds its container by
    its id, `d-<name>`, and builds the plot, the readout and the controls in
-   it.
+   it. Build the elements with the helpers `el` (SVG), `html` and `cell` (a
+   readout entry).
 2. Draw the plot as an SVG with `role="img"` and an `aria-label`. Redraw it
    in a narrow layout at 600 px and less (`matchMedia`).
-3. Put the readout in an element with `class="d-readout"` and
-   `aria-live="polite"`.
-4. Use native controls, which work from the keyboard. Use `<button>`
+3. Put the readout in an element with `class="d-readout"`. Do not give it
+   `aria-live`.
+4. Announce changes to screen readers with `status(root)`. It adds a hidden
+   live region and returns `set(text)` and `announce()`. Call `set` when the
+   values change. Call `announce` when a button is clicked and when the
+   slider sends its `change` event.
+5. Use native controls, which work from the keyboard. Use `<button>`
    elements, with `aria-pressed` for a toggle. Where the reader sets a
    number, use an `<input type="range">` slider with `aria-valuetext`.
-5. If the explainer draws random numbers, seed them with `mulberry32`, as
-   `calibration.js` does, so that every load is identical.
-6. Take colours only from the `--d-*` theme tokens, through the classes of
+6. If the explainer draws random numbers, seed them with `mulberry32` from
+   `explainer.js`, as `calibration.js` does. Then every load is identical.
+7. Take colours only from the `--d-*` theme tokens, through the classes of
    `explainer.css`.
-7. Load the styles, the container and the script with a `{raw} html` block
+8. Load the styles, the container and the scripts with a `{raw} html` block
    on the page:
 
    ````md
@@ -123,9 +130,13 @@ explainers share the styles in `docs/_static/explainers/explainer.css`.
    <div class="d-lab" id="d-name">
    <p class="d-lab-h">One sentence that tells the reader what to do.</p>
    </div>
+   <script src="../_static/explainers/explainer.js" defer></script>
    <script src="../_static/explainers/name.js" defer></script>
    ```
    ````
+
+   `explainer.js` comes first, so that `window.dExplainer` exists when the
+   explainer script runs.
 
    The paths are relative to the page. A page in a section folder starts
    them with `../`.

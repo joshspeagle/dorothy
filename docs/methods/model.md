@@ -90,6 +90,7 @@ trunk sees an input of fixed size, whatever subset of surveys the star has.
 <div class="d-lab" id="d-combination">
 <p class="d-lab-h">Choose the surveys a star has and the combination. See which encodings reach the trunk.</p>
 </div>
+<script src="../_static/explainers/explainer.js" defer></script>
 <script src="../_static/explainers/combination.js" defer></script>
 ```
 

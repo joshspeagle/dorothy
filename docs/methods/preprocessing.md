@@ -89,6 +89,7 @@ this channel ([Old checkpoints](../reference/old-checkpoints.md#precision-encodi
 <div class="d-lab" id="d-precision">
 <p class="d-lab-h">Move the slider to change the uncertainty σ of one pixel and read ρ off the curve. Then mask the pixel.</p>
 </div>
+<script src="../_static/explainers/explainer.js" defer></script>
 <script src="../_static/explainers/precision.js" defer></script>
 ```
 

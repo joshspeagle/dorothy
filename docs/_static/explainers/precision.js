@@ -7,52 +7,35 @@
    perfect measurement. Deterministic: no random numbers. */
 (function () {
   "use strict";
-  var NS = "http://www.w3.org/2000/svg";
   var root = document.getElementById("d-precision");
   if (!root) return;
+  var E = window.dExplainer, el = E.el, html = E.html;
 
-  function el(tag, attrs, parent, text) {
-    var e = document.createElementNS(NS, tag);
-    for (var k in attrs) e.setAttribute(k, attrs[k]);
-    if (text != null) e.textContent = text;
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function html(tag, attrs, parent, text) {
-    var e = document.createElement(tag);
-    for (var k in attrs) e.setAttribute(k, attrs[k]);
-    if (text != null) e.textContent = text;
-    if (parent) parent.appendChild(e);
-    return e;
-  }
   function rho(sigma) { return Math.log1p(1 / sigma); }
   function fmt(v) {
     if (v >= 100) return v.toFixed(0);
     return v.toPrecision(3);
   }
+  /* the label of sigma = 10^l: 0.001, ..., 1, ..., 1000 */
+  function decade(l) { return l < 0 ? "0." + "0".repeat(-l - 1) + "1" : String(Math.pow(10, l)); }
 
-  var LMIN = -3, LMAX = 3, RMAX = 7.5;
+  var LMIN = -3, LMAX = 3, RMAX = 7.5, masked = false;
   var plot = html("div", { class: "d-lab-plot" }, root);
   var svg = el("svg", { role: "img", "aria-label": "The precision encoding rho = ln(1 + 1/sigma) against sigma on a logarithmic axis, with the current pixel marked." }, plot);
   var out = html("div", { class: "d-readout" }, root);
-  function cell(key, cls) {
-    var d = html("div", {}, out);
-    html("span", { class: "k" }, d, key);
-    return html("span", { class: cls }, d);
-  }
-  var sigmaEl = cell("σ (normalized units)", "big");
-  var rhoEl = cell("ρ, the model input", "big");
-  var rawEl = cell("σ channel without the encoding", "big mid");
-  var noteEl = cell("", "d-verdict");
+  var sigmaEl = E.cell(out, "σ (normalized units)", "big");
+  var rhoEl = E.cell(out, "ρ, the model input", "big");
+  var rawEl = E.cell(out, "σ channel without the encoding", "big mid");
+  var noteEl = E.cell(out, "", "d-verdict");
   var ctl = html("div", { class: "d-lab-ctl" }, root);
   var sl = html("div", { class: "d-slider" }, ctl);
   var lab = html("label", { for: "d-precision-sigma" }, sl, "Pixel uncertainty ");
   var num = html("span", { class: "num" }, lab);
   var slider = html("input", { id: "d-precision-sigma", type: "range", min: String(LMIN), max: String(LMAX), step: "0.01", value: "-1" }, sl);
   var scale = html("div", { class: "d-scale", "aria-hidden": "true" }, sl);
-  ["0.001", "0.01", "0.1", "1", "10", "100", "1000"].forEach(function (s) { html("span", {}, scale, s); });
-  var mask = html("button", { class: "d-toggle", type: "button", "aria-pressed": "false" }, ctl, "Mask the pixel");
-  var status = html("p", { class: "d-sr", "aria-live": "polite" }, root);
+  for (var t = LMIN; t <= LMAX; t++) html("span", {}, scale, decade(t));
+  var mask = html("button", { class: "d-toggle", type: "button" }, ctl, "Mask the pixel");
+  var status = E.status(root);
 
   var mq = window.matchMedia("(max-width: 600px)"), P = {};
   function draw() {
@@ -72,7 +55,7 @@
     for (var l = LMIN; l <= LMAX; l++) {
       el("line", { class: "ax", x1: X(l), x2: X(l), y1: Y(0), y2: Y(0) + 6 }, svg);
       if (!narrow || l % 2 !== 0 || l === 0) {
-        el("text", { class: "tick", x: X(l), y: Y(0) + 20, "text-anchor": "middle" }, svg, l < 0 ? "0." + "0".repeat(-l - 1) + "1" : String(Math.pow(10, l)));
+        el("text", { class: "tick", x: X(l), y: Y(0) + 20, "text-anchor": "middle" }, svg, decade(l));
       }
     }
     el("text", { class: "sym", x: L + PW, y: HH - 4, "text-anchor": "end" }, svg, "σ");
@@ -97,7 +80,7 @@
   }
 
   function update() {
-    var l = +slider.value, sigma = Math.pow(10, l), masked = mask.getAttribute("aria-pressed") === "true";
+    var l = +slider.value, sigma = Math.pow(10, l);
     var value = masked ? 0 : rho(sigma);
     var x = P.X(l), y = P.Y(value);
     P.dot.setAttribute("cx", x.toFixed(1));
@@ -113,18 +96,14 @@
     rawEl.textContent = masked ? "0" : fmt(sigma);
     noteEl.textContent = masked ? "0 would read as a perfect measurement" : "";
     slider.disabled = masked;
+    mask.setAttribute("aria-pressed", String(masked));
     slider.setAttribute("aria-valuetext", "sigma = " + fmt(sigma));
-    status.dataset.text = masked ? "Pixel masked: rho = 0." : "rho = " + value.toFixed(2) + ".";
+    status.set(masked ? "Pixel masked: rho = 0." : "rho = " + value.toFixed(2) + ".");
   }
 
-  function announce() { status.textContent = status.dataset.text; }
   slider.addEventListener("input", update);
-  slider.addEventListener("change", announce);
-  mask.addEventListener("click", function () {
-    mask.setAttribute("aria-pressed", mask.getAttribute("aria-pressed") === "true" ? "false" : "true");
-    update();
-    announce();
-  });
-  if (mq.addEventListener) mq.addEventListener("change", draw);
+  slider.addEventListener("change", status.announce);
+  mask.addEventListener("click", function () { masked = !masked; update(); status.announce(); });
+  mq.addEventListener("change", draw);
   draw();
 })();
