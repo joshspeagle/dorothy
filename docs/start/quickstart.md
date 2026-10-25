@@ -29,7 +29,8 @@ dorothy train quickstart/config.yaml
 ```
 
 The command loads the catalogue, splits the stars into training, validation
-and test sets, and trains for 30 epochs. It ends with:
+and test sets, and trains for 30 epochs. It ends with lines like these; the numbers can
+differ slightly with the platform and the PyTorch version:
 
 ```
 Training complete!
