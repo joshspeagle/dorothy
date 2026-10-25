@@ -76,7 +76,8 @@
 - `CatalogueLoader.load_spectrum` and `load_labels_for_index` load one star.
   `CatalogueLoader.load_labels` loads one label source for every star,
   matched by Gaia ID.
-- A documentation site (Sphinx), with background, methods, usage guides and an API reference.
+- A documentation site (Sphinx), with guides, the methods, interactive
+  explainers and an API reference.
 - The Dorothy logo in the README and on the documentation site.
 
 ### Fixed
@@ -234,6 +235,8 @@
 - The documentation pages are grouped in six sections (Start, The catalogue,
   Guides, How it works, Reference, Contribute), so their URLs changed. Old
   URLs no longer work.
+- The README is a short introduction: it trains on the synthetic catalogue
+  and links to the documentation site.
 
 ### Behaviour changes
 

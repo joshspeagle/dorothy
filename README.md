@@ -5,53 +5,43 @@
 # DOROTHY
 
 DOROTHY infers stellar parameters, chemical abundances and their uncertainties
-from spectra with neural networks.
-
-- **Inputs:** spectra from DESI, BOSS, LAMOST LRS and LAMOST MRS, alone or
-  combined.
-- **Labels:** APOGEE and GALAH parameters, with one output head per label
-  source.
-- **Uncertainties:** each prediction comes with a predicted scatter, the
-  expected difference from the label source's measurement, learned with the
-  reported label errors as an input and calibrated on the validation stars.
+from spectra with neural networks. It reads spectra from DESI, BOSS, LAMOST LRS
+and LAMOST MRS, alone or combined, and predicts the labels of APOGEE and GALAH.
+Each prediction comes with a calibrated uncertainty.
 
 **Documentation: <https://joshspeagle.com/dorothy/>**
 
-## Installation
+## Try it
 
 ```bash
 git clone https://github.com/joshspeagle/dorothy.git
 cd dorothy
-pip install -e ".[dev]"
+pip install -e .
+python examples/synthetic_quickstart.py   # writes a small synthetic catalogue
+dorothy train quickstart/config.yaml      # trains in seconds on a CPU
 ```
 
-DOROTHY needs Python 3.10 or later, PyTorch 2.4 or later and NumPy 2.0 or
-later.
+To train on a GPU, first install the PyTorch build for your CUDA version
+([Install](https://joshspeagle.com/dorothy/start/install.html)). The
+[quick start](https://joshspeagle.com/dorothy/start/quickstart.html) continues
+with evaluation and prediction.
 
-## Usage
+## Read more
 
-```bash
-python scripts/build_catalogue_v2.py                  # build data/super_catalogue.h5
-dorothy train examples/variant2_multi_survey.yaml     # train; writes a checkpoint directory
-dorothy evaluate <checkpoint_dir>                     # metrics and plots on the test split
-dorothy predict --checkpoint <checkpoint_dir> --input spectra.fits --survey boss
-```
+| To | Go to |
+|----|-------|
+| Learn what DOROTHY does | [Start](https://joshspeagle.com/dorothy/start/what-it-does.html) |
+| Learn what the catalogue holds | [The catalogue](https://joshspeagle.com/dorothy/catalogue/contents.html) |
+| Predict, train or evaluate | [Guides](https://joshspeagle.com/dorothy/guides/predict.html) |
+| Understand the methods | [How it works](https://joshspeagle.com/dorothy/methods/overview.html) |
+| Look up a command or setting | [Reference](https://joshspeagle.com/dorothy/reference/commands.html) |
+| Change the code or the docs | [Contribute](https://joshspeagle.com/dorothy/contribute/code-map.html) |
 
-The [quick start](https://joshspeagle.com/dorothy/start/quickstart.html) runs these
-steps on a small synthetic catalogue. `examples/` has configurations for single- and
-multi-survey models with one or two label sources.
-
-## Development
-
-```bash
-python -m pytest tests/ -q
-black --check dorothy tests scripts examples && ruff check dorothy tests scripts examples
-pip install --group docs && sphinx-build -W --keep-going docs docs/_build/html   # build the documentation
-```
-
-See [`CLAUDE.md`](CLAUDE.md) for the project's conventions and
-[`CHANGELOG.md`](CHANGELOG.md) for changes.
+[`CLAUDE.md`](https://github.com/joshspeagle/dorothy/blob/main/CLAUDE.md)
+holds the project's conventions and the test and lint commands that CI runs.
+[`CHANGELOG.md`](https://github.com/joshspeagle/dorothy/blob/main/CHANGELOG.md)
+lists the changes since the last release.
 
 ## License
 
-MIT License. See [`LICENSE`](LICENSE).
+MIT License. See [`LICENSE`](https://github.com/joshspeagle/dorothy/blob/main/LICENSE).
