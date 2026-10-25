@@ -330,7 +330,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"\nLoading data from {config.data.catalogue_path}")
     try:
         data = load_training_data(config)
-    except (FileNotFoundError, ValueError) as e:
+    except ValueError as e:
         print(f"Error: {e}")
         return 1
     _print_memory("After loading data")
