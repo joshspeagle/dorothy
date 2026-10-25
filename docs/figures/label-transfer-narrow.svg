@@ -1,0 +1,787 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig" viewBox="0 0 360 900" width="360" height="900" role="img" aria-labelledby="ltn-title">
+<title id="ltn-title">Label transfer: a low-resolution spectrum of one star goes into a neural network; labels with uncertainties come out (Teff 4,812 ± 41 K, log g 2.61 ± 0.07, [Fe/H] −0.34 ± 0.04, [Mg/Fe] 0.12 ± 0.03) and place the star near the red clump of an illustrative Kiel diagram of about 650 stars coloured by [Fe/H].</title>
+<style>
+.dfig text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig .h { font-weight: 700; font-size: 15px; }
+.dfig .t, .dfig .lbl { font-size: 13px; fill: var(--d-muted, #4A5675); }
+.dfig .region { font-style: italic; }
+.dfig .tick { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11.5px; fill: var(--d-faint, #5F6A85); }
+.dfig .ex { font-size: 12px; font-weight: 600; fill: var(--d-gold, #8C5D00); }
+.dfig .row { font-size: 16px; font-weight: 500; }
+.dfig .val { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 15px; fill: var(--d-gold, #8C5D00); }
+.dfig .val .pm { fill: var(--d-muted, #4A5675); }
+.dfig .net, .dfig .netb { font-size: 15px; font-weight: 500; fill: var(--d-on-fill, #14213D); }
+.dfig .netb { font-weight: 600; }
+.dfig .tagv { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11.5px; font-weight: 500; fill: var(--d-on-fill, #14213D); }
+.dfig .panel { fill: var(--d-surface, #F1F4F9); }
+.dfig .rule { fill: none; stroke: var(--d-rule, #D3D9E4); stroke-width: 1; }
+.dfig .ax { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig .guide { fill: none; stroke: var(--d-gold-fill, #F2B84B); stroke-width: 1; stroke-dasharray: 3 3; }
+.dfig .ring { fill: var(--d-surface, #F1F4F9); stroke: currentColor; stroke-width: 1.5; }
+.dfig .err { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.dfig .goldf { fill: var(--d-gold-fill, #F2B84B); }
+.dfig .goldt { fill: var(--d-gold-tint, #FCF0D6); }
+.dfig .tealf { fill: var(--d-teal-fill, #2A9D8F); }
+.dfig .onfill { fill: none; stroke: var(--d-on-fill, #14213D); stroke-width: 2; }
+.dfig .sp0 { stop-color: var(--d-sp-violet, #6A5ACD); } .dfig .sp1 { stop-color: var(--d-sp-teal, #1F7A6F); }
+.dfig .sp2 { stop-color: var(--d-sp-gold, #D09218); } .dfig .sp3 { stop-color: var(--d-sp-coral, #D4583A); }
+.dfig .f0 { fill: var(--d-feh-0, #1D7468); }
+.dfig .f1 { fill: var(--d-feh-1, #447A63); }
+.dfig .f2 { fill: var(--d-feh-2, #607F5D); }
+.dfig .f3 { fill: var(--d-feh-3, #788456); }
+.dfig .f4 { fill: var(--d-feh-4, #8F884D); }
+.dfig .f5 { fill: var(--d-feh-5, #A58C42); }
+.dfig .f6 { fill: var(--d-feh-6, #BB8F33); }
+.dfig .f7 { fill: var(--d-feh-7, #D09218); }
+</style>
+<rect class="panel" x="0" y="0" width="360" height="900"/>
+<text class="h" x="12" y="26">Spectrum in</text>
+<text class="t" x="348" y="26" text-anchor="end">one star</text>
+<defs><linearGradient id="lt-wl-n" gradientUnits="userSpaceOnUse" x1="28.5" x2="331.5" y1="0" y2="0"><stop offset="0" class="sp0"/><stop offset="0.35" class="sp1"/><stop offset="0.7" class="sp2"/><stop offset="1" class="sp3"/></linearGradient></defs>
+<path class="ax" d="M18 174h324"/>
+<path class="ax" d="M38.9 174v7"/>
+<text class="tick" x="38.9" y="195" text-anchor="middle">4000</text>
+<path class="ax" d="M65 174v4"/>
+<path class="ax" d="M91.2 174v7"/>
+<path class="ax" d="M117.3 174v4"/>
+<path class="ax" d="M143.4 174v7"/>
+<text class="tick" x="143.4" y="195" text-anchor="middle">6000</text>
+<path class="ax" d="M169.5 174v4"/>
+<path class="ax" d="M195.7 174v7"/>
+<path class="ax" d="M221.8 174v4"/>
+<path class="ax" d="M247.9 174v7"/>
+<text class="tick" x="247.9" y="195" text-anchor="middle">8000</text>
+<path class="ax" d="M274.1 174v4"/>
+<path class="ax" d="M300.2 174v7"/>
+<path class="ax" d="M326.3 174v4"/>
+<text class="lbl" x="342" y="207" text-anchor="end">wavelength (Å)</text>
+<text class="lbl" x="18" y="52">flux</text>
+<path d="M18 151.7L18.4 151.1L18.8 150.5L19.3 149.8L19.7 149L20.1 148L20.5 148L20.9 147.2L21.3 147L21.8 146.4L22.2 145.8L22.6 144.9L23 144.3L23.4 143.4L23.9 143.8L24.3 142.9L24.7 141.9L25.1 141.7L25.5 140.6L25.9 140.7L26.4 139.1L26.8 139.1L27.2 139.2L27.6 137.7L28 137.8L28.5 137.1L28.9 136.2L29.3 135.6L29.7 135L30.1 135L30.5 134.2L31 134L31.4 132.4L31.8 132.1L32.2 131.7L32.6 132L33.1 130.7L33.5 131.7L33.9 131.7L34.3 134.3L34.7 141.6L35.1 147L35.6 149.1L36 145.9L36.4 143.4L36.8 144.6L37.2 144.7L37.6 142.3L38.1 135.4L38.5 128.5L38.9 124.5L39.3 123.9L39.7 122.1L40.2 120.9L40.6 121.2L41 121.8L41.4 120.8L41.8 119.1L42.2 119.7L42.7 119.6L43.1 120.7L43.5 122.3L43.9 122.5L44.3 125.1L44.8 121.4L45.2 118.8L45.6 117.5L46 114.4L46.4 115.9L46.8 115.5L47.3 113.3L47.7 113.6L48.1 111.7L48.5 111L48.9 112.2L49.4 111.9L49.8 113.4L50.2 114.5L50.6 120.1L51 116.7L51.4 112.6L51.9 108.3L52.3 108.2L52.7 109.3L53.1 110.4L53.5 113.3L54 117.7L54.4 121.3L54.8 120L55.2 117.5L55.6 116.2L56 111.7L56.5 111.3L56.9 111.3L57.3 109.8L57.7 105.4L58.1 105.7L58.6 105.9L59 107.9L59.4 104.7L59.8 102.5L60.2 99.8L60.6 98.9L61.1 99.8L61.5 98.9L61.9 97.7L62.3 97.9L62.7 100.2L63.2 98.6L63.6 97.3L64 96.4L64.4 96.9L64.8 97L65.2 96.8L65.7 97.4L66.1 95.4L66.5 92.8L66.9 94.9L67.3 95.7L67.7 93.9L68.2 91.1L68.6 93.9L69 92.9L69.4 92.2L69.8 91.8L70.3 91L70.7 91.8L71.1 92L71.5 90.4L71.9 90L72.3 91.6L72.8 91.9L73.2 91.2L73.6 88.7L74 88.2L74.4 89.3L74.9 87.2L75.3 88.7L75.7 86.7L76.1 87.9L76.5 86.3L76.9 88.6L77.4 84.5L77.8 85L78.2 88.4L78.6 85.8L79 85.1L79.5 84.2L79.9 84.3L80.3 84.5L80.7 83.3L81.1 83.1L81.5 85.1L82 84L82.4 85.8L82.8 88.9L83.2 89.8L83.6 96.7L84.1 93.5L84.5 91.1L84.9 88.8L85.3 84.9L85.7 83.5L86.1 82.1L86.6 79.5L87 79.6L87.4 82.3L87.8 79.4L88.2 79.8L88.7 79.8L89.1 79.7L89.5 79.5L89.9 79.3L90.3 80.4L90.7 79.2L91.2 77.4L91.6 78.1L92 78.3L92.4 77.6L92.8 78.7L93.3 77.5L93.7 75.9L94.1 77L94.5 75.7L94.9 77.3L95.3 76.5L95.8 75.5L96.2 76.7L96.6 76.9L97 76.6L97.4 74.9L97.9 78L98.3 77.4L98.7 80.6L99.1 84.5L99.5 89.1L99.9 93.8L100.4 93.7L100.8 93.4L101.2 84.8L101.6 80.1L102 80.3L102.4 76.1L102.9 75.4L103.3 74.5L103.7 72.7L104.1 75.8L104.5 74.5L105 80.4L105.4 80.7L105.8 79.4L106.2 75.2L106.6 74.6L107 73.5L107.5 70.6L107.9 71.7L108.3 71.2L108.7 72.1L109.1 71.6L109.6 72.1L110 73.6L110.4 72.7L110.8 72.9L111.2 72.2L111.6 72.1L112.1 71.1L112.5 69.8L112.9 71.8L113.3 67.9L113.7 71.1L114.2 69.5L114.6 68.4L115 66.9L115.4 70.4L115.8 68.5L116.2 71.6L116.7 68.6L117.1 69L117.5 67.7L117.9 70.1L118.3 67.4L118.8 68.5L119.2 70.3L119.6 69.3L120 68.3L120.4 68.2L120.8 68.6L121.3 69L121.7 68.1L122.1 68.2L122.5 68L122.9 69.4L123.4 67.1L123.8 69.4L124.2 68L124.6 70.9L125 71.1L125.4 66.3L125.9 66.2L126.3 68L126.7 66.8L127.1 69.9L127.5 68.4L128 65.8L128.4 66.8L128.8 69.4L129.2 68.9L129.6 68.2L130 66.7L130.5 67L130.9 69.4L131.3 66.6L131.7 67.5L132.1 66.8L132.5 66.5L133 66.8L133.4 67.2L133.8 65.2L134.2 65.4L134.6 70.1L135.1 66L135.5 66.4L135.9 67.2L136.3 70L136.7 74.2L137.1 82.6L137.6 87.2L138 90.1L138.4 84.7L138.8 75.9L139.2 70.9L139.7 67.9L140.1 66L140.5 68.1L140.9 69.6L141.3 66.5L141.7 64.7L142.2 67L142.6 67.2L143 68.3L143.4 65.9L143.8 67.2L144.3 66.2L144.7 68.6L145.1 68.2L145.5 66.2L145.9 64.6L146.3 63.9L146.8 65.7L147.2 65.2L147.6 67.1L148 64.8L148.4 67.5L148.9 68.6L149.3 65L149.7 65.8L150.1 68.6L150.5 68.4L150.9 67.2L151.4 66.1L151.8 66.4L152.2 69L152.6 65.5L153 66.3L153.5 64.8L153.9 65.7L154.3 65L154.7 65.7L155.1 67.5L155.5 65.7L156 68.6L156.4 67.1L156.8 66.2L157.2 66L157.6 66.4L158.1 67.3L158.5 69.4L158.9 65L159.3 66.3L159.7 66.2L160.1 66.6L160.6 66.1L161 67.1L161.4 66.6L161.8 65.3L162.2 65.4L162.7 67.2L163.1 67.2L163.5 68.9L163.9 64.1L164.3 66L164.7 69.3L165.2 68L165.6 66.3L166 68.6L166.4 68.8L166.8 67.2L167.2 66L167.7 69L168.1 68.4L168.5 67.5L168.9 69L169.3 68.2L169.8 68.6L170.2 67.3L170.6 68.2L171 67.3L171.4 72.1L171.8 77.9L172.3 81.3L172.7 85.5L173.1 85.4L173.5 82.3L173.9 78.7L174.4 71.5L174.8 70.1L175.2 67.6L175.6 70.6L176 68.8L176.4 69L176.9 67.3L177.3 69.6L177.7 68.6L178.1 67.5L178.5 68.6L179 69.9L179.4 71.9L179.8 69.4L180.2 71L180.6 68.6L181 68.5L181.5 66.8L181.9 69.8L182.3 68.1L182.7 68.9L183.1 69L183.6 70L184 71L184.4 70.2L184.8 70.7L185.2 69.7L185.6 71L186.1 70.4L186.5 68.5L186.9 70.1L187.3 70L187.7 70.8L188.2 69.7L188.6 70L189 70.4L189.4 70.5L189.8 70.1L190.2 70.9L190.7 69.3L191.1 69.8L191.5 70.6L191.9 72L192.3 72.8L192.8 73.2L193.2 69.9L193.6 71.4L194 71.5L194.4 70.5L194.8 72.4L195.3 71.8L195.7 71.8L196.1 71.2L196.5 72.7L196.9 72.8L197.3 70.3L197.8 72.2L198.2 72.6L198.6 73.3L199 70.4L199.4 72.2L199.9 71.8L200.3 73.4L200.7 73.3L201.1 73.2L201.5 74.4L201.9 73.1L202.4 73.9L202.8 74.4L203.2 74.4L203.6 72.4L204 70.2L204.5 75.5L204.9 72.9L205.3 75.5L205.7 72.7L206.1 74.2L206.5 74L207 74.2L207.4 75.8L207.8 73.5L208.2 72.7L208.6 76.4L209.1 72.7L209.5 75L209.9 75.7L210.3 74.3L210.7 76.3L211.1 74.3L211.6 76L212 74.3L212.4 74L212.8 77.2L213.2 75.7L213.7 75.8L214.1 75.5L214.5 74.3L214.9 75.3L215.3 76.1L215.7 75.9L216.2 75.1L216.6 74.7L217 77.1L217.4 76.4L217.8 75.2L218.3 76.9L218.7 75.6L219.1 77.6L219.5 78.8L219.9 76.5L220.3 76.9L220.8 76.7L221.2 76.8L221.6 76.3L222 79.1L222.4 77.7L222.9 77.8L223.3 77.2L223.7 77.6L224.1 78.1L224.5 75.9L224.9 77.7L225.4 77.6L225.8 79.6L226.2 77.1L226.6 76.5L227 77.1L227.5 78.8L227.9 80.1L228.3 79.4L228.7 77.7L229.1 80.7L229.5 78.4L230 79.6L230.4 78.6L230.8 80.8L231.2 79.5L231.6 82.7L232 83L232.5 83L232.9 84.9L233.3 81.8L233.7 79.7L234.1 79.4L234.6 81.2L235 80.9L235.4 80.2L235.8 82.1L236.2 78.6L236.6 81L237.1 80.1L237.5 81L237.9 81.8L238.3 82.2L238.7 81.9L239.2 80.5L239.6 80.8L240 82.1L240.4 81L240.8 81.6L241.2 80.5L241.7 82.2L242.1 82.4L242.5 82.4L242.9 81.9L243.3 80.8L243.8 83.2L244.2 83.8L244.6 81.1L245 82.1L245.4 82.6L245.8 83.4L246.3 82.8L246.7 83.4L247.1 84.3L247.5 83.1L247.9 84.2L248.4 82.2L248.8 84.4L249.2 82.5L249.6 86L250 83.5L250.4 83.1L250.9 85.2L251.3 83L251.7 86.4L252.1 84.8L252.5 84.3L253 85.2L253.4 83.1L253.8 87.9L254.2 84.4L254.6 85.4L255 86L255.5 83.9L255.9 84.2L256.3 86.3L256.7 84.4L257.1 86.9L257.6 85L258 87.4L258.4 86.9L258.8 87L259.2 86.8L259.6 85.9L260.1 87.5L260.5 87.9L260.9 84.5L261.3 88.8L261.7 86.7L262.1 85.9L262.6 85.5L263 88.2L263.4 86.4L263.8 86.8L264.2 86.2L264.7 88.4L265.1 88.3L265.5 88L265.9 89L266.3 89.2L266.7 88L267.2 88.2L267.6 89.8L268 91.3L268.4 87.3L268.8 89.1L269.3 88.3L269.7 87.8L270.1 88.8L270.5 89.4L270.9 89L271.3 89.3L271.8 90.5L272.2 91.3L272.6 90.8L273 91.3L273.4 94.5L273.9 97.9L274.3 98.5L274.7 93.7L275.1 93.4L275.5 96.1L275.9 101.8L276.4 103.8L276.8 100.1L277.2 92.6L277.6 90.9L278 90.9L278.5 90L278.9 91.6L279.3 91.8L279.7 92.7L280.1 92.7L280.5 91.4L281 92.5L281.4 92.2L281.8 96.8L282.2 101.7L282.6 105.5L283.1 99.7L283.5 95.2L283.9 94.1L284.3 93.5L284.7 91.4L285.1 93L285.6 94.9L286 94L286.4 93.9L286.8 93.9L287.2 92L287.7 92.3L288.1 92.4L288.5 94.4L288.9 93.6L289.3 94.8L289.7 95.7L290.2 95.3L290.6 92.2L291 94.7L291.4 94.9L291.8 94.5L292.3 94L292.7 94.6L293.1 95.2L293.5 94.5L293.9 95.3L294.3 94.8L294.8 93.4L295.2 97.2L295.6 95.4L296 94.8L296.4 97.3L296.8 96.8L297.3 94.6L297.7 96.7L298.1 96.6L298.5 98.3L298.9 97.8L299.4 97.7L299.8 98L300.2 97.5L300.6 98.3L301 97.8L301.4 96.2L301.9 97.8L302.3 97.4L302.7 95.3L303.1 96.7L303.5 98.4L304 96.5L304.4 97.7L304.8 98.8L305.2 98.3L305.6 97.8L306 98.1L306.5 98.4L306.9 98.6L307.3 99.2L307.7 100.8L308.1 98L308.6 98.9L309 98.5L309.4 99.5L309.8 99.2L310.2 99.3L310.6 100L311.1 100.9L311.5 99.1L311.9 98.5L312.3 99.4L312.7 101.3L313.2 100.6L313.6 99.6L314 98.5L314.4 99.1L314.8 99.1L315.2 100.7L315.7 100.4L316.1 102.9L316.5 101.4L316.9 100.3L317.3 101.2L317.8 101.6L318.2 103.3L318.6 101.7L319 100.4L319.4 102.3L319.8 102.1L320.3 103.9L320.7 102.1L321.1 102.2L321.5 103.2L321.9 101.8L322.4 102L322.8 101.8L323.2 103.8L323.6 103.6L324 102.5L324.4 103.3L324.9 102.8L325.3 101.9L325.7 102.2L326.1 103.7L326.5 104.7L326.9 103.9L327.4 103.9L327.8 103.9L328.2 103.4L328.6 104.3L329 104.7L329.5 103.4L329.9 102.9L330.3 102.5L330.7 104.7L331.1 104L331.5 104.9L332 104.8L332.4 105.5L332.8 105.3L333.2 106.6L333.6 105.6L334.1 105.3L334.5 105.3L334.9 103.7L335.3 104.9L335.7 105.5L336.1 105.8L336.6 105.6L337 106.9L337.4 107.1L337.8 105.8L338.2 106.5L338.7 105L339.1 107.3L339.5 106.3L339.9 105.3L340.3 107.8L340.7 106.4L341.2 106.7L341.6 107.2L342 106.3" fill="none" stroke="url(#lt-wl-n)" stroke-width="2" stroke-linejoin="round"/>
+<g transform="translate(177.4 21.2) scale(0.34)"><g fill="#1F7A6F"><rect x="84" y="108" width="17" height="38" rx="8.5"/><rect x="124" y="108" width="17" height="38" rx="8.5"/></g><g fill="#2A9D8F"><path d="M58 92C40 95 24 96 11 84C6 80 2 85 5 90C17 107 36 119 62 121Z"/><ellipse cx="94" cy="101" rx="46" ry="31"/><path d="M118 100C124 78 132 58 148 42" stroke="#2A9D8F" stroke-width="24" stroke-linecap="round" fill="none"/><circle cx="153" cy="35" r="17"/><ellipse cx="166" cy="41" rx="14" ry="11"/><rect x="66" y="108" width="17" height="38" rx="8.5"/><rect x="106" y="108" width="17" height="38" rx="8.5"/></g><circle cx="158" cy="31" r="3.6" fill="#14213D"/><circle cx="159.4" cy="29.7" r="1.3" fill="#fff"/><path d="M167 46q4.5 3 9-0.5" stroke="#14213D" stroke-width="1.9" fill="none" stroke-linecap="round"/><ellipse cx="151" cy="43" rx="4.4" ry="2.6" fill="#F59E95"/><g fill="#F2B84B" stroke="#F2B84B" stroke-width="1.6" stroke-linejoin="round"><path d="M76.0,77.5L77.8,81.5L82.2,82.0L79.0,85.0L79.8,89.3L76.0,87.1L72.2,89.3L73.0,85.0L69.8,82.0L74.2,81.5Z"/><path d="M97.0,70.0L99.3,74.9L104.6,75.5L100.7,79.2L101.7,84.5L97.0,81.8L92.3,84.5L93.3,79.2L89.4,75.5L94.7,74.9Z"/><path d="M117.0,80.5L118.6,83.9L122.2,84.3L119.5,86.8L120.2,90.4L117.0,88.6L113.8,90.4L114.5,86.8L111.8,84.3L115.4,83.9Z"/><path d="M54.0,96.0L55.1,98.4L57.8,98.8L55.8,100.6L56.4,103.2L54.0,101.9L51.6,103.2L52.2,100.6L50.2,98.8L52.9,98.4Z"/></g></g>
+<rect class="tealf" x="0" y="222" width="360" height="44"/>
+<path class="onfill" d="M33 233v18M26 245l7 7 7-7"/>
+<text class="netb" x="54" y="241">Neural network</text>
+<text class="net" x="54" y="259">trained on stars in common</text>
+<text class="h" x="12" y="294">Labels out</text>
+<rect class="goldt" x="290" y="281" width="58" height="18"/>
+<text class="ex" x="319" y="294" text-anchor="middle">example</text>
+<text class="row" x="12" y="330">T<tspan baseline-shift="sub" font-size="10">eff</tspan></text>
+<text class="val" x="348" y="330" text-anchor="end">4,812 <tspan class="pm">±</tspan> 41 K</text>
+<path class="rule" d="M12 344h336"/>
+<text class="row" x="12" y="370">log g</text>
+<text class="val" x="348" y="370" text-anchor="end">2.61 <tspan class="pm">±</tspan> 0.07</text>
+<path class="rule" d="M12 384h336"/>
+<text class="row" x="12" y="410">[Fe/H]</text>
+<text class="val" x="348" y="410" text-anchor="end">−0.34 <tspan class="pm">±</tspan> 0.04</text>
+<path class="rule" d="M12 424h336"/>
+<text class="row" x="12" y="450">[Mg/Fe]</text>
+<text class="val" x="348" y="450" text-anchor="end">0.12 <tspan class="pm">±</tspan> 0.03</text>
+
+<path class="rule" d="M0 480.5h360"/>
+<text class="h" x="12" y="510">The star among others</text>
+<text class="t" x="348" y="510" text-anchor="end">illustrative</text>
+<rect class="ax" x="46" y="534" width="294" height="276" fill="none"/>
+<path class="ax" d="M298 810v7M298 534v6"/>
+<text class="tick" x="298" y="832" text-anchor="middle">4000</text>
+<path class="ax" d="M214 810v7M214 534v6"/>
+<path class="ax" d="M130 810v7M130 534v6"/>
+<text class="tick" x="130" y="832" text-anchor="middle">6000</text>
+<path class="ax" d="M46 810v7M46 534v6"/>
+<text class="tick" x="46" y="832" text-anchor="middle">7000</text>
+<path class="ax" d="M46 534h-7M340 534h-6"/>
+<text class="tick" x="35" y="538" text-anchor="end">0</text>
+<path class="ax" d="M46 585.6h-7M340 585.6h-6"/>
+<text class="tick" x="35" y="589.6" text-anchor="end">1</text>
+<path class="ax" d="M46 637.2h-7M340 637.2h-6"/>
+<text class="tick" x="35" y="641.2" text-anchor="end">2</text>
+<path class="ax" d="M46 688.8h-7M340 688.8h-6"/>
+<text class="tick" x="35" y="692.8" text-anchor="end">3</text>
+<path class="ax" d="M46 740.4h-7M340 740.4h-6"/>
+<text class="tick" x="35" y="744.4" text-anchor="end">4</text>
+<path class="ax" d="M46 791.9h-7M340 791.9h-6"/>
+<text class="tick" x="35" y="795.9" text-anchor="end">5</text>
+<text class="lbl" x="340" y="848" text-anchor="end">T<tspan baseline-shift="sub" font-size="9">eff</tspan> (K)</text>
+<text class="lbl" x="23" y="538" transform="rotate(-90 23 538)" text-anchor="end">log g</text>
+<circle class="f4" cx="198.3" cy="765.8" r="2.1"/>
+<circle class="f4" cx="216.8" cy="697.7" r="2.1"/>
+<circle class="f6" cx="172.1" cy="764" r="2.1"/>
+<circle class="f5" cx="216.6" cy="683.4" r="2.1"/>
+<circle class="f3" cx="264.7" cy="618.9" r="2.1"/>
+<circle class="f4" cx="175.8" cy="724.7" r="2.1"/>
+<circle class="f4" cx="295.4" cy="586.7" r="2.1"/>
+<circle class="f5" cx="119.7" cy="755.7" r="2.1"/>
+<circle class="f5" cx="183.6" cy="771.5" r="2.1"/>
+<circle class="f5" cx="130" cy="737.7" r="2.1"/>
+<circle class="f4" cx="109.1" cy="759.7" r="2.1"/>
+<circle class="f4" cx="279.9" cy="781.3" r="2.1"/>
+<circle class="f4" cx="263.1" cy="616.7" r="2.1"/>
+<circle class="f3" cx="200.6" cy="766.5" r="2.1"/>
+<circle class="f7" cx="97.3" cy="754.8" r="2.1"/>
+<circle class="f6" cx="153.6" cy="767.6" r="2.1"/>
+<circle class="f4" cx="115.8" cy="737.7" r="2.1"/>
+<circle class="f7" cx="267.1" cy="775.2" r="2.1"/>
+<circle class="f2" cx="82.5" cy="754.9" r="2.1"/>
+<circle class="f5" cx="118.4" cy="756.5" r="2.1"/>
+<circle class="f2" cx="119.8" cy="736.8" r="2.1"/>
+<circle class="f5" cx="143.7" cy="738.8" r="2.1"/>
+<circle class="f4" cx="190.6" cy="770.2" r="2.1"/>
+<circle class="f4" cx="224.9" cy="654.5" r="2.1"/>
+<circle class="f5" cx="221.2" cy="666.4" r="2.1"/>
+<circle class="f4" cx="199.2" cy="768.5" r="2.1"/>
+<circle class="f4" cx="121" cy="758.2" r="2.1"/>
+<circle class="f6" cx="249.2" cy="668.5" r="2.1"/>
+<circle class="f4" cx="122.3" cy="733.6" r="2.1"/>
+<circle class="f5" cx="264" cy="783.3" r="2.1"/>
+<circle class="f4" cx="239.9" cy="648.9" r="2.1"/>
+<circle class="f3" cx="171.8" cy="774.3" r="2.1"/>
+<circle class="f3" cx="274.4" cy="608.1" r="2.1"/>
+<circle class="f5" cx="90.7" cy="754.6" r="2.1"/>
+<circle class="f4" cx="237" cy="651.3" r="2.1"/>
+<circle class="f5" cx="285.1" cy="781" r="2.1"/>
+<circle class="f4" cx="115.2" cy="727.4" r="2.1"/>
+<circle class="f6" cx="249.9" cy="655" r="2.1"/>
+<circle class="f1" cx="255.5" cy="606.4" r="2.1"/>
+<circle class="f3" cx="258.8" cy="617" r="2.1"/>
+<circle class="f6" cx="235.5" cy="663.7" r="2.1"/>
+<circle class="f6" cx="296.6" cy="773.1" r="2.1"/>
+<circle class="f0" cx="288.2" cy="577" r="2.1"/>
+<circle class="f4" cx="223.5" cy="657.6" r="2.1"/>
+<circle class="f5" cx="248.6" cy="781.8" r="2.1"/>
+<circle class="f6" cx="276.1" cy="775.7" r="2.1"/>
+<circle class="f5" cx="233" cy="665.5" r="2.1"/>
+<circle class="f3" cx="226.1" cy="662.2" r="2.1"/>
+<circle class="f6" cx="250.3" cy="778.8" r="2.1"/>
+<circle class="f5" cx="257.3" cy="626.8" r="2.1"/>
+<circle class="f5" cx="287.3" cy="592.4" r="2.1"/>
+<circle class="f3" cx="163.2" cy="735.9" r="2.1"/>
+<circle class="f5" cx="136.8" cy="761.3" r="2.1"/>
+<circle class="f5" cx="226.8" cy="662.1" r="2.1"/>
+<circle class="f2" cx="111.4" cy="729.7" r="2.1"/>
+<circle class="f5" cx="90.5" cy="752.6" r="2.1"/>
+<circle class="f4" cx="116.6" cy="765.6" r="2.1"/>
+<circle class="f5" cx="154.9" cy="773.3" r="2.1"/>
+<circle class="f6" cx="207.3" cy="718.7" r="2.1"/>
+<circle class="f4" cx="122.5" cy="732.6" r="2.1"/>
+<circle class="f5" cx="221" cy="652.8" r="2.1"/>
+<circle class="f4" cx="79.5" cy="745.9" r="2.1"/>
+<circle class="f4" cx="112.1" cy="752.5" r="2.1"/>
+<circle class="f4" cx="273" cy="770.1" r="2.1"/>
+<circle class="f5" cx="244.9" cy="658.5" r="2.1"/>
+<circle class="f2" cx="263.6" cy="771.4" r="2.1"/>
+<circle class="f5" cx="220.4" cy="779.6" r="2.1"/>
+<circle class="f5" cx="275" cy="610.7" r="2.1"/>
+<circle class="f4" cx="146.2" cy="730.2" r="2.1"/>
+<circle class="f3" cx="176" cy="771.3" r="2.1"/>
+<circle class="f6" cx="252.3" cy="651.7" r="2.1"/>
+<circle class="f4" cx="229" cy="661.8" r="2.1"/>
+<circle class="f1" cx="215.8" cy="774.5" r="2.1"/>
+<circle class="f1" cx="276.7" cy="777.4" r="2.1"/>
+<circle class="f5" cx="98.4" cy="736.5" r="2.1"/>
+<circle class="f6" cx="243.7" cy="664.2" r="2.1"/>
+<circle class="f5" cx="228.3" cy="660.6" r="2.1"/>
+<circle class="f4" cx="276.4" cy="776.9" r="2.1"/>
+<circle class="f5" cx="160" cy="726.8" r="2.1"/>
+<circle class="f2" cx="223.9" cy="774.2" r="2.1"/>
+<circle class="f4" cx="223.7" cy="659.1" r="2.1"/>
+<circle class="f3" cx="150.6" cy="764.7" r="2.1"/>
+<circle class="f4" cx="195.2" cy="767.9" r="2.1"/>
+<circle class="f1" cx="221.1" cy="676.8" r="2.1"/>
+<circle class="f3" cx="221.2" cy="770.4" r="2.1"/>
+<circle class="f6" cx="171" cy="769" r="2.1"/>
+<circle class="f7" cx="110.3" cy="751.7" r="2.1"/>
+<circle class="f5" cx="237.3" cy="649.5" r="2.1"/>
+<circle class="f5" cx="229.7" cy="662.6" r="2.1"/>
+<circle class="f3" cx="209.3" cy="707.8" r="2.1"/>
+<circle class="f2" cx="303.4" cy="561.3" r="2.1"/>
+<circle class="f5" cx="234.1" cy="659.9" r="2.1"/>
+<circle class="f5" cx="231.3" cy="658.4" r="2.1"/>
+<circle class="f2" cx="91.7" cy="728.2" r="2.1"/>
+<circle class="f5" cx="246.3" cy="664.5" r="2.1"/>
+<circle class="f7" cx="253.5" cy="663.4" r="2.1"/>
+<circle class="f3" cx="241.9" cy="648.3" r="2.1"/>
+<circle class="f5" cx="226.4" cy="771.7" r="2.1"/>
+<circle class="f4" cx="288.2" cy="602.3" r="2.1"/>
+<circle class="f5" cx="249.6" cy="774.5" r="2.1"/>
+<circle class="f6" cx="255.6" cy="664.8" r="2.1"/>
+<circle class="f4" cx="297.8" cy="580.2" r="2.1"/>
+<circle class="f4" cx="144.7" cy="758.4" r="2.1"/>
+<circle class="f2" cx="87.6" cy="748.9" r="2.1"/>
+<circle class="f2" cx="181.9" cy="766" r="2.1"/>
+<circle class="f2" cx="249.1" cy="631.6" r="2.1"/>
+<circle class="f5" cx="237.1" cy="667.2" r="2.1"/>
+<circle class="f3" cx="159.1" cy="760.9" r="2.1"/>
+<circle class="f2" cx="285.1" cy="580.7" r="2.1"/>
+<circle class="f5" cx="228.2" cy="676.5" r="2.1"/>
+<circle class="f4" cx="232.2" cy="774.8" r="2.1"/>
+<circle class="f4" cx="252.4" cy="774.2" r="2.1"/>
+<circle class="f3" cx="235.7" cy="654.3" r="2.1"/>
+<circle class="f6" cx="230.3" cy="773" r="2.1"/>
+<circle class="f2" cx="220.9" cy="654.1" r="2.1"/>
+<circle class="f2" cx="241.1" cy="770.3" r="2.1"/>
+<circle class="f2" cx="230.6" cy="663.8" r="2.1"/>
+<circle class="f4" cx="202" cy="774" r="2.1"/>
+<circle class="f6" cx="98.2" cy="749.3" r="2.1"/>
+<circle class="f4" cx="132.8" cy="762.2" r="2.1"/>
+<circle class="f4" cx="164.5" cy="760.6" r="2.1"/>
+<circle class="f4" cx="116.1" cy="740.7" r="2.1"/>
+<circle class="f5" cx="272.5" cy="775.4" r="2.1"/>
+<circle class="f5" cx="252.5" cy="644.4" r="2.1"/>
+<circle class="f3" cx="243.7" cy="637.1" r="2.1"/>
+<circle class="f5" cx="156" cy="768.7" r="2.1"/>
+<circle class="f4" cx="226.5" cy="657.2" r="2.1"/>
+<circle class="f2" cx="201.8" cy="774.6" r="2.1"/>
+<circle class="f2" cx="69.5" cy="733.3" r="2.1"/>
+<circle class="f5" cx="227.3" cy="773.1" r="2.1"/>
+<circle class="f6" cx="238.4" cy="655.2" r="2.1"/>
+<circle class="f5" cx="121.9" cy="722.3" r="2.1"/>
+<circle class="f3" cx="124.3" cy="740" r="2.1"/>
+<circle class="f1" cx="283.6" cy="775.2" r="2.1"/>
+<circle class="f1" cx="178.6" cy="761.7" r="2.1"/>
+<circle class="f0" cx="297.6" cy="563.5" r="2.1"/>
+<circle class="f6" cx="211.2" cy="773.8" r="2.1"/>
+<circle class="f2" cx="219.2" cy="671.3" r="2.1"/>
+<circle class="f2" cx="265.8" cy="602.4" r="2.1"/>
+<circle class="f6" cx="293.7" cy="776.1" r="2.1"/>
+<circle class="f4" cx="267.3" cy="612.3" r="2.1"/>
+<circle class="f4" cx="144.5" cy="767.7" r="2.1"/>
+<circle class="f1" cx="113.1" cy="756" r="2.1"/>
+<circle class="f6" cx="307.9" cy="564.8" r="2.1"/>
+<circle class="f4" cx="219.7" cy="662.8" r="2.1"/>
+<circle class="f7" cx="122.9" cy="759.1" r="2.1"/>
+<circle class="f4" cx="234.6" cy="656.4" r="2.1"/>
+<circle class="f6" cx="148.5" cy="732.8" r="2.1"/>
+<circle class="f3" cx="129.4" cy="733.8" r="2.1"/>
+<circle class="f7" cx="106.6" cy="726.3" r="2.1"/>
+<circle class="f3" cx="224.6" cy="664.6" r="2.1"/>
+<circle class="f4" cx="234.1" cy="649.9" r="2.1"/>
+<circle class="f1" cx="85.2" cy="750" r="2.1"/>
+<circle class="f4" cx="207.6" cy="716.9" r="2.1"/>
+<circle class="f1" cx="217.6" cy="771" r="2.1"/>
+<circle class="f3" cx="149" cy="726.3" r="2.1"/>
+<circle class="f3" cx="113.7" cy="759.1" r="2.1"/>
+<circle class="f3" cx="156.2" cy="728.2" r="2.1"/>
+<circle class="f4" cx="145.3" cy="760.8" r="2.1"/>
+<circle class="f5" cx="267.8" cy="615" r="2.1"/>
+<circle class="f5" cx="224.3" cy="658.8" r="2.1"/>
+<circle class="f6" cx="282.8" cy="775.1" r="2.1"/>
+<circle class="f2" cx="137.3" cy="764.2" r="2.1"/>
+<circle class="f7" cx="134.1" cy="742" r="2.1"/>
+<circle class="f4" cx="121.4" cy="766.2" r="2.1"/>
+<circle class="f1" cx="141" cy="762.3" r="2.1"/>
+<circle class="f4" cx="218.8" cy="679.5" r="2.1"/>
+<circle class="f6" cx="146.1" cy="734.4" r="2.1"/>
+<circle class="f4" cx="104.5" cy="751.8" r="2.1"/>
+<circle class="f5" cx="156.8" cy="762.7" r="2.1"/>
+<circle class="f3" cx="263.4" cy="610.5" r="2.1"/>
+<circle class="f5" cx="128.2" cy="757.7" r="2.1"/>
+<circle class="f5" cx="271.1" cy="625.2" r="2.1"/>
+<circle class="f2" cx="275" cy="602.2" r="2.1"/>
+<circle class="f5" cx="95.3" cy="752.9" r="2.1"/>
+<circle class="f4" cx="173.8" cy="722.5" r="2.1"/>
+<circle class="f7" cx="245.5" cy="655.1" r="2.1"/>
+<circle class="f3" cx="257.5" cy="780.6" r="2.1"/>
+<circle class="f5" cx="280.9" cy="772.3" r="2.1"/>
+<circle class="f1" cx="99.5" cy="745.6" r="2.1"/>
+<circle class="f5" cx="158.5" cy="765.4" r="2.1"/>
+<circle class="f4" cx="257.2" cy="626.7" r="2.1"/>
+<circle class="f5" cx="88.9" cy="752" r="2.1"/>
+<circle class="f4" cx="199" cy="718.6" r="2.1"/>
+<circle class="f5" cx="185" cy="767.1" r="2.1"/>
+<circle class="f4" cx="236.3" cy="768.6" r="2.1"/>
+<circle class="f3" cx="239.1" cy="649.8" r="2.1"/>
+<circle class="f6" cx="315" cy="560.6" r="2.1"/>
+<circle class="f5" cx="268.4" cy="778" r="2.1"/>
+<circle class="f4" cx="242.5" cy="662.6" r="2.1"/>
+<circle class="f0" cx="116.8" cy="752.6" r="2.1"/>
+<circle class="f5" cx="302" cy="583.2" r="2.1"/>
+<circle class="f5" cx="236.5" cy="653.8" r="2.1"/>
+<circle class="f5" cx="286.7" cy="776.8" r="2.1"/>
+<circle class="f6" cx="305.5" cy="775.5" r="2.1"/>
+<circle class="f5" cx="304.9" cy="569.1" r="2.1"/>
+<circle class="f5" cx="210.5" cy="699.3" r="2.1"/>
+<circle class="f2" cx="285.9" cy="581.1" r="2.1"/>
+<circle class="f6" cx="245.6" cy="662.9" r="2.1"/>
+<circle class="f5" cx="181.1" cy="723.5" r="2.1"/>
+<circle class="f7" cx="218.6" cy="660.2" r="2.1"/>
+<circle class="f4" cx="207.3" cy="710.7" r="2.1"/>
+<circle class="f1" cx="281.7" cy="577" r="2.1"/>
+<circle class="f4" cx="227.8" cy="661.3" r="2.1"/>
+<circle class="f3" cx="195.1" cy="771.3" r="2.1"/>
+<circle class="f6" cx="197.8" cy="770.7" r="2.1"/>
+<circle class="f5" cx="199.7" cy="768.2" r="2.1"/>
+<circle class="f6" cx="294.3" cy="593.6" r="2.1"/>
+<circle class="f4" cx="104.7" cy="760.6" r="2.1"/>
+<circle class="f0" cx="226.1" cy="649.2" r="2.1"/>
+<circle class="f6" cx="165.4" cy="720.2" r="2.1"/>
+<circle class="f1" cx="155" cy="770.3" r="2.1"/>
+<circle class="f7" cx="242.4" cy="781.6" r="2.1"/>
+<circle class="f3" cx="225.8" cy="650.8" r="2.1"/>
+<circle class="f3" cx="167.6" cy="763.9" r="2.1"/>
+<circle class="f2" cx="126.1" cy="757.2" r="2.1"/>
+<circle class="f4" cx="233.8" cy="661.9" r="2.1"/>
+<circle class="f5" cx="121.8" cy="761.3" r="2.1"/>
+<circle class="f1" cx="203" cy="704.2" r="2.1"/>
+<circle class="f4" cx="187.1" cy="764.4" r="2.1"/>
+<circle class="f4" cx="215.5" cy="769" r="2.1"/>
+<circle class="f6" cx="149.3" cy="734.7" r="2.1"/>
+<circle class="f5" cx="103.5" cy="730.2" r="2.1"/>
+<circle class="f4" cx="246.3" cy="661.7" r="2.1"/>
+<circle class="f0" cx="118.3" cy="760.3" r="2.1"/>
+<circle class="f6" cx="91.9" cy="748.3" r="2.1"/>
+<circle class="f5" cx="173.7" cy="729.4" r="2.1"/>
+<circle class="f5" cx="234.7" cy="649.9" r="2.1"/>
+<circle class="f5" cx="304.9" cy="778.4" r="2.1"/>
+<circle class="f5" cx="215.2" cy="685.8" r="2.1"/>
+<circle class="f4" cx="146.1" cy="757.5" r="2.1"/>
+<circle class="f5" cx="90.4" cy="751.5" r="2.1"/>
+<circle class="f0" cx="289.9" cy="572.4" r="2.1"/>
+<circle class="f6" cx="114.8" cy="757.6" r="2.1"/>
+<circle class="f4" cx="243.4" cy="657.1" r="2.1"/>
+<circle class="f5" cx="260.9" cy="615.2" r="2.1"/>
+<circle class="f3" cx="122.1" cy="757.6" r="2.1"/>
+<circle class="f5" cx="233.1" cy="778.6" r="2.1"/>
+<circle class="f4" cx="285.2" cy="587" r="2.1"/>
+<circle class="f4" cx="218.1" cy="679.5" r="2.1"/>
+<circle class="f6" cx="113.1" cy="735.3" r="2.1"/>
+<circle class="f2" cx="201" cy="776.7" r="2.1"/>
+<circle class="f6" cx="151.6" cy="763.8" r="2.1"/>
+<circle class="f3" cx="236.9" cy="669.8" r="2.1"/>
+<circle class="f3" cx="91.4" cy="737.9" r="2.1"/>
+<circle class="f2" cx="193.9" cy="768.7" r="2.1"/>
+<circle class="f6" cx="307.4" cy="578.1" r="2.1"/>
+<circle class="f0" cx="159.7" cy="723.9" r="2.1"/>
+<circle class="f5" cx="224.1" cy="664.1" r="2.1"/>
+<circle class="f5" cx="226.5" cy="656.4" r="2.1"/>
+<circle class="f5" cx="289.1" cy="587.4" r="2.1"/>
+<circle class="f7" cx="238.8" cy="777.8" r="2.1"/>
+<circle class="f2" cx="150.8" cy="729.5" r="2.1"/>
+<circle class="f4" cx="199.4" cy="719.2" r="2.1"/>
+<circle class="f4" cx="236.5" cy="659.3" r="2.1"/>
+<circle class="f6" cx="287.2" cy="594.7" r="2.1"/>
+<circle class="f2" cx="221.5" cy="653.2" r="2.1"/>
+<circle class="f5" cx="184.9" cy="767.8" r="2.1"/>
+<circle class="f5" cx="284.3" cy="600.5" r="2.1"/>
+<circle class="f3" cx="188.9" cy="772.9" r="2.1"/>
+<circle class="f5" cx="205.5" cy="764.3" r="2.1"/>
+<circle class="f5" cx="138.9" cy="737.7" r="2.1"/>
+<circle class="f6" cx="102" cy="750.1" r="2.1"/>
+<circle class="f4" cx="148.5" cy="731.1" r="2.1"/>
+<circle class="f3" cx="212" cy="689.4" r="2.1"/>
+<circle class="f5" cx="229.8" cy="778.8" r="2.1"/>
+<circle class="f4" cx="189" cy="769.5" r="2.1"/>
+<circle class="f3" cx="267.7" cy="610.6" r="2.1"/>
+<circle class="f4" cx="260.8" cy="776" r="2.1"/>
+<circle class="f4" cx="116.9" cy="754.1" r="2.1"/>
+<circle class="f3" cx="228.5" cy="771.3" r="2.1"/>
+<circle class="f4" cx="183" cy="726.7" r="2.1"/>
+<circle class="f3" cx="261.6" cy="621.5" r="2.1"/>
+<circle class="f4" cx="253.8" cy="630.6" r="2.1"/>
+<circle class="f7" cx="163.1" cy="732.7" r="2.1"/>
+<circle class="f3" cx="235.3" cy="664.1" r="2.1"/>
+<circle class="f6" cx="125.1" cy="762.4" r="2.1"/>
+<circle class="f5" cx="311.4" cy="567.3" r="2.1"/>
+<circle class="f5" cx="238.6" cy="654.7" r="2.1"/>
+<circle class="f1" cx="98.8" cy="731.3" r="2.1"/>
+<circle class="f5" cx="138" cy="756.9" r="2.1"/>
+<circle class="f4" cx="293.5" cy="577.7" r="2.1"/>
+<circle class="f5" cx="220.3" cy="695.8" r="2.1"/>
+<circle class="f5" cx="146.1" cy="733" r="2.1"/>
+<circle class="f6" cx="275.6" cy="605.4" r="2.1"/>
+<circle class="f7" cx="276.8" cy="613.2" r="2.1"/>
+<circle class="f4" cx="92.9" cy="734" r="2.1"/>
+<circle class="f4" cx="114.1" cy="739.4" r="2.1"/>
+<circle class="f5" cx="235" cy="669.4" r="2.1"/>
+<circle class="f5" cx="263.8" cy="628.3" r="2.1"/>
+<circle class="f6" cx="222.6" cy="772.8" r="2.1"/>
+<circle class="f6" cx="226.1" cy="652.5" r="2.1"/>
+<circle class="f6" cx="257.9" cy="640.2" r="2.1"/>
+<circle class="f4" cx="148.2" cy="759.2" r="2.1"/>
+<circle class="f6" cx="212.7" cy="770.9" r="2.1"/>
+<circle class="f5" cx="111.7" cy="742.5" r="2.1"/>
+<circle class="f4" cx="268.4" cy="612.3" r="2.1"/>
+<circle class="f6" cx="146.2" cy="733.3" r="2.1"/>
+<circle class="f5" cx="96.9" cy="731.1" r="2.1"/>
+<circle class="f3" cx="87.3" cy="753.2" r="2.1"/>
+<circle class="f6" cx="102" cy="753" r="2.1"/>
+<circle class="f6" cx="103.6" cy="755.8" r="2.1"/>
+<circle class="f5" cx="156.1" cy="733.2" r="2.1"/>
+<circle class="f0" cx="283.8" cy="576.9" r="2.1"/>
+<circle class="f5" cx="236" cy="778.6" r="2.1"/>
+<circle class="f2" cx="105.9" cy="751.9" r="2.1"/>
+<circle class="f2" cx="164.9" cy="762.2" r="2.1"/>
+<circle class="f5" cx="231.9" cy="660.4" r="2.1"/>
+<circle class="f7" cx="264.3" cy="634.1" r="2.1"/>
+<circle class="f3" cx="231.5" cy="662.8" r="2.1"/>
+<circle class="f5" cx="82.1" cy="752.8" r="2.1"/>
+<circle class="f3" cx="234.9" cy="777.3" r="2.1"/>
+<circle class="f6" cx="236.7" cy="651.2" r="2.1"/>
+<circle class="f7" cx="198.7" cy="768.9" r="2.1"/>
+<circle class="f5" cx="306.4" cy="572.2" r="2.1"/>
+<circle class="f6" cx="185.8" cy="768.7" r="2.1"/>
+<circle class="f5" cx="223.3" cy="777.2" r="2.1"/>
+<circle class="f0" cx="132.7" cy="760.7" r="2.1"/>
+<circle class="f3" cx="259.8" cy="775.3" r="2.1"/>
+<circle class="f3" cx="215" cy="680.6" r="2.1"/>
+<circle class="f3" cx="196" cy="765.9" r="2.1"/>
+<circle class="f7" cx="252" cy="768.6" r="2.1"/>
+<circle class="f6" cx="141" cy="730.5" r="2.1"/>
+<circle class="f1" cx="237.8" cy="643" r="2.1"/>
+<circle class="f4" cx="300.3" cy="576.5" r="2.1"/>
+<circle class="f6" cx="140" cy="727.1" r="2.1"/>
+<circle class="f2" cx="294.6" cy="776.7" r="2.1"/>
+<circle class="f4" cx="217.4" cy="709.1" r="2.1"/>
+<circle class="f6" cx="291.6" cy="774.4" r="2.1"/>
+<circle class="f5" cx="312.4" cy="568.5" r="2.1"/>
+<circle class="f5" cx="282.2" cy="771.6" r="2.1"/>
+<circle class="f3" cx="189.3" cy="762.8" r="2.1"/>
+<circle class="f3" cx="148.6" cy="761.1" r="2.1"/>
+<circle class="f4" cx="232.6" cy="684.6" r="2.1"/>
+<circle class="f2" cx="261.5" cy="607.8" r="2.1"/>
+<circle class="f4" cx="91.4" cy="745.6" r="2.1"/>
+<circle class="f5" cx="232.7" cy="673.2" r="2.1"/>
+<circle class="f6" cx="238.3" cy="677" r="2.1"/>
+<circle class="f4" cx="100.4" cy="740.7" r="2.1"/>
+<circle class="f2" cx="183.2" cy="768.1" r="2.1"/>
+<circle class="f2" cx="299.6" cy="775.9" r="2.1"/>
+<circle class="f5" cx="150.6" cy="729.1" r="2.1"/>
+<circle class="f5" cx="100.2" cy="739.6" r="2.1"/>
+<circle class="f3" cx="246.1" cy="647.7" r="2.1"/>
+<circle class="f5" cx="152.4" cy="732.3" r="2.1"/>
+<circle class="f4" cx="237.6" cy="654.2" r="2.1"/>
+<circle class="f4" cx="138.2" cy="766.2" r="2.1"/>
+<circle class="f5" cx="196.9" cy="723" r="2.1"/>
+<circle class="f1" cx="258.4" cy="775.1" r="2.1"/>
+<circle class="f4" cx="292.6" cy="591.8" r="2.1"/>
+<circle class="f2" cx="217" cy="663" r="2.1"/>
+<circle class="f3" cx="228.2" cy="663.5" r="2.1"/>
+<circle class="f1" cx="183.3" cy="729.9" r="2.1"/>
+<circle class="f6" cx="219.5" cy="703.1" r="2.1"/>
+<circle class="f4" cx="90.3" cy="751.3" r="2.1"/>
+<circle class="f5" cx="283.1" cy="615.4" r="2.1"/>
+<circle class="f6" cx="213.4" cy="720.3" r="2.1"/>
+<circle class="f3" cx="140.6" cy="737.8" r="2.1"/>
+<circle class="f4" cx="140.2" cy="727.4" r="2.1"/>
+<circle class="f4" cx="139.8" cy="731.9" r="2.1"/>
+<circle class="f5" cx="308" cy="567.6" r="2.1"/>
+<circle class="f3" cx="236.6" cy="652.7" r="2.1"/>
+<circle class="f4" cx="121.9" cy="745.9" r="2.1"/>
+<circle class="f0" cx="201.4" cy="773" r="2.1"/>
+<circle class="f4" cx="159.7" cy="770.5" r="2.1"/>
+<circle class="f3" cx="119" cy="761.2" r="2.1"/>
+<circle class="f5" cx="235.7" cy="656.8" r="2.1"/>
+<circle class="f4" cx="80.2" cy="752.8" r="2.1"/>
+<circle class="f5" cx="186.9" cy="729.4" r="2.1"/>
+<circle class="f5" cx="301.4" cy="569.2" r="2.1"/>
+<circle class="f5" cx="97.2" cy="747.3" r="2.1"/>
+<circle class="f5" cx="296.6" cy="778.9" r="2.1"/>
+<circle class="f6" cx="219.3" cy="690" r="2.1"/>
+<circle class="f3" cx="280.3" cy="588.8" r="2.1"/>
+<circle class="f4" cx="235.9" cy="657.6" r="2.1"/>
+<circle class="f5" cx="166.1" cy="766.3" r="2.1"/>
+<circle class="f6" cx="194" cy="772.4" r="2.1"/>
+<circle class="f5" cx="232.3" cy="667.8" r="2.1"/>
+<circle class="f6" cx="122.7" cy="745.5" r="2.1"/>
+<circle class="f1" cx="287.7" cy="582.4" r="2.1"/>
+<circle class="f5" cx="257.3" cy="656.6" r="2.1"/>
+<circle class="f5" cx="146.2" cy="763.5" r="2.1"/>
+<circle class="f4" cx="100.2" cy="751.1" r="2.1"/>
+<circle class="f6" cx="280" cy="773.6" r="2.1"/>
+<circle class="f3" cx="64.2" cy="732.8" r="2.1"/>
+<circle class="f4" cx="229.3" cy="681.9" r="2.1"/>
+<circle class="f4" cx="228" cy="666" r="2.1"/>
+<circle class="f5" cx="240.8" cy="667.7" r="2.1"/>
+<circle class="f5" cx="235.1" cy="663.2" r="2.1"/>
+<circle class="f6" cx="147.8" cy="762.9" r="2.1"/>
+<circle class="f6" cx="107.3" cy="752.4" r="2.1"/>
+<circle class="f5" cx="171.7" cy="728.2" r="2.1"/>
+<circle class="f5" cx="229.7" cy="683.2" r="2.1"/>
+<circle class="f5" cx="205.2" cy="775.8" r="2.1"/>
+<circle class="f6" cx="292" cy="588" r="2.1"/>
+<circle class="f1" cx="237.7" cy="632.7" r="2.1"/>
+<circle class="f6" cx="288.7" cy="598.3" r="2.1"/>
+<circle class="f5" cx="74.8" cy="747.3" r="2.1"/>
+<circle class="f5" cx="122" cy="741.2" r="2.1"/>
+<circle class="f5" cx="118.2" cy="753.5" r="2.1"/>
+<circle class="f1" cx="222.7" cy="660.5" r="2.1"/>
+<circle class="f4" cx="223.8" cy="669.3" r="2.1"/>
+<circle class="f3" cx="303.5" cy="778.8" r="2.1"/>
+<circle class="f6" cx="252.9" cy="659.5" r="2.1"/>
+<circle class="f4" cx="287.6" cy="777.2" r="2.1"/>
+<circle class="f5" cx="154.3" cy="761.7" r="2.1"/>
+<circle class="f3" cx="290.5" cy="580.4" r="2.1"/>
+<circle class="f3" cx="129.8" cy="761.1" r="2.1"/>
+<circle class="f5" cx="121.6" cy="742.7" r="2.1"/>
+<circle class="f7" cx="144.7" cy="763.6" r="2.1"/>
+<circle class="f4" cx="163" cy="758.4" r="2.1"/>
+<circle class="f5" cx="303.4" cy="776.9" r="2.1"/>
+<circle class="f1" cx="221.5" cy="670.8" r="2.1"/>
+<circle class="f3" cx="292.4" cy="777.8" r="2.1"/>
+<circle class="f1" cx="209.7" cy="664" r="2.1"/>
+<circle class="f4" cx="103.2" cy="736" r="2.1"/>
+<circle class="f3" cx="184.5" cy="725.7" r="2.1"/>
+<circle class="f5" cx="140.8" cy="762.9" r="2.1"/>
+<circle class="f3" cx="239.7" cy="652.1" r="2.1"/>
+<circle class="f4" cx="244.4" cy="649.6" r="2.1"/>
+<circle class="f0" cx="296" cy="563.4" r="2.1"/>
+<circle class="f6" cx="270.7" cy="627.6" r="2.1"/>
+<circle class="f3" cx="237.3" cy="667.6" r="2.1"/>
+<circle class="f5" cx="256" cy="634.4" r="2.1"/>
+<circle class="f7" cx="309.6" cy="575.4" r="2.1"/>
+<circle class="f5" cx="313.6" cy="566.8" r="2.1"/>
+<circle class="f6" cx="281.9" cy="612.6" r="2.1"/>
+<circle class="f4" cx="116.3" cy="762.7" r="2.1"/>
+<circle class="f4" cx="82.5" cy="719.6" r="2.1"/>
+<circle class="f2" cx="135" cy="731.9" r="2.1"/>
+<circle class="f4" cx="284.4" cy="580.5" r="2.1"/>
+<circle class="f3" cx="226.8" cy="661.3" r="2.1"/>
+<circle class="f7" cx="243.5" cy="658" r="2.1"/>
+<circle class="f3" cx="220.1" cy="682.9" r="2.1"/>
+<circle class="f5" cx="134.1" cy="767.8" r="2.1"/>
+<circle class="f3" cx="223.8" cy="653" r="2.1"/>
+<circle class="f5" cx="148.4" cy="737.9" r="2.1"/>
+<circle class="f4" cx="92.5" cy="759.6" r="2.1"/>
+<circle class="f5" cx="310.6" cy="780.8" r="2.1"/>
+<circle class="f3" cx="250.5" cy="770.5" r="2.1"/>
+<circle class="f6" cx="248.5" cy="633.8" r="2.1"/>
+<circle class="f4" cx="224.4" cy="654.4" r="2.1"/>
+<circle class="f0" cx="112.3" cy="761.3" r="2.1"/>
+<circle class="f5" cx="120.2" cy="734.9" r="2.1"/>
+<circle class="f6" cx="143.9" cy="761" r="2.1"/>
+<circle class="f6" cx="125.5" cy="754.1" r="2.1"/>
+<circle class="f4" cx="226" cy="658" r="2.1"/>
+<circle class="f6" cx="298.1" cy="575.9" r="2.1"/>
+<circle class="f5" cx="77.1" cy="754.7" r="2.1"/>
+<circle class="f3" cx="278.9" cy="588.3" r="2.1"/>
+<circle class="f5" cx="227.1" cy="659.4" r="2.1"/>
+<circle class="f6" cx="246.4" cy="661.9" r="2.1"/>
+<circle class="f6" cx="310.9" cy="563.4" r="2.1"/>
+<circle class="f6" cx="108.6" cy="753.9" r="2.1"/>
+<circle class="f0" cx="221.5" cy="662.5" r="2.1"/>
+<circle class="f4" cx="231.5" cy="770.2" r="2.1"/>
+<circle class="f4" cx="155.5" cy="765.5" r="2.1"/>
+<circle class="f5" cx="239.3" cy="781.1" r="2.1"/>
+<circle class="f2" cx="168.6" cy="764.4" r="2.1"/>
+<circle class="f4" cx="209.7" cy="772.4" r="2.1"/>
+<circle class="f4" cx="89.9" cy="750.5" r="2.1"/>
+<circle class="f4" cx="232.6" cy="669.4" r="2.1"/>
+<circle class="f4" cx="229" cy="659.9" r="2.1"/>
+<circle class="f4" cx="249.3" cy="772.8" r="2.1"/>
+<circle class="f7" cx="216.9" cy="770.8" r="2.1"/>
+<circle class="f4" cx="102.4" cy="752.3" r="2.1"/>
+<circle class="f4" cx="156.7" cy="729.8" r="2.1"/>
+<circle class="f4" cx="110.4" cy="751.1" r="2.1"/>
+<circle class="f4" cx="123.4" cy="744.9" r="2.1"/>
+<circle class="f6" cx="148.7" cy="765.4" r="2.1"/>
+<circle class="f5" cx="276.8" cy="597" r="2.1"/>
+<circle class="f2" cx="236.7" cy="646.4" r="2.1"/>
+<circle class="f1" cx="97.6" cy="742.8" r="2.1"/>
+<circle class="f3" cx="259.1" cy="623.6" r="2.1"/>
+<circle class="f5" cx="130.3" cy="755.7" r="2.1"/>
+<circle class="f5" cx="312.5" cy="567.6" r="2.1"/>
+<circle class="f5" cx="217.1" cy="709.5" r="2.1"/>
+<circle class="f4" cx="260.9" cy="615.9" r="2.1"/>
+<circle class="f4" cx="123.4" cy="747" r="2.1"/>
+<circle class="f5" cx="218.7" cy="696.6" r="2.1"/>
+<circle class="f3" cx="206.2" cy="770" r="2.1"/>
+<circle class="f2" cx="230.2" cy="770.1" r="2.1"/>
+<circle class="f5" cx="256.4" cy="628.4" r="2.1"/>
+<circle class="f4" cx="215.8" cy="663.1" r="2.1"/>
+<circle class="f2" cx="196.9" cy="705.2" r="2.1"/>
+<circle class="f5" cx="82.3" cy="745.9" r="2.1"/>
+<circle class="f6" cx="233.2" cy="770.9" r="2.1"/>
+<circle class="f5" cx="138.5" cy="735.4" r="2.1"/>
+<circle class="f5" cx="234.6" cy="657.7" r="2.1"/>
+<circle class="f7" cx="252.3" cy="645.9" r="2.1"/>
+<circle class="f4" cx="215.6" cy="701.9" r="2.1"/>
+<circle class="f6" cx="264.2" cy="623.8" r="2.1"/>
+<circle class="f6" cx="227.9" cy="663.6" r="2.1"/>
+<circle class="f4" cx="234" cy="661.8" r="2.1"/>
+<circle class="f7" cx="108.3" cy="753" r="2.1"/>
+<circle class="f6" cx="94.4" cy="748.4" r="2.1"/>
+<circle class="f3" cx="224.4" cy="768.2" r="2.1"/>
+<circle class="f3" cx="233.3" cy="658.2" r="2.1"/>
+<circle class="f2" cx="78.2" cy="739.7" r="2.1"/>
+<circle class="f6" cx="201.1" cy="721.5" r="2.1"/>
+<circle class="f5" cx="178.8" cy="769.4" r="2.1"/>
+<circle class="f4" cx="252.9" cy="637.7" r="2.1"/>
+<circle class="f5" cx="219.5" cy="667.3" r="2.1"/>
+<circle class="f5" cx="246.1" cy="775.3" r="2.1"/>
+<circle class="f5" cx="103.5" cy="756.7" r="2.1"/>
+<circle class="f5" cx="264.9" cy="616" r="2.1"/>
+<circle class="f4" cx="229.5" cy="659.6" r="2.1"/>
+<circle class="f5" cx="246.1" cy="646.6" r="2.1"/>
+<circle class="f5" cx="71.7" cy="722.5" r="2.1"/>
+<circle class="f4" cx="233.3" cy="656.6" r="2.1"/>
+<circle class="f5" cx="151.8" cy="734.6" r="2.1"/>
+<circle class="f6" cx="244.7" cy="644.3" r="2.1"/>
+<circle class="f4" cx="226.2" cy="676.6" r="2.1"/>
+<circle class="f7" cx="222.1" cy="697.2" r="2.1"/>
+<circle class="f5" cx="259.1" cy="780.2" r="2.1"/>
+<circle class="f7" cx="182" cy="769.8" r="2.1"/>
+<circle class="f4" cx="226.8" cy="655.6" r="2.1"/>
+<circle class="f4" cx="130.2" cy="747" r="2.1"/>
+<circle class="f5" cx="239.3" cy="649.5" r="2.1"/>
+<circle class="f5" cx="256.4" cy="771.1" r="2.1"/>
+<circle class="f3" cx="115.5" cy="734.6" r="2.1"/>
+<circle class="f2" cx="137.7" cy="761" r="2.1"/>
+<circle class="f1" cx="235" cy="648.9" r="2.1"/>
+<circle class="f0" cx="117" cy="762.6" r="2.1"/>
+<circle class="f3" cx="114.6" cy="757.4" r="2.1"/>
+<circle class="f6" cx="112.1" cy="736.7" r="2.1"/>
+<circle class="f3" cx="132.4" cy="741.4" r="2.1"/>
+<circle class="f4" cx="226.1" cy="664.6" r="2.1"/>
+<circle class="f3" cx="297.6" cy="785" r="2.1"/>
+<circle class="f6" cx="230.1" cy="667.6" r="2.1"/>
+<circle class="f5" cx="223.4" cy="776.1" r="2.1"/>
+<circle class="f4" cx="238.8" cy="776.6" r="2.1"/>
+<circle class="f4" cx="129.3" cy="749.4" r="2.1"/>
+<circle class="f4" cx="215" cy="660.3" r="2.1"/>
+<circle class="f5" cx="127.1" cy="750.5" r="2.1"/>
+<circle class="f6" cx="246" cy="772" r="2.1"/>
+<circle class="f3" cx="124" cy="756.6" r="2.1"/>
+<circle class="f4" cx="202.8" cy="770.3" r="2.1"/>
+<circle class="f5" cx="135.6" cy="754.4" r="2.1"/>
+<circle class="f2" cx="223.6" cy="663.7" r="2.1"/>
+<circle class="f5" cx="140" cy="761.3" r="2.1"/>
+<circle class="f4" cx="296.6" cy="784.7" r="2.1"/>
+<circle class="f4" cx="191.6" cy="772.7" r="2.1"/>
+<circle class="f5" cx="164" cy="762.5" r="2.1"/>
+<circle class="f2" cx="266.1" cy="778.6" r="2.1"/>
+<circle class="f4" cx="188" cy="726.8" r="2.1"/>
+<circle class="f5" cx="165" cy="749.1" r="2.1"/>
+<circle class="f6" cx="81.2" cy="748.8" r="2.1"/>
+<circle class="f6" cx="216.8" cy="656.6" r="2.1"/>
+<circle class="f4" cx="181.3" cy="768.2" r="2.1"/>
+<circle class="f6" cx="227.4" cy="762.9" r="2.1"/>
+<circle class="f2" cx="293.4" cy="579.5" r="2.1"/>
+<circle class="f5" cx="105" cy="752.8" r="2.1"/>
+<circle class="f5" cx="144.7" cy="766" r="2.1"/>
+<circle class="f4" cx="117.1" cy="764.7" r="2.1"/>
+<circle class="f5" cx="181.4" cy="771.9" r="2.1"/>
+<circle class="f5" cx="118.7" cy="741.7" r="2.1"/>
+<circle class="f6" cx="239.4" cy="654.1" r="2.1"/>
+<circle class="f6" cx="246.7" cy="661.8" r="2.1"/>
+<circle class="f6" cx="229.5" cy="773.5" r="2.1"/>
+<circle class="f2" cx="120.5" cy="759.6" r="2.1"/>
+<circle class="f4" cx="288.1" cy="599" r="2.1"/>
+<circle class="f7" cx="243.6" cy="661.8" r="2.1"/>
+<circle class="f4" cx="112.4" cy="765.1" r="2.1"/>
+<circle class="f5" cx="236.3" cy="663.6" r="2.1"/>
+<circle class="f2" cx="119.3" cy="738" r="2.1"/>
+<circle class="f6" cx="234.2" cy="660.6" r="2.1"/>
+<circle class="f6" cx="282.3" cy="606.3" r="2.1"/>
+<circle class="f4" cx="174.7" cy="727.5" r="2.1"/>
+<circle class="f1" cx="202.9" cy="772.6" r="2.1"/>
+<circle class="f5" cx="196.7" cy="719.8" r="2.1"/>
+<circle class="f2" cx="265.8" cy="772.4" r="2.1"/>
+<circle class="f7" cx="283.4" cy="773.5" r="2.1"/>
+<circle class="f2" cx="95.2" cy="752.7" r="2.1"/>
+<circle class="f5" cx="301.6" cy="572.7" r="2.1"/>
+<circle class="f4" cx="234.6" cy="662" r="2.1"/>
+<circle class="f6" cx="232.6" cy="655.4" r="2.1"/>
+<circle class="f5" cx="93" cy="749.2" r="2.1"/>
+<circle class="f7" cx="89.7" cy="753.2" r="2.1"/>
+<circle class="f4" cx="246.3" cy="774" r="2.1"/>
+<circle class="f4" cx="243.2" cy="777.8" r="2.1"/>
+<circle class="f5" cx="201.5" cy="717" r="2.1"/>
+<circle class="f5" cx="117.6" cy="747.3" r="2.1"/>
+<circle class="f4" cx="106.3" cy="725.1" r="2.1"/>
+<circle class="f6" cx="226.4" cy="771.8" r="2.1"/>
+<circle class="f6" cx="100.8" cy="752.7" r="2.1"/>
+<circle class="f5" cx="230.8" cy="676" r="2.1"/>
+<circle class="f3" cx="283.8" cy="776.5" r="2.1"/>
+<circle class="f1" cx="216" cy="673" r="2.1"/>
+<circle class="f2" cx="140.1" cy="760.2" r="2.1"/>
+<circle class="f6" cx="231.4" cy="778.3" r="2.1"/>
+<circle class="f2" cx="176.2" cy="730.1" r="2.1"/>
+<circle class="f4" cx="88.7" cy="729.5" r="2.1"/>
+<circle class="f2" cx="253.8" cy="640.5" r="2.1"/>
+<circle class="f6" cx="102.6" cy="751.2" r="2.1"/>
+<circle class="f4" cx="239" cy="653.8" r="2.1"/>
+<circle class="f3" cx="132.7" cy="757.3" r="2.1"/>
+<circle class="f4" cx="157.4" cy="730.7" r="2.1"/>
+<circle class="f5" cx="237.8" cy="667.7" r="2.1"/>
+<circle class="f5" cx="228.6" cy="678.6" r="2.1"/>
+<circle class="f1" cx="213.2" cy="689.4" r="2.1"/>
+<circle class="f5" cx="293.6" cy="779.2" r="2.1"/>
+<circle class="f6" cx="286.7" cy="587.2" r="2.1"/>
+<circle class="f5" cx="186.1" cy="729.1" r="2.1"/>
+<circle class="f3" cx="97.9" cy="723.4" r="2.1"/>
+<circle class="f5" cx="217" cy="660" r="2.1"/>
+<circle class="f5" cx="215.9" cy="773.6" r="2.1"/>
+<circle class="f2" cx="208.2" cy="773.3" r="2.1"/>
+<circle class="f2" cx="201.1" cy="702.8" r="2.1"/>
+<circle class="f3" cx="86.8" cy="753.7" r="2.1"/>
+<circle class="f4" cx="203.5" cy="710.4" r="2.1"/>
+<circle class="f5" cx="282.2" cy="604.7" r="2.1"/>
+<circle class="f4" cx="240" cy="665.9" r="2.1"/>
+<circle class="f5" cx="191.5" cy="719.3" r="2.1"/>
+<circle class="f1" cx="199" cy="653.3" r="2.1"/>
+<circle class="f6" cx="246.1" cy="658.3" r="2.1"/>
+<circle class="f4" cx="285" cy="596" r="2.1"/>
+<circle class="f6" cx="231.8" cy="764.1" r="2.1"/>
+<circle class="f2" cx="123.6" cy="722" r="2.1"/>
+<circle class="f5" cx="209.4" cy="767.1" r="2.1"/>
+<circle class="f4" cx="235" cy="658.8" r="2.1"/>
+<circle class="f4" cx="127.5" cy="742.4" r="2.1"/>
+<circle class="f6" cx="246.2" cy="659.8" r="2.1"/>
+<circle class="f5" cx="240.1" cy="660.2" r="2.1"/>
+<circle class="f6" cx="231.6" cy="664.5" r="2.1"/>
+<circle class="f3" cx="217.4" cy="657.8" r="2.1"/>
+<circle class="f4" cx="296.3" cy="577" r="2.1"/>
+<circle class="f5" cx="275.8" cy="625.2" r="2.1"/>
+<circle class="f4" cx="234.1" cy="664.4" r="2.1"/>
+<circle class="f5" cx="151.9" cy="767.8" r="2.1"/>
+<circle class="f4" cx="286.8" cy="781.4" r="2.1"/>
+<circle class="f7" cx="264.2" cy="775.8" r="2.1"/>
+<circle class="f3" cx="84.3" cy="752" r="2.1"/>
+<circle class="f0" cx="123" cy="741.3" r="2.1"/>
+<circle class="f4" cx="127.7" cy="764.9" r="2.1"/>
+<circle class="f2" cx="242.6" cy="642.8" r="2.1"/>
+<circle class="f5" cx="143" cy="729.7" r="2.1"/>
+<circle class="f5" cx="227.2" cy="661.7" r="2.1"/>
+<circle class="f5" cx="124.8" cy="727.1" r="2.1"/>
+<circle class="f5" cx="246.1" cy="772.1" r="2.1"/>
+<circle class="f5" cx="107.5" cy="753.9" r="2.1"/>
+<circle class="f3" cx="224.3" cy="657.8" r="2.1"/>
+<circle class="f6" cx="196.1" cy="770.9" r="2.1"/>
+<circle class="f4" cx="243.2" cy="769.4" r="2.1"/>
+<circle class="f6" cx="116.9" cy="751.2" r="2.1"/>
+<circle class="f6" cx="289.8" cy="583.1" r="2.1"/>
+<circle class="f6" cx="108.3" cy="750.9" r="2.1"/>
+<circle class="f3" cx="229" cy="769.5" r="2.1"/>
+<circle class="f2" cx="218.1" cy="772" r="2.1"/>
+<circle class="f5" cx="177.7" cy="769.3" r="2.1"/>
+<circle class="f4" cx="107" cy="761.3" r="2.1"/>
+<circle class="f7" cx="290.6" cy="608" r="2.1"/>
+<circle class="f4" cx="249.4" cy="631.9" r="2.1"/>
+<circle class="f3" cx="229.1" cy="663.3" r="2.1"/>
+<circle class="f4" cx="270.3" cy="615.1" r="2.1"/>
+<circle class="f2" cx="95.3" cy="734.9" r="2.1"/>
+<circle class="f1" cx="81.4" cy="751.8" r="2.1"/>
+<circle class="f5" cx="247.8" cy="641.9" r="2.1"/>
+<circle class="f6" cx="131.1" cy="754.2" r="2.1"/>
+<circle class="f5" cx="233" cy="670.1" r="2.1"/>
+<text class="lbl region" x="188.8" y="802.3" text-anchor="middle">main sequence</text>
+<text class="lbl region" x="277" y="575.3" text-anchor="end">red giant branch</text>
+<text class="lbl region" x="176.2" y="663" text-anchor="end">red clump</text>
+<path class="guide" d="M229.8 680.6V810M46 668.6H217.8"/>
+<circle class="ring" cx="229.8" cy="668.6" r="11"/>
+<path class="err" d="M226.3 668.6H233.3M226.3 665.6v6M233.3 665.6v6M229.8 665V672.3M226.8 665h6M226.8 672.3h6"/>
+<circle class="goldf" cx="229.8" cy="668.6" r="2.6"/>
+<rect class="goldf" x="210.4" y="820" width="38.8" height="17"/>
+<text class="tagv" x="229.8" y="833" text-anchor="middle">4812</text>
+<rect class="goldf" x="1.2" y="660.6" width="38.8" height="17"/>
+<text class="tagv" x="20.6" y="673.6" text-anchor="middle">2.61</text>
+<text class="lbl" x="14" y="874">[Fe/H]</text>
+<text class="tick" x="62" y="874">−1.5</text>
+<rect class="f0" x="98" y="865" width="18" height="10"/>
+<rect class="f1" x="116" y="865" width="18" height="10"/>
+<rect class="f2" x="134" y="865" width="18" height="10"/>
+<rect class="f3" x="152" y="865" width="18" height="10"/>
+<rect class="f4" x="170" y="865" width="18" height="10"/>
+<rect class="f5" x="188" y="865" width="18" height="10"/>
+<rect class="f6" x="206" y="865" width="18" height="10"/>
+<rect class="f7" x="224" y="865" width="18" height="10"/>
+<text class="tick" x="250" y="874">+0.5</text>
+</svg>

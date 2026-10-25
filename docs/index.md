@@ -1,9 +1,13 @@
+---
+layout: home
+---
+
 # DOROTHY
 
+::::{container} hero
 ```{image} _static/dorothy.svg
 :alt: Dorothy the dinosaur: a teal sauropod with gold star spots, standing on a stellar spectrum
 :width: 240px
-:align: center
 ```
 
 DOROTHY infers stellar parameters, chemical abundances and their uncertainties
@@ -11,6 +15,24 @@ from spectra. It trains neural networks on stars that both a low- or
 medium-resolution survey (DESI, BOSS, LAMOST) and a high-resolution survey
 (APOGEE, GALAH) have observed. The networks then predict the high-resolution
 {term}`labels <label>` from the lower-resolution spectra alone.
+::::
+
+::::{container} d-figure hero-figure
+```{raw} html
+:file: figures/label-transfer.svg
+:class: wide-only
+```
+
+```{raw} html
+:file: figures/label-transfer-narrow.svg
+:class: narrow-only
+```
+
+:::{container} caption
+Label transfer: a spectrum goes in, and labels with uncertainties come out and
+place the star in the Kiel diagram; stars and values are illustrative.
+:::
+::::
 
 ```{raw} html
 :file: figures/pipeline.svg

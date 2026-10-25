@@ -220,6 +220,9 @@
   `Trainer.label_keys` of a plain MLP is also its label source.
 - `scheduler.base_lr <= scheduler.max_lr` is checked only for the `cyclic`
   schedule, the one that uses `base_lr`.
+- The documentation site uses its own Sphinx theme (`docs/_themes/dorothy/`)
+  instead of Furo, and the `docs` dependency group no longer installs `furo`.
+  Pages no longer link to their Markdown source on GitHub.
 
 ### Behaviour changes
 
