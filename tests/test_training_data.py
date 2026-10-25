@@ -20,7 +20,7 @@ def catalogue(tmp_path_factory):
 
 def _config(catalogue, surveys, sources, **data):
     multi_head = None
-    if len(surveys) > 1:
+    if len(surveys) > 1 or len(sources) > 1:
         from dorothy.data import CatalogueLoader
 
         multi_head = {

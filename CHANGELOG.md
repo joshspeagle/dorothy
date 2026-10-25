@@ -223,6 +223,10 @@
 
 ### Behaviour changes
 
+- A configuration with one survey and several label sources trains every
+  label source, through the multi-label data layouts. It trained only the
+  first one. Several label sources now require `multi_head_model`; a
+  configuration with `model`, or with no model section, is an error.
 - `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
   `union` or `intersection`, which it treated as `intersection`, and for an
   empty `surveys` list.

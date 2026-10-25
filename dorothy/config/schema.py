@@ -888,6 +888,11 @@ class ExperimentConfig(_ConfigModel):
     @model_validator(mode="after")
     def validate_model_config(self) -> ExperimentConfig:
         """Ensure model configuration is consistent with data configuration."""
+        if self.data.is_multi_label and self.multi_head_model is None:
+            raise ValueError(
+                "Several label sources require 'multi_head_model', with one output "
+                f"head per source. Label sources: {self.data.label_sources}"
+            )
         # If neither model is specified, create default based on data config
         if self.model is None and self.multi_head_model is None:
             if self.data.is_multi_survey:

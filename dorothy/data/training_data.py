@@ -429,13 +429,13 @@ def load_training_data(
         "precision_encoding": data_cfg.precision_encoding,
     }
 
-    if not data_cfg.is_multi_survey:
+    if not data_cfg.is_multi_survey and not data_cfg.is_multi_label:
         survey = data_cfg.surveys[0]
         X, y = loader.load_for_training(
             survey=survey, label_source=to_load[0], **common
         )
         valid = _valid_rows(np.ones(len(y), dtype=bool), [y])
-        result = TrainingData("single_survey", sources[:1], valid, X=X, y=y)
+        result = TrainingData("single_survey", sources, valid, X=X, y=y)
         if verbose:
             print(f"  Survey: {survey} ({X.shape[2]} wavelength bins)")
 

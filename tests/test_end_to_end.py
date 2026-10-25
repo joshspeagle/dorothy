@@ -67,6 +67,7 @@ class TestEvaluateMatchesTraining:
         "surveys,sources,extra",
         [
             (["boss"], ["apogee"], {}),
+            (["boss"], ["apogee", "galah"], {}),
             (MULTI_SURVEYS, ["apogee"], {}),
             (MULTI_SURVEYS, ["apogee", "galah"], {}),
             (
@@ -82,6 +83,7 @@ class TestEvaluateMatchesTraining:
         ],
         ids=[
             "single",
+            "single_survey_multilabel",
             "sparse",
             "sparse_multilabel",
             "dense_multilabel",

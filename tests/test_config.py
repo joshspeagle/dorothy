@@ -336,6 +336,17 @@ class TestExperimentConfig:
                 ),
             )
 
+    def test_several_label_sources_without_multi_head_raises(self):
+        with pytest.raises(ValueError, match="require 'multi_head_model'"):
+            ExperimentConfig(
+                name="one_survey_two_sources",
+                data=DataConfig(
+                    catalogue_path=Path("/data/super_catalogue.h5"),
+                    surveys=["boss"],
+                    label_sources=["apogee", "galah"],
+                ),
+            )
+
     def test_both_model_configs_raises(self):
         """Test that specifying both model configs raises error."""
         from dorothy.config import MultiHeadModelConfig
