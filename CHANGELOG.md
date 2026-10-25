@@ -189,6 +189,8 @@
 
 ### Changed
 
+- `FITSLoader.from_config` is removed. It always raised `AttributeError`,
+  because `DataConfig` has no `fits_path`. Use `FITSLoader(fits_path)`.
 - `dorothy predict --denormalize` is removed. It did nothing, because physical
   units are the default. Passing it now fails. `--normalized` writes
   normalized units.
