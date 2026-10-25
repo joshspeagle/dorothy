@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-unc-n" viewBox="0 0 360 358" width="360" height="358" role="img" aria-labelledby="f-unc-n-title">
+<title id="f-unc-n-title">The two decoders of an output head. The label decoder reads the head input x and predicts mu. The error decoder reads x and u and predicts ln s. u is the log of the label source's reported label error, or the learned missing vector m. Training uses m for masked labels and for a random fraction of stars; validation, evaluation and prediction always use m.</title>
+<style>
+.dfig.f-unc-n text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-unc-n .h { font-weight: 700; font-size: 13px; }
+.dfig.f-unc-n .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-unc-n .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-unc-n .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; }
+.dfig.f-unc-n .up { font-style: normal; }
+.dfig.f-unc-n .gold { fill: var(--d-gold, #8C5D00); }
+.dfig.f-unc-n .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-unc-n .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.dfig.f-unc-n .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dfig.f-unc-n .tip { fill: currentColor; }
+</style>
+<rect class="in" x="10" y="30" width="120" height="46"/>
+<text class="n" x="70" y="49" text-anchor="middle">head input</text>
+<text class="math" x="70" y="67" text-anchor="middle">x</text>
+<text class="t" x="70" y="18" text-anchor="middle">trunk output or MLP layer</text>
+<text class="math" x="270" y="18" text-anchor="middle"><tspan class="up">ln </tspan>σ<tspan class="up" dy="4" font-size="11">y</tspan><tspan dy="-4"> </tspan><tspan class="t up">or</tspan> m</text>
+<rect class="model" x="246" y="30" width="48" height="32"/>
+<text class="math" x="270" y="51" text-anchor="middle">u</text>
+<rect class="model" x="10" y="120" width="160" height="56"/>
+<text class="h" x="90" y="142" text-anchor="middle">label decoder</text>
+<text class="t" x="90" y="160" text-anchor="middle">reads x</text>
+<rect class="model" x="190" y="120" width="160" height="56"/>
+<text class="h" x="270" y="142" text-anchor="middle">error decoder</text>
+<text class="t" x="270" y="160" text-anchor="middle">reads x and u</text>
+<path class="arrow" d="M70 77V96"/>
+<path class="arrow" d="M70 96L70 118"/><path class="tip" d="M70.0 118.0L66.8 111.0L73.2 111.0Z"/>
+<path class="arrow" d="M70 96L240 96L240 118"/><path class="tip" d="M240.0 118.0L236.8 111.0L243.2 111.0Z"/>
+<circle class="tip" cx="70" cy="96" r="2.5"/>
+<path class="arrow" d="M294 46L310 46L310 118"/><path class="tip" d="M310.0 118.0L306.8 111.0L313.2 111.0Z"/>
+<path class="arrow" d="M90 178L90 204"/><path class="tip" d="M90.0 204.0L86.8 197.0L93.2 197.0Z"/>
+<text class="math gold" x="90" y="224" text-anchor="middle">μ</text>
+<text class="t" x="90" y="242" text-anchor="middle">the prediction</text>
+<path class="arrow" d="M270 178L270 204"/><path class="tip" d="M270.0 204.0L266.8 197.0L273.2 197.0Z"/>
+<text class="math gold" x="270" y="224" text-anchor="middle"><tspan class="up">ln </tspan>s</text>
+<text class="t" x="270" y="242" text-anchor="middle">log of the predicted scatter</text>
+<text class="t" x="10" y="278">u is the log of the reported label error σ, or</text>
+<text class="t" x="10" y="294">the learned missing vector m. Training uses m</text>
+<text class="t" x="10" y="310">for masked labels and a random fraction of</text>
+<text class="t" x="10" y="326">stars; validation, evaluation and prediction</text>
+<text class="t" x="10" y="342">always use m. μ never reads u.</text>
+</svg>

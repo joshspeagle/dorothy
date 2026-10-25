@@ -1,117 +1,166 @@
 # The model
 
-Both models are multilayer perceptrons. Each hidden layer is a linear map
-followed by a normalization (`layernorm` {cite:p}`ba2016layernorm` or
-`batchnorm`), an activation (`gelu` {cite:p}`hendrycks2016gelu`, `relu` or
-`silu`) and, optionally, dropout; the multi-head model's trunk and heads
-use [residual blocks](#residual-stream) by default. Both output an array of shape
-`(2, n_parameters)` per star: the predicted value μ and the log-scatter ln s
-of every parameter, in {term}`normalized units`.
+The model maps the spectra of a star to a prediction μ and a log predicted
+scatter ln s for every label. This page explains its parts: the encoders, the
+combination, the trunk, the heads and the residual stream.
 
-Both end in a {py:class}`~dorothy.models.output.LabelAwareOutput`: a label
-decoder predicts μ, and a parallel error decoder predicts ln s from the same
-input and the reported label errors
-([Scatter and label errors](uncertainties.md#scatter-and-label-errors)).
+## Two models
 
-## MLP
+DOROTHY has two models. Both output an array of shape `(2, n_parameters)` per
+star, μ and ln s of every parameter, in {term}`normalized units`.
 
-{py:class}`~dorothy.models.mlp.MLP` reads one survey. It flattens the
-`(3, n_wavelengths)` input and passes it through the hidden layers
-(`model.hidden_layers`, by default 5000, 2000, 1000, 500, 200 and 100 units).
-The two decoders take over the last hidden layer: each has one hidden layer
-of that size on the output of the layer before. Configure it with the `model`
-section.
+- {py:class}`~dorothy.models.mlp.MLP` reads one survey and predicts the
+  labels of one label source. The `model` section configures it.
+- {py:class}`~dorothy.models.multi_head_mlp.MultiHeadMLP` reads several
+  surveys and predicts the labels of several label sources. The
+  `multi_head_model` section configures it. Several surveys or several label
+  sources need it.
 
-## Multi-head MLP
+Both are built from hidden blocks. A hidden block maps its input h to
 
-{py:class}`~dorothy.models.multi_head_mlp.MultiHeadMLP` reads several surveys
-and predicts for several label sources. Configure it with the
-`multi_head_model` section.
+$$
+h \rightarrow \mathrm{drop}\left(\mathrm{act}\left(\mathrm{norm}(W h + b)\right)\right) .
+$$
 
+Here norm is a layer normalization {cite:p}`ba2016layernorm` or a batch
+normalization. act is GELU {cite:p}`hendrycks2016gelu`, ReLU or SiLU, and drop
+is an optional dropout.
+
+The MLP flattens the `(3, n_wavelengths)` input and passes it through the
+hidden blocks of `model.hidden_layers`. Its output head takes over the last
+hidden block. Each of the two decoders of the head
+([The label-error decoder](uncertainties.md#the-label-error-decoder)) has one
+hidden block of that size, on the output of the block before. μ
+therefore passes through exactly the configured layers.
+
+## The multi-head model
+
+The multi-head model has one encoder per survey, a shared trunk and one head
+per label source.
+
+::::{container} d-figure
 ```{raw} html
 :file: ../figures/multi-head.svg
+:class: wide-only
 ```
 
-Encoders
-: One {py:class}`~dorothy.models.multi_head_mlp.SurveyEncoder` per survey
-  flattens that survey's spectrum and maps it through `encoder_hidden` layers
-  to a vector of `latent_dim` numbers. The encoders absorb the differences
-  between wavelength grids.
+```{raw} html
+:file: ../figures/multi-head-narrow.svg
+:class: narrow-only
+```
 
-Combination
-: `combination_mode: concat` places the surveys' vectors side by side, in a
-  fixed order, with zeros for the surveys a star lacks. `mean` averages the
-  vectors of the surveys the star has. Either way the next layer sees an input
-  of fixed size, whatever subset of surveys the star has.
+:::{container} caption
+The multi-head model: one encoder per survey, shared layers, and one head per
+label source.
+:::
+::::
 
-Trunk
-: The {py:class}`~dorothy.models.multi_head_mlp.SharedTrunk` passes the
-  combined vector through `trunk_hidden` layers, by default as a
-  [residual stream](#residual-stream). Its output describes the star
-  independently of the surveys and label sources.
+## Encoders
 
-Heads
-: One {py:class}`~dorothy.models.multi_head_mlp.OutputHead` per label source
-  maps the trunk output to that source's μ and ln s with its two decoders,
-  each with `output_hidden` layers. Each head reads only its own source's
-  label errors. `head_dropout` sets the dropout of each head.
+One {py:class}`~dorothy.models.multi_head_mlp.SurveyEncoder` per survey
+flattens that survey's `(3, n_wavelengths)` input. It passes it through the
+hidden blocks of `encoder_hidden`, then through one more block, without
+dropout, to a vector of `latent_dim` numbers. Each survey has its own grid
+and resolution, and its encoder learns its own map. The layers after the
+encoders therefore see vectors of one length from every survey.
 
-The {term}`has_data` mask tells the model which surveys each star has. Only
-the stars that have a survey use its encoder's output, and a survey that no
-star in the batch has is skipped. A model trained on several surveys can therefore
-predict from any one of them:
-`model(X, survey="boss")` for a single-survey input, or a dict of surveys with
-`has_data`.
+## Combination
+
+The combination joins the vectors $e_k$ of the surveys a star has into one
+input for the trunk. The {term}`has_data` mask says which surveys each star
+has. With $S$ the set of those surveys and $K$ the number of surveys of the
+model,
+
+$$
+z_\text{concat} = \left(\tilde e_1, \ldots, \tilde e_K\right), \quad
+\tilde e_k = \begin{cases} e_k & k \in S, \\ 0 & k \notin S, \end{cases}
+$$
+
+$$
+z_\text{mean} = \frac{1}{|S|} \sum_{k \in S} e_k .
+$$
+
+`concat` places the vectors side by side, in the configured order of the
+surveys, so $z$ has $K$ × `latent_dim` numbers. `mean` averages the vectors
+of the surveys the star has, so $z$ has `latent_dim` numbers. Either way the
+trunk sees an input of fixed size, whatever subset of surveys the star has.
+
+```{raw} html
+<link rel="stylesheet" href="../_static/explainers/explainer.css">
+<div class="d-lab" id="d-combination">
+<p class="d-lab-h">Choose the surveys a star has and the combination. See which encodings reach the trunk.</p>
+</div>
+<script src="../_static/explainers/explainer.js" defer></script>
+<script src="../_static/explainers/combination.js" defer></script>
+```
+
+A survey that no star in a batch has is skipped. A model trained on several
+surveys therefore predicts from any subset of them: `model(X, survey="boss")`
+for the spectra of one survey, or a dict of surveys with their `has_data`
+masks.
+
+## Trunk
+
+The {py:class}`~dorothy.models.multi_head_mlp.SharedTrunk` passes the
+combined vector through the `trunk_hidden` layers, which form a
+[residual stream](#residual-stream) unless `residual_stream` is false. Its
+output describes the star whatever surveys observed it, and every head reads
+it.
+
+## Heads
+
+One {py:class}`~dorothy.models.multi_head_mlp.OutputHead` per label source
+maps the trunk output to that source's μ and ln s. Each head is a
+{py:class}`~dorothy.models.output.LabelAwareOutput` with two decoders: a
+label decoder for μ and an error decoder for ln s
+([The label-error decoder](uncertainties.md#the-label-error-decoder)). Each
+decoder has the `output_hidden` layers.
+Each head reads only the label errors of its own label source.
+`head_dropout` sets the dropout of each head.
 
 ## Residual stream
 
-By default (`multi_head_model.residual_stream: true`) the trunk and the
-hidden layers of the heads form a residual stream of width d = `latent_dim`.
-`residual_stream: false` builds plain blocks instead: a trunk of hidden
-blocks with a 128-number output, and heads whose error decoder concatenates
-the log label errors to its input. Checkpoints saved before this option have
-plain blocks.
-
+With `multi_head_model.residual_stream: true`, the trunk and the hidden
+layers of the heads form a residual stream of width d = `latent_dim`.
 The stream starts at the combined encodings. In `concat` mode with several
-surveys, a linear map takes them from `n_surveys × latent_dim` numbers to d;
+surveys, a linear map takes them from $K$ × `latent_dim` numbers to d;
 otherwise they have d numbers already. Each entry h of `trunk_hidden` adds one
 pre-norm residual block {cite:p}`he2016identity`,
 
 $$
-x \leftarrow x + W_2 \, \mathrm{act}\left(W_1 \, \mathrm{norm}(x)\right),
+x \rightarrow x + W_2 \, \mathrm{act}\left(W_1 \, \mathrm{norm}(x)\right) .
 $$
 
-where W₁ maps d to h numbers and W₂ maps them back to d, and a final
-normalization closes the stream. The normalization is the configured one,
-`layernorm` by default.
+Here $W_1$ maps d numbers to h numbers and $W_2$ maps them back to d. A final
+normalization closes the stream.
 
-Each head's two decoders read the closed stream. Each decoder adds one
-residual block of hidden size h for each entry h of `output_hidden`, then a
-normalization and a linear map to one output per parameter. The error
-decoder adds a linear map of the log label errors u (see
-[Scatter and label errors](uncertainties.md#scatter-and-label-errors)) to its copy
-of the stream instead of concatenating u:
+Each decoder of a head reads its own copy of the closed stream z. It adds one
+residual block of hidden size h for each entry h of `output_hidden`. A
+normalization and a linear map to one output per parameter follow. The
+error decoder adds a linear map of the log label errors u to its copy:
 
 $$
 \mu = D_\mu(z), \qquad \ln s = D_s(z + W_u u),
 $$
 
-where z is the closed stream and W_u has no bias. Its residual block makes
-ln s a nonlinear function of u.
-With `label_aware_uncertainty: false`, each head is instead one stack of
-these blocks followed by a single linear map to μ and ln s.
+where $W_u$ has no bias. The residual block of $D_s$ makes ln s a nonlinear
+function of u.
 
-The block count follows the hidden layer sizes, not the parameter count. With
-the defaults, the residual trunk and heads have more parameters than the
-plain ones: 472,737 against 316,513 for one survey and one label source. The
-survey encoders hold most of the parameters in either case.
+`residual_stream: false` builds plain hidden blocks instead: a trunk with a
+128-number output, and error decoders that read u concatenated to their
+input. The block count follows the layer sizes, not the parameter count.
+Take one survey of 4506 wavelengths, 11 parameters and the default layer
+sizes of the [Configuration](../reference/configuration.md) reference.
+`count_parameters_by_component()` then reports 472,737 parameters for the residual trunk and head, and 316,513
+for the plain ones. The encoder, with 14,503,168, holds most of the
+parameters either way.
 
 ## Embeddings
 
 {py:meth}`~dorothy.models.multi_head_mlp.MultiHeadMLP.get_embeddings` returns
-a survey encoder's vector (`level="encoder"`) or the trunk output
+the vector of a survey's encoder (`level="encoder"`) or the trunk output
 (`level="trunk"`), which for a residual stream is the closed stream. Trunk
-embeddings place stars from different surveys in one space;
-[anomaly detection](../guides/read-predictions.md#anomaly-detection) uses them. For the
-MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns the input of
-the decoders by default.
+embeddings place stars from different surveys in one space, and
+[anomaly detection](../guides/read-predictions.md#step-4-flag-unusual-spectra) uses
+them. For the MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns
+the input of the output head unless `layer_index` names another layer.

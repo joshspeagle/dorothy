@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-warm" viewBox="0 0 720 210" width="720" height="210" role="img" aria-labelledby="f-warm-title">
+<title id="f-warm-title">The warm-up of the loss: beta starts at 1, where the gradient for mu is that of the squared error, falls linearly to 0 over the first W optimizer steps, and stays 0, the plain negative log-likelihood, until the last step. Early stopping counts only the epochs that end after the warm-up.</title>
+<style>
+.dfig.f-warm text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-warm .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-warm .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-warm .tick { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11.5px; fill: var(--d-faint, #5F6A85); }
+.dfig.f-warm .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; }
+.dfig.f-warm .panel { fill: var(--d-surface, #F1F4F9); stroke: none; }
+.dfig.f-warm .mline { fill: none; stroke: var(--d-teal, #1D7468); stroke-width: 2; stroke-linejoin: round; }
+.dfig.f-warm .ax { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+</style>
+<rect class="panel" x="46" y="22" width="184.8" height="138"/>
+<path class="ax" d="M46 22V160H706"/>
+<path class="ax" d="M41 160H46"/>
+<text class="tick" x="37" y="164" text-anchor="end">0</text>
+<path class="ax" d="M41 32H46"/>
+<text class="tick" x="37" y="36" text-anchor="end">1</text>
+<text class="math" x="16" y="98">β</text>
+<path class="mline" d="M46 32L230.8 160H706"/>
+<path class="ax" d="M46.0 160v6"/>
+<path class="ax" d="M230.8 160v6"/>
+<path class="ax" d="M706.0 160v6"/>
+<text class="tick" x="46" y="180" text-anchor="middle">0</text>
+<text class="math" x="230.8" y="180" text-anchor="middle">W</text>
+<text class="tick" x="706" y="180" text-anchor="end">last step</text>
+<text class="t" x="706" y="200" text-anchor="end">optimizer step t</text>
+<text class="n" x="138.4" y="38" text-anchor="middle">warm-up</text>
+<text class="t" x="110" y="54">β = 1: squared-error</text>
+<text class="t" x="110" y="70">gradient for μ</text>
+<text class="t" x="246.8" y="120">β = 0: the loss ℒ. Early stopping and reduce_on_plateau</text>
+<text class="t" x="246.8" y="136">count only the epochs that end after the warm-up.</text>
+</svg>

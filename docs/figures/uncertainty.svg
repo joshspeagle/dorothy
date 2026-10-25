@@ -1,45 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 276" width="100%" role="img" aria-labelledby="uncertainty-title" font-family="sans-serif" font-size="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round">
-  <title id="uncertainty-title">An output head with two parallel decoders. The head input x is the trunk output, or the input of the last hidden layer of the MLP, which the decoders take over. The label decoder maps x through hidden layers and a linear layer to the predicted value mu, so mu never sees the label errors. The error decoder has the same hidden layers and a linear layer to the log-scatter ln s; its first layer reads x and u, where u is the log of the reported label error, or the learned missing vector m where no error is given. Training gives m to masked labels and to a random fraction of stars; validation, evaluation and prediction always use m.</title>
-  <defs>
-    <marker id="uncertainty-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="currentColor" stroke="none"/>
-    </marker>
-    <marker id="uncertainty-arrow-brand" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" stroke="none" style="fill: var(--d-teal, #1D7468)"/>
-    </marker>
-  </defs>
-  <text x="95.0" y="66.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">trunk output, or the input</text>
-  <text x="95.0" y="80.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">of the MLP's last hidden layer</text>
-  <rect x="35.0" y="90.0" width="120.0" height="50.0" rx="6" fill="currentColor" fill-opacity="0.06"/>
-  <text x="95.0" y="111.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">head input</text>
-  <text x="95.0" y="129.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">x</text>
-  <line x1="157.0" y1="115.0" x2="190.0" y2="115.0"/>
-  <circle cx="190" cy="115" r="2.5" fill="currentColor" stroke="none"/>
-  <path d="M190 115 L190 49 L228 49" marker-end="url(#uncertainty-arrow)"/>
-  <rect x="230.0" y="18.0" width="190.0" height="62.0" rx="6"/>
-  <text x="325.0" y="39.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">label decoder</text>
-  <text x="325.0" y="56.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">hidden layers → linear</text>
-  <text x="325.0" y="71.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">reads x</text>
-  <line x1="422.0" y1="49.0" x2="456.0" y2="49.0" marker-end="url(#uncertainty-arrow)"/>
-  <text x="462.0" y="54.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">μ</text>
-  <text x="482.0" y="54.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--d-muted, #4A5675)">predicted value, never sees σ<tspan baseline-shift="sub" font-size="75%">y</tspan></text>
-  <path d="M190 115 L190 161 L228 161" marker-end="url(#uncertainty-arrow)"/>
-  <rect x="230.0" y="130.0" width="190.0" height="62.0" rx="6"/>
-  <text x="325.0" y="151.0" font-size="12" text-anchor="middle" font-weight="bold" stroke="none" fill="currentColor">error decoder</text>
-  <text x="325.0" y="168.0" font-size="11.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">same hidden layers → linear</text>
-  <text x="325.0" y="183.0" font-size="10.5" text-anchor="middle" stroke="none" style="fill: var(--d-muted, #4A5675)">reads x and u</text>
-  <line x1="422.0" y1="161.0" x2="456.0" y2="161.0" marker-end="url(#uncertainty-arrow)"/>
-  <text x="462.0" y="166.0" font-size="13" text-anchor="start" font-style="italic" stroke="none" fill="currentColor">ln s</text>
-  <text x="496.0" y="166.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--d-muted, #4A5675)">log-scatter, s² = exp(2 ln s) + s₀²</text>
-  <rect x="295.0" y="222.0" width="60.0" height="34.0" rx="6"/>
-  <text x="325.0" y="244.0" font-size="13" text-anchor="middle" font-style="italic" stroke="none" fill="currentColor">u</text>
-  <path d="M325 220 L325 208 L208 208 L208 166" marker-end="url(#uncertainty-arrow)"/>
-  <circle cx="208" cy="161" r="2.5" fill="currentColor" stroke="none"/>
-  <path d="M219 231 L293 235" marker-end="url(#uncertainty-arrow)"/>
-  <text x="213.0" y="235.0" font-size="11.5" text-anchor="end" stroke="none" fill="currentColor">ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan>, the reported label error</text>
-  <path d="M219 253 L293 247" marker-end="url(#uncertainty-arrow-brand)" style="stroke: var(--d-teal, #1D7468)"/>
-  <text x="213.0" y="257.0" font-size="11.5" text-anchor="end" stroke="none" style="fill: var(--d-teal, #1D7468)">m, the learned missing vector</text>
-  <text x="375.0" y="233.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--d-muted, #4A5675)">training: m for masked labels and for a fraction</text>
-  <text x="375.0" y="248.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--d-muted, #4A5675)">label_error_dropout of stars, ln σ<tspan baseline-shift="sub" font-size="75%">y</tspan> otherwise</text>
-  <text x="375.0" y="265.0" font-size="11" text-anchor="start" stroke="none" style="fill: var(--d-teal, #1D7468)">validation, evaluation, prediction: always m</text>
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-unc" viewBox="0 0 760 300" width="760" height="300" role="img" aria-labelledby="f-unc-title">
+<title id="f-unc-title">The two decoders of an output head. The label decoder reads the head input x and predicts mu. The error decoder reads x and u and predicts ln s. u is the log of the label source's reported label error, or the learned missing vector m. Training uses m for masked labels and for a random fraction of stars; validation, evaluation and prediction always use m.</title>
+<style>
+.dfig.f-unc text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-unc .h { font-weight: 700; font-size: 13px; }
+.dfig.f-unc .n { font-weight: 700; font-size: 12.5px; }
+.dfig.f-unc .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-unc .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 15px; }
+.dfig.f-unc .up { font-style: normal; }
+.dfig.f-unc .gold { fill: var(--d-gold, #8C5D00); }
+.dfig.f-unc .tealt { fill: var(--d-teal, #1D7468); }
+.dfig.f-unc .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-unc .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; }
+.dfig.f-unc .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dfig.f-unc .tip { fill: currentColor; }
+</style>
+<rect class="in" x="20" y="118" width="104" height="46"/>
+<text class="n" x="72" y="137" text-anchor="middle">head input</text>
+<text class="math" x="72" y="155" text-anchor="middle">x</text>
+<text class="t" x="72" y="88" text-anchor="middle">the trunk output, or</text>
+<text class="t" x="72" y="104" text-anchor="middle">an MLP hidden layer</text>
+<rect class="model" x="210" y="40" width="220" height="56"/>
+<text class="h" x="320" y="62" text-anchor="middle">label decoder</text>
+<text class="t" x="320" y="80" text-anchor="middle">reads x</text>
+<rect class="model" x="210" y="160" width="220" height="56"/>
+<text class="h" x="320" y="182" text-anchor="middle">error decoder</text>
+<text class="t" x="320" y="200" text-anchor="middle">reads x and u</text>
+<path class="arrow" d="M125 141H160"/>
+<path class="arrow" d="M160 141L160 68L208 68"/><path class="tip" d="M208.0 68.0L201.0 71.2L201.0 64.8Z"/>
+<path class="arrow" d="M160 141L160 188L208 188"/><path class="tip" d="M208.0 188.0L201.0 191.2L201.0 184.8Z"/>
+<circle class="tip" cx="160" cy="141" r="2.5"/>
+<path class="arrow" d="M432 68L470 68"/><path class="tip" d="M470.0 68.0L463.0 71.2L463.0 64.8Z"/>
+<text class="math gold" x="480" y="73">μ</text>
+<text class="t" x="500" y="73">the prediction; never reads u</text>
+<path class="arrow" d="M432 188L470 188"/><path class="tip" d="M470.0 188.0L463.0 191.2L463.0 184.8Z"/>
+<text class="math gold" x="480" y="193"><tspan class="up">ln </tspan>s</text>
+<text class="t" x="512" y="193">log of the predicted scatter</text>
+<rect class="model" x="296" y="248" width="48" height="32"/>
+<text class="math" x="320" y="269" text-anchor="middle">u</text>
+<path class="arrow" d="M320 247L320 218"/><path class="tip" d="M320.0 218.0L323.2 225.0L316.8 225.0Z"/>
+<text class="math gold" x="150" y="255" text-anchor="end"><tspan class="up">ln </tspan>σ<tspan class="up" dy="4" font-size="11">y</tspan></text>
+<text class="t" x="156" y="255">reported label error</text>
+<text class="math tealt" x="150" y="281" text-anchor="end">m</text>
+<text class="t" x="156" y="281">learned missing vector</text>
+<path class="arrow" d="M270 251L294 258"/><path class="tip" d="M294.0 258.0L286.4 259.1L288.2 253.0Z"/>
+<path class="arrow" d="M286 277L294 270"/><path class="tip" d="M294.0 270.0L290.8 277.0L286.6 272.2Z"/>
+<text class="t" x="364" y="254">training: m for masked labels and for</text>
+<text class="t" x="364" y="270">a random fraction of stars, else ln σ</text>
+<text class="t" x="364" y="286">validation, evaluation, prediction: always m</text>
 </svg>

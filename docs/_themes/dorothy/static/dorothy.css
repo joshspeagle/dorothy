@@ -21,6 +21,7 @@
   --d-code-rule: #3A4B70;
   --d-teal: #1D7468;
   --d-teal-fill: #2A9D8F;
+  --d-teal-tint: #DCEFEC;
   --d-gold: #8C5D00;
   --d-gold-fill: #F2B84B;
   --d-gold-tint: #FCF0D6;
@@ -52,7 +53,7 @@
     --d-rule: #2C3D62; --d-axis: #5A6B8F;
     --d-band: #0D1730; --d-band-field: #1A2B4C; --d-band-rule: #2C3D62;
     --d-code-bg: #0D1730; --d-code-rule: #2C3D62;
-    --d-teal: #4CC3B3;
+    --d-teal: #4CC3B3; --d-teal-tint: #173E4C;
     --d-gold: #F2B84B; --d-gold-tint: #3A3628;
     --d-coral: #F2876B; --d-coral-tint: #3D2A3B;
     --d-focus: #A99CFF; --d-btn-bg: #E9EDF5; --d-btn-ink: #14213D;
@@ -70,7 +71,7 @@
   --d-rule: #2C3D62; --d-axis: #5A6B8F;
   --d-band: #0D1730; --d-band-field: #1A2B4C; --d-band-rule: #2C3D62;
   --d-code-bg: #0D1730; --d-code-rule: #2C3D62;
-  --d-teal: #4CC3B3;
+  --d-teal: #4CC3B3; --d-teal-tint: #173E4C;
   --d-gold: #F2B84B; --d-gold-tint: #3A3628;
   --d-coral: #F2876B; --d-coral-tint: #3D2A3B;
   --d-focus: #A99CFF; --d-btn-bg: #E9EDF5; --d-btn-ink: #14213D;
