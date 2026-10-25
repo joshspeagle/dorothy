@@ -1,13 +1,15 @@
 # How the catalogue is built
 
 `scripts/build_catalogue_v2.py` builds the super-catalogue from cross-matched
-FITS files. This page lists the input files, gives the steps to build the
-file, and explains how the builder chooses between repeated entries of a star.
+FITS files of spectra and {term}`labels <label>`. This page lists the input
+files, gives the steps to build the file, and explains how the builder chooses
+between repeated entries of a star.
 
 ## Input files
 
-Each input file pairs one survey with one label source. Its rows are the stars
-that both observed, after the cuts in [Upstream selection](#upstream-selection).
+Each input file pairs one {term}`survey` with one {term}`label source`. Its
+rows are the stars that both observed, after the cuts in
+[Upstream selection](#upstream-selection).
 
 | Survey | APOGEE file | GALAH file |
 |--------|-------------|------------|
@@ -31,8 +33,9 @@ If a DESI file with `_dr1` is missing, the builder reads the same name without
 
 ## Step 1: Place the input files
 
-Put the FITS files in `data/raw_catalogues/`. The builder skips a missing file
-with a warning, so a subset of the eight files also works. A survey without
+Put the FITS files in `data/raw_catalogues/`. The builder skips a missing
+file, so a subset of the eight files also works. It prints a warning for each
+missing file, except with `--quiet`. A survey without
 input files has no group in the output.
 
 ## Step 2: Check the counts
@@ -81,7 +84,7 @@ and the parameter names.
 | `--abundance-scale` | `x_fe` stores [X/Fe], `x_h` stores [X/H] | `x_fe` |
 | `--x-h`, `--X_H` | the same as `--abundance-scale x_h` | |
 | `--dry-run` | print the counts and write no file | |
-| `-q`, `--quiet` | print less progress for each file | |
+| `-q`, `--quiet` | print less progress for each file, and no warning for a missing file | |
 
 [Labels and quality flags](labels.md) describes the parameters of each choice.
 
@@ -92,35 +95,40 @@ The builder reads the Gaia DR3 source IDs of all input files. It drops IDs of
 its spectrum from each survey and its labels from each label source, wherever
 an input file has them.
 
-RA and Dec come from the `RVTAB` extension of an input file whose spectrum the
-builder keeps for the star. A star without them has RA and Dec 0.
+RA and Dec come from the `RVTAB` extension of the first input file that stores
+a spectrum for the star. They stay when a later file replaces that spectrum.
+The builder reads the files survey by survey, in the order BOSS, DESI, LAMOST
+LRS, LAMOST MRS, with the APOGEE file before the GALAH file. A star without
+RA and Dec has 0 for both.
 
 ## Repeat observations
 
-A star can have several spectra from one survey: repeat observations in one
-file, or rows in both the APOGEE and the GALAH file of that survey. The
-builder keeps the spectrum with the highest signal-to-noise ratio (S/N):
+A star can have several spectra from one survey. They are repeat
+observations in one file, or rows in both the APOGEE and the GALAH file of
+that survey. The builder keeps the spectrum with the highest signal-to-noise
+ratio (S/N):
 
 $$
 \mathrm{S/N} = \operatorname{median}_{i \,:\, \mathrm{ivar}_i > 0} |f_i| \sqrt{\mathrm{ivar}_i},
 $$
 
-where $f_i$ is the flux and $\mathrm{ivar}_i$ the inverse variance of pixel
-$i$. For LAMOST MRS the median runs over the pixels of both arms. On a tie, the
-builder keeps the earlier spectrum, with the APOGEE file read before the GALAH
-file.
+where $f_i$ is the flux and $\mathrm{ivar}_i$ the inverse variance
+({term}`ivar`) of pixel $i$. For LAMOST MRS the median runs over the pixels
+of both arms. On a tie, the builder keeps the earlier spectrum, with the
+APOGEE file read before the GALAH file.
 
-Before this, the builder sets the flux and inverse variance of each pixel to 0
-where either is not finite, which marks the pixel as missing. It never stores
-a spectrum without a valid pixel. The wavelength grid of each survey comes
-from its first input file.
+Before this, the builder sets the flux and inverse variance of a pixel to 0
+where either is not finite. An inverse variance of 0 marks the pixel as
+missing. The builder never stores a spectrum without a valid pixel. The
+wavelength grid of each survey comes from its first input file.
 
 ## Repeated labels
 
-A star can have several label rows from one label source: one in the file of
-each survey that observed it, or several in one file. The builder keeps the
-row with the most valid labels. On a tie, it keeps the earlier row, with files
-read in the order BOSS, DESI, LAMOST LRS, LAMOST MRS.
+A star can have several label rows from one label source. It has one in the
+file of each survey that observed it, or several in one file. The builder
+keeps the row with the most valid labels. On a tie, it keeps the earlier row,
+with files read in the order BOSS, DESI, LAMOST LRS, LAMOST MRS. A row with no
+valid labels is still stored when it is the star's only row.
 
 ## Upstream selection
 
