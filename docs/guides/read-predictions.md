@@ -84,8 +84,6 @@ result = detector.detect(X_test)
 flagged = result.get_anomaly_indices()
 ```
 
-### Anomaly detection
-
 The detector compares the model's embeddings of the
 spectra, scaled to unit length ([The model](../methods/model.md)). For each
 spectrum, it finds the distance to the k-th nearest training spectrum. It

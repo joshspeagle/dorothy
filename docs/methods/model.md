@@ -159,6 +159,6 @@ parameters either way.
 the vector of a survey's encoder (`level="encoder"`) or the trunk output
 (`level="trunk"`), which for a residual stream is the closed stream. Trunk
 embeddings place stars from different surveys in one space, and
-[anomaly detection](../guides/read-predictions.md#anomaly-detection) uses
+[anomaly detection](../guides/read-predictions.md#step-4-flag-unusual-spectra) uses
 them. For the MLP, {py:meth}`~dorothy.models.mlp.MLP.get_embeddings` returns
 the input of the output head unless `layer_index` names another layer.
