@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig" viewBox="-12 -12 360 432" width="360" height="432" role="img" aria-labelledby="catn-title">
+<title id="catn-title">The super-catalogue, illustrated with 12 stars: each row is one star, identified by its Gaia DR3 source ID. The columns are the spectra of DESI, BOSS, LAMOST LRS and LAMOST MRS and the labels of APOGEE and GALAH. A filled cell means the survey observed the star or the label source measured it; most cells are empty. One row is outlined: one star.</title>
+<style>
+.dfig text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig .h { font-weight: 700; font-size: 13px; }
+.dfig .t { font-size: 12.5px; fill: var(--d-muted, #4A5675); }
+.dfig .id { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11.5px; fill: var(--d-faint, #5F6A85); }
+.dfig .idh { font-family: var(--d-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 11.5px; font-weight: 600; }
+.dfig .note { font-weight: 600; font-size: 13px; }
+.dfig .ill { font-style: italic; font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig .panel { fill: var(--d-surface, #F1F4F9); }
+.dfig .spec { fill: var(--d-muted, #4A5675); }
+.dfig .lab { fill: var(--d-gold-fill, #F2B84B); }
+.dfig .empty { fill: none; stroke: var(--d-rule, #D3D9E4); stroke-width: 1; }
+.dfig .bar-s { fill: var(--d-muted, #4A5675); }
+.dfig .bar-l { fill: var(--d-gold-fill, #F2B84B); }
+.dfig .hl { fill: none; stroke: currentColor; stroke-width: 2; }
+.dfig .lead { fill: none; stroke: currentColor; stroke-width: 1.2; }
+</style>
+<rect class="panel" x="-12" y="-12" width="360" height="432"/>
+<text class="h" x="64" y="14">Spectra</text>
+<rect class="bar-s" x="64" y="19" width="175" height="3"/>
+<text class="h" x="250" y="14">Labels</text>
+<rect class="bar-l" x="250" y="19" width="86" height="3"/>
+<text class="t" x="88.8" y="110" transform="rotate(-90 88.8 110)">DESI</text>
+<text class="t" x="133.2" y="110" transform="rotate(-90 133.2 110)">BOSS</text>
+<text class="t" x="177.8" y="110" transform="rotate(-90 177.8 110)">LAMOST LRS</text>
+<text class="t" x="222.2" y="110" transform="rotate(-90 222.2 110)">LAMOST MRS</text>
+<text class="t" x="274.8" y="110" transform="rotate(-90 274.8 110)">APOGEE</text>
+<text class="t" x="319.2" y="110" transform="rotate(-90 319.2 110)">GALAH</text>
+<text class="id" x="0" y="130">…2817</text>
+<rect class="spec" x="64" y="118" width="41.5" height="16"/>
+<rect class="empty" x="109" y="118.5" width="40.5" height="15"/>
+<rect class="empty" x="153.5" y="118.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="118.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="118" width="41.5" height="16"/>
+<rect class="empty" x="295" y="118.5" width="40.5" height="15"/>
+<text class="id" x="0" y="150">…0394</text>
+<rect class="empty" x="64.5" y="138.5" width="40.5" height="15"/>
+<rect class="spec" x="108.5" y="138" width="41.5" height="16"/>
+<rect class="empty" x="153.5" y="138.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="138.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="138" width="41.5" height="16"/>
+<rect class="empty" x="295" y="138.5" width="40.5" height="15"/>
+<text class="id" x="0" y="170">…7735</text>
+<rect class="empty" x="64.5" y="158.5" width="40.5" height="15"/>
+<rect class="empty" x="109" y="158.5" width="40.5" height="15"/>
+<rect class="spec" x="153" y="158" width="41.5" height="16"/>
+<rect class="empty" x="198" y="158.5" width="40.5" height="15"/>
+<rect class="empty" x="250.5" y="158.5" width="40.5" height="15"/>
+<rect class="lab" x="294.5" y="158" width="41.5" height="16"/>
+<text class="id" x="0" y="190">…1068</text>
+<rect class="empty" x="64.5" y="178.5" width="40.5" height="15"/>
+<rect class="empty" x="109" y="178.5" width="40.5" height="15"/>
+<rect class="empty" x="153.5" y="178.5" width="40.5" height="15"/>
+<rect class="spec" x="197.5" y="178" width="41.5" height="16"/>
+<rect class="lab" x="250" y="178" width="41.5" height="16"/>
+<rect class="empty" x="295" y="178.5" width="40.5" height="15"/>
+<text class="idh" x="0" y="210">…5521</text>
+<rect class="empty" x="64.5" y="198.5" width="40.5" height="15"/>
+<rect class="spec" x="108.5" y="198" width="41.5" height="16"/>
+<rect class="spec" x="153" y="198" width="41.5" height="16"/>
+<rect class="empty" x="198" y="198.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="198" width="41.5" height="16"/>
+<rect class="empty" x="295" y="198.5" width="40.5" height="15"/>
+<text class="id" x="0" y="230">…8840</text>
+<rect class="spec" x="64" y="218" width="41.5" height="16"/>
+<rect class="empty" x="109" y="218.5" width="40.5" height="15"/>
+<rect class="empty" x="153.5" y="218.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="218.5" width="40.5" height="15"/>
+<rect class="empty" x="250.5" y="218.5" width="40.5" height="15"/>
+<rect class="empty" x="295" y="218.5" width="40.5" height="15"/>
+<text class="id" x="0" y="250">…3197</text>
+<rect class="empty" x="64.5" y="238.5" width="40.5" height="15"/>
+<rect class="empty" x="109" y="238.5" width="40.5" height="15"/>
+<rect class="spec" x="153" y="238" width="41.5" height="16"/>
+<rect class="spec" x="197.5" y="238" width="41.5" height="16"/>
+<rect class="empty" x="250.5" y="238.5" width="40.5" height="15"/>
+<rect class="empty" x="295" y="238.5" width="40.5" height="15"/>
+<text class="id" x="0" y="270">…6402</text>
+<rect class="empty" x="64.5" y="258.5" width="40.5" height="15"/>
+<rect class="spec" x="108.5" y="258" width="41.5" height="16"/>
+<rect class="empty" x="153.5" y="258.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="258.5" width="40.5" height="15"/>
+<rect class="empty" x="250.5" y="258.5" width="40.5" height="15"/>
+<rect class="empty" x="295" y="258.5" width="40.5" height="15"/>
+<text class="id" x="0" y="290">…9953</text>
+<rect class="empty" x="64.5" y="278.5" width="40.5" height="15"/>
+<rect class="empty" x="109" y="278.5" width="40.5" height="15"/>
+<rect class="empty" x="153.5" y="278.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="278.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="278" width="41.5" height="16"/>
+<rect class="lab" x="294.5" y="278" width="41.5" height="16"/>
+<text class="id" x="0" y="310">…4486</text>
+<rect class="empty" x="64.5" y="298.5" width="40.5" height="15"/>
+<rect class="empty" x="109" y="298.5" width="40.5" height="15"/>
+<rect class="spec" x="153" y="298" width="41.5" height="16"/>
+<rect class="empty" x="198" y="298.5" width="40.5" height="15"/>
+<rect class="empty" x="250.5" y="298.5" width="40.5" height="15"/>
+<rect class="empty" x="295" y="298.5" width="40.5" height="15"/>
+<text class="id" x="0" y="330">…2270</text>
+<rect class="spec" x="64" y="318" width="41.5" height="16"/>
+<rect class="empty" x="109" y="318.5" width="40.5" height="15"/>
+<rect class="empty" x="153.5" y="318.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="318.5" width="40.5" height="15"/>
+<rect class="empty" x="250.5" y="318.5" width="40.5" height="15"/>
+<rect class="lab" x="294.5" y="318" width="41.5" height="16"/>
+<text class="id" x="0" y="350">…7019</text>
+<rect class="empty" x="64.5" y="338.5" width="40.5" height="15"/>
+<rect class="spec" x="108.5" y="338" width="41.5" height="16"/>
+<rect class="empty" x="153.5" y="338.5" width="40.5" height="15"/>
+<rect class="empty" x="198" y="338.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="338" width="41.5" height="16"/>
+<rect class="empty" x="295" y="338.5" width="40.5" height="15"/>
+<rect class="hl" x="-4" y="195" width="344" height="22"/>
+<path class="lead" d="M-4 206.0H-8V380H4"/>
+<text class="note" x="10" y="384">one star, Gaia DR3 source ID</text>
+<text class="ill" x="336" y="408" text-anchor="end">illustrative</text>
+</svg>
