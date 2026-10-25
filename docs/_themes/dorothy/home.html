@@ -1,0 +1,10 @@
+{#- The home page: the page body full width, with no sidebar or outline. #}
+{%- extends "layout.html" %}
+{%- block content %}
+<nav class="mobilenav" id="sidebar" aria-label="Sections">
+  {%- for s in dorothy_sections %}<a href="{{ pathto(s.docname) }}">{{ s.caption }}</a>{% endfor -%}
+</nav>
+<main class="home" id="main">
+  {{ body }}
+</main>
+{%- endblock %}

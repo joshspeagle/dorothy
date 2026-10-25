@@ -6,6 +6,8 @@ from importlib import metadata
 
 import pybtex.plugin
 import sphinxcontrib.bibtex.plugin
+from docutils import nodes
+from docutils.parsers.rst.directives.admonitions import BaseAdmonition
 from pybtex.richtext import Tag, Text
 from pybtex.style.formatting.alpha import Style as AlphaStyle
 from pybtex.style.template import (
@@ -18,6 +20,7 @@ from pybtex.style.template import (
 )
 from pybtex.style.template import join as pybtex_join
 from pydantic import BaseModel
+from sphinx import addnodes
 from sphinxcontrib.bibtex.style.referencing import BracketStyle, PersonStyle
 from sphinxcontrib.bibtex.style.referencing.author_year import AuthorYearReferenceStyle
 from sphinxcontrib.bibtex.style.template import join, node
@@ -43,7 +46,7 @@ extensions = [
     "sphinxcontrib.bibtex",
 ]
 
-exclude_patterns = ["_build", "dev", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "_themes", "dev", "Thumbs.db", ".DS_Store"]
 # The citation style classes below cannot be pickled into the cache, and
 # names such as `type` (a builtin and a config field) are ambiguous references
 suppress_warnings = ["config.cache", "ref.python"]
@@ -175,18 +178,12 @@ bibtex_default_style = "astronomy"
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "furo"
+html_theme = "dorothy"
+html_theme_path = ["_themes"]
 html_title = "DOROTHY"
 html_static_path = ["_static"]
-html_css_files = ["custom.css"]
 html_favicon = "_static/favicon.svg"
-html_theme_options = {
-    "light_logo": "dorothy-line-light.svg",
-    "dark_logo": "dorothy-line-dark.svg",
-    "source_repository": "https://github.com/joshspeagle/dorothy/",
-    "source_branch": "main",
-    "source_directory": "docs/",
-}
+html_theme_options = {"source_repository": "https://github.com/joshspeagle/dorothy"}
 mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
@@ -226,5 +223,48 @@ def _field_table(app, what, name, obj, options, lines):
         ]
 
 
+# -- Theme -------------------------------------------------------------------
+
+
+class DorothyNote(BaseAdmonition):
+    """The ``{dorothy}`` directive: Dorothy's note, one tip for students."""
+
+    node_class = nodes.admonition
+
+    def run(self):
+        self.arguments = ["Dorothy's note"]
+        self.options["class"] = ["dorothy"]
+        return super().run()
+
+
+def _page_context(app, pagename, templatename, context, doctree):
+    """Give the templates the sections (the root toctrees) and the outline.
+
+    The page's section is the toctree that lists its top-level ancestor. The
+    home page (front matter ``layout: home``) uses ``home.html``.
+    """
+    env = app.env
+    root = app.config.root_doc
+    toctrees = list(env.get_doctree(root).findall(addnodes.toctree))
+    context["dorothy_sections"] = [
+        {"caption": t["caption"], "docname": t["entries"][0][1]} for t in toctrees
+    ]
+    parents = env.collect_relations()
+    top = pagename
+    while top in parents and parents[top][0] not in (root, None):
+        top = parents[top][0]
+    context["dorothy_section_index"] = next(
+        (k for k, t in enumerate(toctrees) if top in (d for _, d in t["entries"])),
+        None,
+    )
+    toc = env.tocs.get(pagename)
+    sections = toc.next_node(nodes.bullet_list) if toc else None
+    context["dorothy_outline"] = sections is not None and len(sections) > 1
+    if (context.get("meta") or {}).get("layout") == "home":
+        return "home.html"
+
+
 def setup(app):
     app.connect("autodoc-process-docstring", _field_table)
+    app.add_directive("dorothy", DorothyNote)
+    app.connect("html-page-context", _page_context)
