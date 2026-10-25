@@ -26,7 +26,7 @@ R = λ / Δλ_FWHM
 
 σ_λ = Δλ_FWHM / (2 * sqrt(2 * ln(2))) ≈ Δλ_FWHM / 2.355
 
-σ_velocity = c / (R * 2.355) ≈ 127,400 / R  [km/s]
+σ_velocity = c / (R * 2.355) ≈ 127,300 / R  [km/s]
 ```
 
 For a Gaussian LSF, the 1σ width in velocity space is approximately `c / (R * 2.355)`.
@@ -244,7 +244,7 @@ def boss_approximate_sigma(wavelength):
 
 | Parameter | Value |
 |-----------|-------|
-| Wavelength Range | 3700-9100 Å |
+| Wavelength Range | 3700-9000 Å |
 | Resolution | R ≈ 1800 at 5500 Å |
 | Dispersion | log10 spacing, COEFF1 = 0.0001 |
 | Detector | 2048 × 2048 CCD |

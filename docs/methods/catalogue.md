@@ -160,6 +160,7 @@ y_galah = loader.load_labels("galah", max_flag_bits=0)
 With several surveys, most stars lack most surveys. The sparse loader
 ({py:class}`~dorothy.data.catalogue_loader.SparseMergedData`) reads and keeps
 each survey's spectra only for the stars that have them, with an index from
-catalogue rows to stored rows. The dense alternative
-(`data.use_dense_loading: true`) stores full arrays, zeros included, and needs
-several times more memory.
+catalogue rows to stored rows. With several label sources, the dense
+alternative (`data.use_dense_loading: true`) stores full arrays, zeros
+included, and needs several times more memory. With one label source the
+setting has no effect.

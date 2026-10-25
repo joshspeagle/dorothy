@@ -23,7 +23,8 @@ at least one valid label from a configured label source. The split is a
 permutation of these stars drawn with `numpy.random.RandomState(seed)`: the
 first `data.train_ratio` of them train, the next `data.val_ratio` validate,
 and the rest form the test set (70%, 20% and 10% by default). The checkpoint
-stores the catalogue rows of each set in `data_split.pkl`.
+stores the rows of each set in `data_split.pkl`: catalogue rows for sparse
+storage, rows of the loaded arrays for the dense layouts.
 
 ## The loss
 
@@ -283,4 +284,6 @@ A run writes `<output_dir>/<name>/<name>_final/`:
 an earlier run, with a new optimizer, schedule and warm-up.
 `training.save_every: N` also saves the weights, the configuration and the
 normalization every N epochs, in `epoch_N/`, without calibration factors.
+The weights there are `model_epoch_N.pth` and `best_model_epoch_N.pth`, so
+`dorothy evaluate` and `dorothy predict` need `--model` to load them.
 BatchNorm needs at least two stars per batch in training.

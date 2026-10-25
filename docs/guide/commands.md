@@ -31,7 +31,8 @@ dorothy evaluate <checkpoint> --model final_model.pth --no-plots
 ```
 
 Reloads the catalogue with the checkpoint's configuration, takes the test
-stars from `data_split.pkl` and scores every output head in normalized and
+stars from `data_split.pkl` (or recreates the split from the configured seed
+if the file is missing) and scores every output head in normalized and
 physical units ([Evaluation](../methods/evaluation.md)). It writes four plots
 per label source to `<checkpoint>/plots/evaluation/`: predictions against
 labels, residuals, histograms of predictions and labels, and z-score
