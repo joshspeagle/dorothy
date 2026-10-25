@@ -916,7 +916,8 @@ class ExperimentConfig(_ConfigModel):
         if self.model is not None and self.multi_head_model is not None:
             raise ValueError(
                 "Cannot specify both 'model' and 'multi_head_model'. "
-                "Use 'model' for single-survey or 'multi_head_model' for multi-survey."
+                "Use 'model' for one survey and one label source, 'multi_head_model' "
+                "otherwise."
             )
 
         # Per-label-source settings must name configured label sources
@@ -930,7 +931,7 @@ class ExperimentConfig(_ConfigModel):
         if self.multi_head_model is not None:
             if not self.multi_head_model.label_sources:
                 self.multi_head_model = self.multi_head_model.model_copy(
-                    update={"label_sources": self.data.label_sources[:1]}
+                    update={"label_sources": list(self.data.label_sources)}
                 )
             heads = set(self.multi_head_model.label_sources)
             unknown = set(self.multi_head_model.head_dropout) - heads
@@ -1036,8 +1037,9 @@ class ExperimentConfig(_ConfigModel):
         ``residual_stream`` and a data section without ``precision_encoding``
         get False for that flag. A ``training.learning_rate`` becomes
         ``scheduler.max_lr`` for the schedules it set (none,
-        reduce_on_plateau, cosine_annealing). Settings this version no longer
-        has are ignored with a warning.
+        reduce_on_plateau, cosine_annealing). A ``model`` section with several
+        label sources keeps only the first, the one it trained on. Settings
+        this version no longer has are ignored with a warning.
 
         Args:
             path: Path to the checkpoint's ``config.yaml``.
@@ -1076,6 +1078,10 @@ class ExperimentConfig(_ConfigModel):
             )
 
         data_section = data.setdefault("data", {})
+        # A plain model with several label sources trained only the first
+        sources = data_section.get("label_sources")
+        if data.get("model") is not None and isinstance(sources, list):
+            data_section["label_sources"] = sources[:1]
         if "normalize_spectra" not in data_section:
             # dorothy_update configs: head_dropout (multi-head) or 20 outputs
             # (its only parameter set; main supported only 11 at the time)

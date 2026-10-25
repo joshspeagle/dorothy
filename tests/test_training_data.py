@@ -135,6 +135,19 @@ class TestSplits:
         loaded = DataSplit.load(tmp_path, data)
         np.testing.assert_array_equal(loaded.test, filtered[old_test])
 
+    def test_single_survey_split_does_not_load_into_another_layout(
+        self, tmp_path, catalogue
+    ):
+        single = load_training_data(
+            _config(catalogue, ["boss"], ["apogee"]), verbose=False
+        )
+        single.split(0.7, 0.2, seed=1).save(tmp_path, single)
+        multi = load_training_data(
+            _config(catalogue, ["boss"], ["apogee", "galah"]), verbose=False
+        )
+        with pytest.raises(ValueError, match="single_survey layout"):
+            DataSplit.load(tmp_path, multi)
+
     def test_legacy_dense_rows_count_stars_with_any_positive_label_error(
         self, tmp_path
     ):
@@ -198,6 +211,24 @@ class TestCompleteConfig:
         assert done["multi_head_model"]["label_sources"] == ["apogee", "galah"]
         assert done["data"]["parameter_names"] == PARAMS
         assert ExperimentConfig(**done).multi_head_model.n_parameters == len(PARAMS)
+
+    def test_one_survey_with_several_label_sources_gets_every_head(self, catalogue):
+        from dorothy.data.training_data import complete_config_from_catalogue
+
+        raw = {
+            "name": "t",
+            "data": {
+                "catalogue_path": str(catalogue),
+                "surveys": ["boss"],
+                "label_sources": ["apogee", "galah"],
+            },
+        }
+        done = complete_config_from_catalogue(raw)
+        assert done["multi_head_model"]["label_sources"] == ["apogee", "galah"]
+        assert ExperimentConfig(**done).multi_head_model.label_sources == [
+            "apogee",
+            "galah",
+        ]
 
     def test_mismatched_parameter_names_raise(self, catalogue):
         from dorothy.data.training_data import complete_config_from_catalogue

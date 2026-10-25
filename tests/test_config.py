@@ -459,6 +459,28 @@ class TestParameterNamesConfig:
         assert parameter_display_name("sr_h") == "[Sr/H]"
         assert parameter_display_name("custom") == "custom"
 
+    def test_multi_head_model_defaults_to_one_head_per_label_source(self):
+        config = ExperimentConfig(
+            name="t",
+            data=self._data(surveys=["boss"], label_sources=["apogee", "galah"]),
+            multi_head_model={"survey_wavelengths": {"boss": 10}},
+        )
+        assert config.multi_head_model.label_sources == ["apogee", "galah"]
+
+    def test_checkpoint_config_with_plain_model_keeps_its_one_label_source(
+        self, tmp_path
+    ):
+        import yaml
+
+        config = ExperimentConfig(name="t", data=self._data())
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        raw["data"]["label_sources"] = ["apogee", "galah"]
+        path.write_text(yaml.dump(raw))
+        loaded = ExperimentConfig.load_checkpoint_config(path)
+        assert loaded.data.label_sources == ["apogee"]
+
     def test_checkpoint_config_defaults_normalization_off(self, tmp_path):
         config = ExperimentConfig(name="t", data=self._data())
         path = tmp_path / "config.yaml"

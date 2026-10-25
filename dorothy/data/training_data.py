@@ -6,11 +6,12 @@ training and the held-out test set are defined in exactly one place.
 
 Three layouts are produced, chosen by the config:
 
-- ``single_survey``: one survey, dense arrays ``X`` (N, 3, W) and ``y``
-  (N, 3, P), for a plain MLP (or a single-survey MultiHeadMLP).
-- ``dense_multi_label``: several surveys and label sources as dense dicts
+- ``single_survey``: one survey and one label source, dense arrays ``X``
+  (N, 3, W) and ``y`` (N, 3, P), for a plain MLP (or a single-survey
+  MultiHeadMLP).
+- ``dense_multi_label``: several label sources as dense dicts
   (``data.use_dense_loading: true``; high memory).
-- ``sparse_multi_survey``: several surveys in memory-efficient
+- ``sparse_multi_survey``: every other configuration, in memory-efficient
   :class:`~dorothy.data.catalogue_loader.SparseMergedData` (the default).
 
 Rows are the loaded arrays' rows (global catalogue indices in sparse mode).
@@ -99,9 +100,18 @@ class DataSplit:
 
         Raises:
             FileNotFoundError: If the directory has no ``data_split.pkl``.
+            ValueError: If the split was saved for one survey and one label
+                source, and ``data`` has another layout.
         """
         with open(Path(checkpoint_path) / SPLIT_FILE, "rb") as f:
             info = pickle.load(f)
+        if info["split_mode"] == "single_survey" and data.kind != "single_survey":
+            raise ValueError(
+                f"The split in {checkpoint_path} indexes the single_survey layout, "
+                f"but the data now load as {data.kind}. Older versions trained "
+                "only the first label source of one survey with several label "
+                "sources; retrain the model."
+            )
         idx = {k: np.asarray(info[f"{k}_idx"]) for k in ("train", "val", "test")}
         if info.get("index_space") != "rows" and info["split_mode"] != (
             "sparse_multi_survey"
@@ -330,7 +340,7 @@ def complete_config_from_catalogue(config_dict: dict, verbose: bool = False) -> 
     label_sources = data_cfg.get("label_sources", ["apogee"])
     loader = CatalogueLoader(catalogue_path)
 
-    if "multi_head_model" in config_dict or len(surveys) > 1:
+    if "multi_head_model" in config_dict or len(surveys) > 1 or len(label_sources) > 1:
         try:
             wavelengths = loader.get_survey_wavelength_counts(surveys)
         except Exception as e:
