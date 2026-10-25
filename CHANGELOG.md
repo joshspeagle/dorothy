@@ -78,6 +78,9 @@
 
 ### Fixed
 
+- `dorothy train` completes a configuration that uses the `survey` or
+  `label_source` alias for those surveys and label sources. It completed it
+  for the defaults, BOSS and APOGEE.
 - The `plot_*` functions in `visualization.training_plots` accept a `str`
   output directory. They raised `TypeError`.
 - `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer

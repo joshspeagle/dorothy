@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
+from dorothy.config.schema import DataConfig
 from dorothy.data.catalogue_loader import CatalogueLoader, SparseMergedData
 
 if TYPE_CHECKING:
@@ -332,7 +333,9 @@ def complete_config_from_catalogue(config_dict: dict, verbose: bool = False) -> 
     import copy
 
     config_dict = copy.deepcopy(config_dict)
-    data_cfg = config_dict.setdefault("data", {})
+    data_cfg = config_dict["data"] = DataConfig.accept_singular_keys(
+        config_dict.get("data") or {}
+    )
     catalogue_path = data_cfg.get("catalogue_path")
     if catalogue_path is None:
         raise ValueError("data.catalogue_path is required")
