@@ -1,19 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="dfig" viewBox="0 0 760 342" width="760" height="342" role="img" aria-labelledby="ablation-title">
-<title id="ablation-title">Ablation saliency: a block of pixels is zeroed at one position after another along the spectrum; each position gives a change of the prediction, and the importance of a pixel is the mean of the squared changes, scaled by the predicted scatter, over the blocks that cover it. The spectrum and the changes are illustrative.</title>
+<svg xmlns="http://www.w3.org/2000/svg" class="dfig f-ablation" viewBox="0 0 760 342" width="760" height="342" role="img" aria-labelledby="f-ablation-title">
+<title id="f-ablation-title">Ablation saliency: a block of pixels is zeroed at one position after another along the spectrum; each position gives a change of the prediction, and the importance of a pixel is the mean Fisher-weighted change over the blocks that cover it. The spectrum and the changes are illustrative.</title>
 <style>
-.dfig text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
-.dfig .h { font-weight: 700; font-size: 13px; }
-.dfig .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
-.dfig .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 14px; }
-.dfig .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
-.dfig .spec { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.dfig .gone { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
-.dfig .axis { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
-.dfig .bar { fill: var(--d-teal-fill, #2A9D8F); stroke: none; }
-.dfig .area { fill: var(--d-teal-fill, #2A9D8F); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; stroke-linejoin: round; }
-.dfig .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
-.dfig .tip { fill: currentColor; }
-.dfig .guide { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 2 3; }
+.dfig.f-ablation text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
+.dfig.f-ablation .h { font-weight: 700; font-size: 13px; }
+.dfig.f-ablation .t { font-size: 12px; fill: var(--d-muted, #4A5675); }
+.dfig.f-ablation .math { font-family: var(--d-math, "KaTeX_Math", "Times New Roman", serif); font-style: italic; font-size: 14px; }
+.dfig.f-ablation .in { fill: var(--d-surface, #F1F4F9); stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-ablation .spec { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.dfig.f-ablation .gone { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.dfig.f-ablation .axis { fill: none; stroke: var(--d-axis, #9AA5BC); stroke-width: 1; }
+.dfig.f-ablation .bar { fill: var(--d-teal-fill, #2A9D8F); stroke: none; }
+.dfig.f-ablation .area { fill: var(--d-teal-fill, #2A9D8F); stroke: var(--d-teal, #1D7468); stroke-width: 1.5; stroke-linejoin: round; }
+.dfig.f-ablation .arrow { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dfig.f-ablation .tip { fill: currentColor; }
+.dfig.f-ablation .guide { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 2 3; }
 </style>
 <text class="h" x="0" y="26">Spectrum</text>
 <text class="t" x="0" y="43">one block of pixels zeroed</text>
