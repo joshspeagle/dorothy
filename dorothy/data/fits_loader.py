@@ -12,8 +12,8 @@ Expected FITS file structure:
     - WAVELENGTH extension: Table with wavelength grid
 
 The loader normalizes spectra using median/IQR normalization per-star
-and creates the 2-channel input format (flux, scaled ivar) expected by
-DOROTHY models.
+and creates the 3-channel input format (flux, sigma, mask) of
+:meth:`SpectralData.get_model_input_3channel`.
 """
 
 from __future__ import annotations
