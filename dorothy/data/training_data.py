@@ -30,13 +30,12 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from dorothy.config.schema import DataConfig
+from dorothy.config.schema import DataConfig, ExperimentConfig
 from dorothy.data.catalogue_loader import CatalogueLoader, SparseMergedData
 
 if TYPE_CHECKING:
     import torch
 
-    from dorothy.config.schema import ExperimentConfig
     from dorothy.training.trainer import Trainer, TrainingHistory
 
 logger = logging.getLogger(__name__)
@@ -333,14 +332,13 @@ def complete_config_from_catalogue(config_dict: dict, verbose: bool = False) -> 
     import copy
 
     config_dict = copy.deepcopy(config_dict)
-    data_cfg = config_dict["data"] = DataConfig.accept_singular_keys(
-        config_dict.get("data") or {}
-    )
+    data_cfg = config_dict.setdefault("data", {})
     catalogue_path = data_cfg.get("catalogue_path")
     if catalogue_path is None:
         raise ValueError("data.catalogue_path is required")
-    surveys = data_cfg.get("surveys", ["boss"])
-    label_sources = data_cfg.get("label_sources", ["apogee"])
+    # Validating resolves the survey/label_source aliases and the defaults
+    data = DataConfig.model_validate(data_cfg)
+    surveys, label_sources = data.surveys, data.label_sources
     loader = CatalogueLoader(catalogue_path)
 
     if "multi_head_model" in config_dict or len(surveys) > 1 or len(label_sources) > 1:

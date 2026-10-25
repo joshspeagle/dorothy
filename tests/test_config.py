@@ -481,6 +481,19 @@ class TestParameterNamesConfig:
         loaded = ExperimentConfig.load_checkpoint_config(path)
         assert loaded.data.label_sources == ["apogee"]
 
+    def test_checkpoint_config_resolves_the_label_source_alias(self, tmp_path):
+        import yaml
+
+        config = ExperimentConfig(name="t", data=self._data())
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        del raw["data"]["label_sources"]
+        raw["data"]["label_source"] = ["apogee", "galah"]
+        path.write_text(yaml.dump(raw))
+        loaded = ExperimentConfig.load_checkpoint_config(path)
+        assert loaded.data.label_sources == ["apogee"]
+
     def test_checkpoint_config_defaults_normalization_off(self, tmp_path):
         config = ExperimentConfig(name="t", data=self._data())
         path = tmp_path / "config.yaml"

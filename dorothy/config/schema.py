@@ -207,7 +207,7 @@ class DataConfig(_ConfigModel):
                 if plural in values:
                     raise ValueError(f"Use either '{single}' or '{plural}', not both")
                 value = values.pop(single)
-                values[plural] = [value] if isinstance(value, str) else list(value)
+                values[plural] = [value] if isinstance(value, str) else value
         return values
 
     @field_validator("parameter_names")
@@ -1078,7 +1078,9 @@ class ExperimentConfig(_ConfigModel):
                 stacklevel=2,
             )
 
-        data_section = data.setdefault("data", {})
+        data_section = data["data"] = DataConfig.accept_singular_keys(
+            data.get("data") or {}
+        )
         # A plain model with several label sources trained only the first
         sources = data_section.get("label_sources")
         if data.get("model") is not None and isinstance(sources, list):
