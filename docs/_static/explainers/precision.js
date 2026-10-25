@@ -34,7 +34,7 @@
   var LMIN = -3, LMAX = 3, RMAX = 7.5;
   var plot = html("div", { class: "d-lab-plot" }, root);
   var svg = el("svg", { role: "img", "aria-label": "The precision encoding rho = ln(1 + 1/sigma) against sigma on a logarithmic axis, with the current pixel marked." }, plot);
-  var out = html("div", { class: "d-readout", "aria-live": "polite" }, root);
+  var out = html("div", { class: "d-readout" }, root);
   function cell(key, cls) {
     var d = html("div", {}, out);
     html("span", { class: "k" }, d, key);
@@ -52,6 +52,7 @@
   var scale = html("div", { class: "d-scale", "aria-hidden": "true" }, sl);
   ["0.001", "0.01", "0.1", "1", "10", "100", "1000"].forEach(function (s) { html("span", {}, scale, s); });
   var mask = html("button", { class: "d-toggle", type: "button", "aria-pressed": "false" }, ctl, "Mask the pixel");
+  var status = html("p", { class: "d-sr", "aria-live": "polite" }, root);
 
   var mq = window.matchMedia("(max-width: 600px)"), P = {};
   function draw() {
@@ -112,13 +113,17 @@
     rawEl.textContent = masked ? "0" : fmt(sigma);
     noteEl.textContent = masked ? "0 would read as a perfect measurement" : "";
     slider.disabled = masked;
-    slider.setAttribute("aria-valuetext", masked ? "pixel masked, rho = 0" : "sigma = " + fmt(sigma) + ", rho = " + value.toFixed(2));
+    slider.setAttribute("aria-valuetext", "sigma = " + fmt(sigma));
+    status.dataset.text = masked ? "Pixel masked: rho = 0." : "rho = " + value.toFixed(2) + ".";
   }
 
+  function announce() { status.textContent = status.dataset.text; }
   slider.addEventListener("input", update);
+  slider.addEventListener("change", announce);
   mask.addEventListener("click", function () {
     mask.setAttribute("aria-pressed", mask.getAttribute("aria-pressed") === "true" ? "false" : "true");
     update();
+    announce();
   });
   if (mq.addEventListener) mq.addEventListener("change", draw);
   draw();

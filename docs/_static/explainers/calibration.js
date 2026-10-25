@@ -1,8 +1,7 @@
 /* Explainer: calibrate the uncertainties (How it works / Uncertainties).
 
-   2,000 simulated validation stars have residuals r ~ N(0, t) with t drawn
-   log-uniform in [0.03, 0.15]; the predicted scatter is s = t / 1.4, so the
-   network is overconfident by 1.4. The reader scales s by c and sees the
+   2,000 simulated validation stars have a predicted scatter 1.4 times too
+   small, so their raw z-scores are 1.4 times a standard normal draw. The reader scales s by c and sees the
    histogram of z = r / (c s) against the standard normal density. "Fit c"
    sets c to the robust spread (P84 - P16) / 2 of the raw z-scores, as the
    trainer does. Seeded, so every load is identical. */
@@ -40,21 +39,31 @@
     return sorted[a] + (sorted[b] - sorted[a]) * (p - a);
   }
 
-  /* simulated stars */
+  /* simulated stars: a residual r = t g with any true scatter t and predicted
+     scatter s = t / 1.4 has z = r / s = 1.4 g, so t need not be drawn */
   var rnd = mulberry32(2042);
   function gauss() { var u = 1 - rnd(), v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
-  var N = 2000, zraw = new Float64Array(N), lo = Math.log(0.03), hi = Math.log(0.15);
-  for (var i = 0; i < N; i++) {
-    var t = Math.exp(lo + rnd() * (hi - lo));
-    zraw[i] = t * gauss() / (t / 1.4);
-  }
+  var N = 2000, zraw = new Float64Array(N);
+  for (var i = 0; i < N; i++) zraw[i] = 1.4 * gauss();
   var sorted = Array.from(zraw).sort(function (a, b) { return a - b; });
   var cFit = (pct(sorted, 0.84) - pct(sorted, 0.16)) / 2;
+  var C_MAX = 2.5, BW = 0.2;
+  /* density axis: the tallest bar at the largest c, rounded up to 0.1 */
+  var peak = 0;
+  (function () {
+    var counts = {};
+    for (var i = 0; i < N; i++) {
+      var b = Math.floor(zraw[i] / C_MAX / BW);
+      counts[b] = (counts[b] || 0) + 1;
+      peak = Math.max(peak, counts[b]);
+    }
+  })();
+  var DMAX = Math.ceil(Math.max(peak / (N * BW), pdf(0)) * 10) / 10;
 
   /* markup */
   var plot = html("div", { class: "d-lab-plot" }, root);
   var svg = el("svg", { role: "img", "aria-label": "Histogram of the z-scores of 2,000 simulated validation stars, with the standard normal density on top." }, plot);
-  var out = html("div", { class: "d-readout", "aria-live": "polite" }, root);
+  var out = html("div", { class: "d-readout" }, root);
   function cell(key, cls) {
     var d = html("div", {}, out);
     html("span", { class: "k" }, d, key);
@@ -71,6 +80,7 @@
   var scale = html("div", { class: "d-scale", "aria-hidden": "true" }, sl);
   ["0.5", "1.0", "1.5", "2.0", "2.5"].forEach(function (s) { html("span", {}, scale, s); });
   var fit = html("button", { class: "d-btn", type: "button" }, ctl, "Fit c");
+  var status = html("p", { class: "d-sr", "aria-live": "polite" }, root);
 
   /* histogram */
   var mq = window.matchMedia("(max-width: 600px)"), H = {};
@@ -78,11 +88,11 @@
     var narrow = mq.matches;
     svg.textContent = "";
     var W = narrow ? 340 : 680, HH = narrow ? 250 : 300, L = narrow ? 30 : 40, R = 8, T = 34, B = 40;
-    var PW = W - L - R, PH = HH - T - B, ZMIN = -5, ZMAX = 5, BW = 0.2, NB = 50, DMAX = 0.5;
+    var PW = W - L - R, PH = HH - T - B, ZMIN = -5, ZMAX = 5, NB = 50;
     svg.setAttribute("viewBox", "0 0 " + W + " " + HH);
     function X(z) { return L + (z - ZMIN) / (ZMAX - ZMIN) * PW; }
     function Y(p) { return T + PH - p / DMAX * PH; }
-    for (var g = 1; g <= 5; g++) {
+    for (var g = 1; g <= Math.round(DMAX * 10); g++) {
       el("line", { class: "ax", x1: L - 4, x2: L, y1: Y(g / 10), y2: Y(g / 10) }, svg);
       el("text", { class: "tick", x: L - 7, y: Y(g / 10) + 4, "text-anchor": "end" }, svg, (g / 10).toFixed(1));
     }
@@ -106,7 +116,7 @@
     el("text", { x: L + 26, y: 15 }, svg, "validation stars");
     el("line", { class: "curve", x1: L + (narrow ? 136 : 148), x2: L + (narrow ? 156 : 168), y1: 11, y2: 11 }, svg);
     el("text", { x: L + (narrow ? 162 : 174), y: 15 }, svg, "standard normal");
-    var ebY = T + 36;
+    var ebY = T + 6;
     el("path", { class: "guide", d: "M" + X(-1) + " " + (ebY + 10) + "V" + Y(0) + "M" + X(1) + " " + (ebY + 10) + "V" + Y(0) }, svg);
     H = {
       X: X, Y: Y, bars: bars, NB: NB, BW: BW, ZMIN: ZMIN, DMAX: DMAX, ebY: ebY,
@@ -124,7 +134,7 @@
       if (bi >= 0 && bi < H.NB) counts[bi]++;
     }
     for (var b = 0; b < H.NB; b++) {
-      var y = H.Y(Math.min(counts[b] / (N * H.BW), H.DMAX));
+      var y = H.Y(counts[b] / (N * H.BW));
       H.bars[b].setAttribute("y", y.toFixed(1));
       H.bars[b].setAttribute("height", (H.Y(0) - y).toFixed(1));
     }
@@ -141,11 +151,14 @@
     reportEl.textContent = c.toFixed(2) + " · s";
     verdictEl.textContent = word;
     verdictEl.className = "d-verdict" + (word === "calibrated" ? " ok" : "");
-    slider.setAttribute("aria-valuetext", "c = " + c.toFixed(2) + ", robust spread " + sp.toFixed(2) + ", " + word);
+    slider.setAttribute("aria-valuetext", "c = " + c.toFixed(2));
+    status.dataset.text = "Robust spread of z " + sp.toFixed(2) + ", " + word + ".";
   }
 
+  function announce() { status.textContent = status.dataset.text; }
   slider.addEventListener("input", update);
-  fit.addEventListener("click", function () { slider.value = cFit.toFixed(2); update(); });
+  slider.addEventListener("change", announce);
+  fit.addEventListener("click", function () { slider.value = cFit.toFixed(2); update(); announce(); });
   if (mq.addEventListener) mq.addEventListener("change", draw);
   draw();
 })();

@@ -80,8 +80,8 @@
   function update() {
     var narrow = mq.matches;
     var W = narrow ? 340 : 680, RH = 40, T = 30, HH = T + 4 * RH + (narrow ? 46 : 30);
-    var cw = narrow ? 28 : 44, ch = 22;
-    var xName = 0, xEnc = narrow ? 46 : 96, xVec = narrow ? 94 : 168, xOut = narrow ? 224 : 440;
+    var cw = narrow ? 27 : 44, ch = 22;
+    var xName = 0, xEnc = narrow ? 46 : 96, xVec = narrow ? 94 : 168, xOut = narrow ? 220 : 440;
     svg.textContent = "";
     svg.setAttribute("viewBox", "0 0 " + W + " " + HH);
     el("text", { class: "head", x: xVec + 2 * cw, y: 16, "text-anchor": "middle" }, svg, "encodings");
@@ -118,7 +118,8 @@
       vec(xOut, my, mean, false, false);
       el("text", { x: xOut + 2 * cw, y: my + ch + 18, "text-anchor": "middle" }, svg, "mean of " + n);
     } else {
-      el("path", { class: "ax", d: "M" + (xOut + 4 * cw + 8) + " " + T + "h5V" + (T + 3 * RH + ch) + "h-5" }, svg);
+      var bx = xOut + 4 * cw + (narrow ? 3 : 8), bw = narrow ? 4 : 5;
+      el("path", { class: "ax", d: "M" + bx + " " + T + "h" + bw + "V" + (T + 3 * RH + ch) + "h-" + bw }, svg);
     }
     if (narrow) {
       el("text", { x: 0, y: HH - 18 }, svg, "4 numbers stand for the latent_dim");

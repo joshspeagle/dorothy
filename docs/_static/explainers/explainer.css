@@ -33,6 +33,8 @@
 .d-toggle { height: 40px; padding: 0 14px; font: 500 15px var(--d-sans); color: var(--d-ink); background: transparent; border: 1px solid var(--d-ink); border-radius: 2px; cursor: pointer; }
 .d-toggle[aria-pressed="true"] { color: var(--d-btn-ink); background: var(--d-btn-bg); }
 
+.d-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
 /* SVG roles inside the plots */
 .d-lab svg text { font-family: var(--d-sans); font-size: 13px; fill: var(--d-muted); }
 .d-lab svg .tick { font-family: var(--d-mono); font-size: 11.5px; fill: var(--d-faint); }
