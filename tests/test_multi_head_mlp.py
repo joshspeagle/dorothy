@@ -675,15 +675,15 @@ class TestMultiHeadModelConfigLabelSources:
         assert model.label_sources == ["apogee", "galah"]
         assert model.is_multi_label
 
-    def test_single_head_is_named_after_the_primary_label_source(self):
+    def test_single_head_is_named_after_the_label_source(self):
         """Without multi_head_model.label_sources, the one head takes the
-        name of the first data label source, and its head_dropout applies."""
+        name of the data label source, and its head_dropout applies."""
         from dorothy.config.schema import ExperimentConfig
         from dorothy.inference.checkpoint import build_model
 
         config = ExperimentConfig(
             name="t",
-            data={"catalogue_path": "c.h5", "label_sources": ["galah", "apogee"]},
+            data={"catalogue_path": "c.h5", "label_sources": ["galah"]},
             multi_head_model={
                 "survey_wavelengths": {"boss": 10},
                 "head_dropout": {"galah": 0.3},

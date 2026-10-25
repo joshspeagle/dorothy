@@ -223,8 +223,19 @@
 
 ### Behaviour changes
 
-- `FITSLoader` raises `ValueError` on construction for a parameter name it cannot read. With
-  `load(require_labels=False)`, a misspelled name gave all-NaN labels.
+- A configuration with one survey and several label sources trains every
+  label source, through the multi-label data layouts. It trained only the
+  first one. `dorothy train` gives such a configuration a multi-head model
+  with one head per label source, and `multi_head_model.label_sources`
+  defaults to every label source instead of the first. A configuration with
+  `model` and several label sources is an error. A checkpoint saved with
+  `model` and several label sources loads with its first label source, the
+  one it trained on. A checkpoint saved with `multi_head_model`, one survey
+  and several label sources trained one head; its split indexes the old
+  layout, so `DataSplit.load` raises `ValueError` and asks for a retrain.
+- `FITSLoader` raises `ValueError` on construction for a parameter name it
+  cannot read. With `load(require_labels=False)`, a misspelled name gave
+  all-NaN labels.
 - `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
   `union` or `intersection`, which it treated as `intersection`, and for an
   empty `surveys` list.

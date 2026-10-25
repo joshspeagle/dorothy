@@ -67,6 +67,12 @@ class TestEvaluateMatchesTraining:
         "surveys,sources,extra",
         [
             (["boss"], ["apogee"], {}),
+            (["boss"], ["apogee", "galah"], {}),
+            (
+                ["boss"],
+                ["apogee", "galah"],
+                {"extra_data": "  use_dense_loading: true\n"},
+            ),
             (MULTI_SURVEYS, ["apogee"], {}),
             (MULTI_SURVEYS, ["apogee", "galah"], {}),
             (
@@ -82,6 +88,8 @@ class TestEvaluateMatchesTraining:
         ],
         ids=[
             "single",
+            "single_survey_multilabel",
+            "single_survey_dense_multilabel",
             "sparse",
             "sparse_multilabel",
             "dense_multilabel",

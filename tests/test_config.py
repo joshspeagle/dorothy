@@ -336,6 +336,17 @@ class TestExperimentConfig:
                 ),
             )
 
+    def test_several_label_sources_without_multi_head_raises(self):
+        with pytest.raises(ValueError, match="require 'multi_head_model'"):
+            ExperimentConfig(
+                name="one_survey_two_sources",
+                data=DataConfig(
+                    catalogue_path=Path("/data/super_catalogue.h5"),
+                    surveys=["boss"],
+                    label_sources=["apogee", "galah"],
+                ),
+            )
+
     def test_both_model_configs_raises(self):
         """Test that specifying both model configs raises error."""
         from dorothy.config import MultiHeadModelConfig
@@ -447,6 +458,28 @@ class TestParameterNamesConfig:
         assert parameter_display_name("mg_fe") == "[Mg/Fe]"
         assert parameter_display_name("sr_h") == "[Sr/H]"
         assert parameter_display_name("custom") == "custom"
+
+    def test_multi_head_model_defaults_to_one_head_per_label_source(self):
+        config = ExperimentConfig(
+            name="t",
+            data=self._data(surveys=["boss"], label_sources=["apogee", "galah"]),
+            multi_head_model={"survey_wavelengths": {"boss": 10}},
+        )
+        assert config.multi_head_model.label_sources == ["apogee", "galah"]
+
+    def test_checkpoint_config_with_plain_model_keeps_its_one_label_source(
+        self, tmp_path
+    ):
+        import yaml
+
+        config = ExperimentConfig(name="t", data=self._data())
+        path = tmp_path / "config.yaml"
+        config.save_yaml(path)
+        raw = yaml.full_load(path.read_text())
+        raw["data"]["label_sources"] = ["apogee", "galah"]
+        path.write_text(yaml.dump(raw))
+        loaded = ExperimentConfig.load_checkpoint_config(path)
+        assert loaded.data.label_sources == ["apogee"]
 
     def test_checkpoint_config_defaults_normalization_off(self, tmp_path):
         config = ExperimentConfig(name="t", data=self._data())
