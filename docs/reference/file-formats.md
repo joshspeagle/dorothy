@@ -43,7 +43,7 @@ writes the files without a note in the last column.
 | `normalizer.pkl` | Label normalization: parameter → `median`, `IQR`, and `log_median`, `log_IQR` for Teff | |
 | `history_train_val.pkl` | Training history: a dict with `history_train`, `history_val`, `best_epoch` and the per-survey and per-label-source losses and metrics | |
 | `learning_rates.pkl` | The learning rate of every optimizer step, as a list | |
-| `data_split.pkl` | Training, validation and test catalogue rows (`train_idx`, `val_idx`, `test_idx`) | Written by `dorothy train` |
+| `data_split.pkl` | Training, validation and test rows (`train_idx`, `val_idx`, `test_idx`): catalogue rows for sparse storage, rows of the loaded arrays for the dense layouts | Written by `dorothy train` |
 | `plots/` | Training plots | Written by `dorothy train` |
 | `plots/evaluation/` | Evaluation plots | Written by `dorothy evaluate` |
 
