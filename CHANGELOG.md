@@ -81,6 +81,9 @@
 
 ### Fixed
 
+- `dorothy train` completes a configuration that uses the `survey` or
+  `label_source` alias for those surveys and label sources. It completed it
+  for the defaults, BOSS and APOGEE.
 - `dorothy evaluate` prints an error and exits with code 1 when the
   catalogue is missing. It ended with a traceback.
 - The `plot_*` functions in `visualization.training_plots` accept a `str`

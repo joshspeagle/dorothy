@@ -230,6 +230,29 @@ class TestCompleteConfig:
             "galah",
         ]
 
+    def test_singular_aliases_are_completed_like_the_lists(self, catalogue):
+        from dorothy.data.training_data import complete_config_from_catalogue
+
+        raw = {
+            "name": "t",
+            "data": {
+                "catalogue_path": str(catalogue),
+                "survey": "desi",
+                "label_source": ["apogee", "galah"],
+            },
+        }
+        done = complete_config_from_catalogue(raw)
+        assert list(done["multi_head_model"]["survey_wavelengths"]) == ["desi"]
+        assert done["multi_head_model"]["label_sources"] == ["apogee", "galah"]
+        assert ExperimentConfig(**done).data.surveys == ["desi"]
+
+    def test_null_survey_alias_is_a_validation_error(self, catalogue):
+        from dorothy.data.training_data import complete_config_from_catalogue
+
+        raw = {"name": "t", "data": {"catalogue_path": str(catalogue), "survey": None}}
+        with pytest.raises(ValueError, match="surveys"):
+            complete_config_from_catalogue(raw)
+
     def test_mismatched_parameter_names_raise(self, catalogue):
         from dorothy.data.training_data import complete_config_from_catalogue
 
