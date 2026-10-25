@@ -18,12 +18,8 @@ a star from its DESI, BOSS or LAMOST spectrum. It learns from stars that
 APOGEE or GALAH also observed, and it reports an uncertainty for every
 {term}`label`.
 
-[Get started](start/quickstart.md) · [What DOROTHY does](start/what-it-does.md)
-
-```bash
-git clone https://github.com/joshspeagle/dorothy.git
-cd dorothy && pip install -e .
-```
+[Install](start/install.md) · [Quick start](start/quickstart.md) ·
+[What DOROTHY does](start/what-it-does.md)
 :::
 ::::
 
@@ -39,8 +35,8 @@ cd dorothy && pip install -e .
 ```
 
 :::{container} caption
-Label transfer: a spectrum goes in, and labels with uncertainties come out and
-place the star in the Kiel diagram; stars and values are illustrative.
+Label transfer: a spectrum goes in, and labels with uncertainties come out;
+stars and values are illustrative.
 :::
 ::::
 

@@ -4,6 +4,9 @@
 
 ### Added
 
+- `examples/synthetic_quickstart.py` writes a small synthetic catalogue, a
+  configuration and a FITS file of spectra, so the quick start runs without
+  the real catalogue.
 - `TrainingHistory.nll_warmup_epochs` records the length of the β-NLL
   warm-up, and `plot_loss_curves` shades it.
 - Per-spectrum flux normalization (`data.normalize_spectra`, default true):

@@ -5,10 +5,10 @@ page explains the idea in four parts, one figure each.
 
 ## Labels from spectra
 
-A star's spectrum encodes its atmospheric parameters and its composition: the
-effective temperature (Teff), the surface gravity (log g), the iron abundance
-[Fe/H] and the abundances of other elements. Each of these numbers is one
-{term}`label` of the star.
+A star's spectrum encodes its atmospheric parameters and its composition. These
+are the effective temperature (Teff), the surface gravity (log g), the iron
+abundance [Fe/H] and the abundances of other elements. Each of these numbers
+is one {term}`label` of the star.
 
 High-resolution surveys measure labels precisely. APOGEE observes the H band
 (1.51 to 1.70 µm) at a resolving power of about 22,500
@@ -63,9 +63,8 @@ low-resolution spectrum. This is label transfer.
 ```
 
 :::{container} caption
-The network trains on the stars that have both a spectrum and labels, and
-predicts labels for the stars that have only a spectrum; the proportions are
-illustrative.
+The network trains on the stars with both a spectrum and labels, and predicts
+labels for the rest; the proportions are illustrative.
 :::
 ::::
 

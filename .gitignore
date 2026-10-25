@@ -102,4 +102,4 @@ docs/_build/
 docs/reference/generated/
 
 # Output of examples/synthetic_quickstart.py
-quickstart/
+/quickstart/

@@ -28,11 +28,7 @@ the test and lint tools, run `pip install -e ".[dev]"` instead.
 dorothy --version
 ```
 
-The command prints the version:
-
-```
-dorothy 0.1.0
-```
+The command prints `dorothy` and the version number.
 
 ## Step 4: Check the device
 
@@ -40,10 +36,10 @@ dorothy 0.1.0
 python -c "from dorothy.utils import resolve_device; print(resolve_device())"
 ```
 
-This prints the device that DOROTHY uses when a configuration or a command
-sets the device to `auto`: `cuda` for an NVIDIA GPU, else `mps` for an Apple
-silicon GPU, else `cpu`. If it prints `cpu` on a machine with an NVIDIA GPU,
-reinstall PyTorch as in step 1.
+This prints the device that DOROTHY uses when the device is set to `auto`.
+It prints `cuda` for an NVIDIA GPU, else `mps` for an Apple silicon GPU, else
+`cpu`. If it prints `cpu` on a machine with an NVIDIA GPU, reinstall PyTorch
+as in step 1.
 
 To choose a device, set `device` in the configuration, or pass `--device` to
 `dorothy train`, `dorothy evaluate` or `dorothy predict`

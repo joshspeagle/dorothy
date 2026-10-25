@@ -29,8 +29,9 @@ dorothy train quickstart/config.yaml
 ```
 
 The command loads the catalogue, splits the stars into training, validation
-and test sets, and trains for 30 epochs. It ends with lines like these; the numbers can
-differ slightly with the platform and the PyTorch version:
+and test sets, and trains for 30 epochs. Near the end, it prints lines like
+these; the numbers can differ slightly with the platform and the PyTorch
+version:
 
 ```
 Training complete!
@@ -52,7 +53,7 @@ dorothy evaluate quickstart/outputs/quickstart/quickstart_final
 ```
 
 The command predicts the labels of the 163 test stars and compares them with
-their APOGEE labels. It prints the metrics in normalized and physical units.
+their APOGEE labels. It prints the metrics in {term}`normalized units` and in physical units.
 This part shows the robust metrics in physical units:
 
 ```
