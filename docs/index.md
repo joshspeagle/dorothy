@@ -130,6 +130,7 @@ reference/bibliography
 
 contribute/code-map
 contribute/shared-definitions
+contribute/add-a-survey
 contribute/writing
 contribute/build-docs
 ```
