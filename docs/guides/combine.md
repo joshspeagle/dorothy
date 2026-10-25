@@ -1,0 +1,101 @@
+# Combine surveys and label sources
+
+This guide trains one model on spectra from several surveys and on labels
+from both APOGEE and GALAH.
+
+## What you need
+
+- A configuration that trains, as in [Train a model](train.md).
+- The super-catalogue, with the surveys and label sources you choose.
+
+## Step 1: Choose the surveys and label sources
+
+List them in the `data` section:
+
+```yaml
+data:
+  catalogue_path: data/super_catalogue.h5
+  surveys: [boss, desi, lamost_lrs, lamost_mrs]
+  label_sources: [apogee, galah]
+  max_flag_bits: -1
+```
+
+Training keeps every star that has a spectrum from at least one of the
+surveys and at least one valid label from one of the label sources. Most stars
+have only some of them; the model treats the rest as missing.
+`max_flag_bits: -1` keeps each star's valid labels and masks only its flagged
+ones, so that stars with a few flagged labels are not dropped
+([Labels and quality flags](../catalogue/labels.md)).
+
+## Step 2: Use the multi-head model
+
+Several surveys or label sources need the `multi_head_model` section in
+place of `model`:
+
+```yaml
+multi_head_model:
+  latent_dim: 256
+  encoder_hidden: [1024, 512]
+  trunk_hidden: [512, 256]
+  output_hidden: [64]
+```
+
+The model has one {term}`encoder` per survey, a shared {term}`trunk`, and one
+output {term}`head` per label source ([The model](../methods/model.md)).
+`dorothy train` fills in the number of pixels of each survey and the heads
+from the catalogue and from `data.label_sources`.
+
+## Step 3: Turn on masking
+
+```yaml
+input_masking:
+  enabled: true
+label_masking:
+  enabled: true
+```
+
+Input masking hides whole surveys and blocks of pixels of each training star,
+afresh for every batch. Label masking hides label sources and single labels
+in the same way. Both teach the model to predict from the incomplete data
+that most stars have ([Training](../methods/training.md)). The fields of each
+section set how much they hide
+([Configuration](../reference/configuration.md)).
+
+## Step 4: Weight the label sources
+
+```yaml
+training:
+  label_source_weighting: per_source
+  label_source_weights: {apogee: 1.0, galah: 0.5}
+```
+
+With the default, `per_label`, every valid label in a batch counts equally,
+so the label source with more labels weighs more. `per_source` gives
+each label source the same total weight, whatever its number of labels.
+With either setting, `label_source_weights` multiplies the weight of each
+source; a source that it leaves out keeps weight 1. [Uncertainties](../methods/uncertainties.md)
+gives the loss.
+
+## Step 5: Train and check each head
+
+```bash
+dorothy train combined.yaml
+```
+
+The output also prints the best epoch of each label source. The checkpoint
+works as in the other guides, with two differences:
+
+- `dorothy evaluate` reports the metrics and plots of each head
+  ([Evaluate a model](evaluate.md)).
+- `dorothy predict` needs `--survey` for the spectra and takes
+  `--label-source` for the head ([Predict labels for your
+  spectra](predict.md)).
+
+In `examples/`, `variant3_multi_labelset.yaml` and
+`variant6_galah_xh_extended.yaml` are complete configurations of this kind.
+
+## Next
+
+- [Evaluate a model](evaluate.md).
+- [Compare APOGEE and GALAH](compare-labels.md): check how the two label
+  sources agree before you train on both.

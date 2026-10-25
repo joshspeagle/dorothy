@@ -91,8 +91,11 @@ catalogue/python
 :caption: Guides
 :hidden:
 
-guides/train
+guides/predict
 guides/read-predictions
+guides/train
+guides/combine
+guides/evaluate
 guides/inspect
 guides/compare-labels
 guides/python
