@@ -1,98 +1,116 @@
 # Commands
 
-`pip install -e .` installs the `dorothy` command. `dorothy <command> --help`
-lists every option.
+This page lists every `dorothy` subcommand with its arguments and defaults.
+`pip install -e .` installs the command, and `dorothy <command> --help` prints
+the same options.
+
+| Command | Does |
+|---------|------|
+| [`dorothy train`](#train) | Trains a model from a configuration file and writes a checkpoint |
+| [`dorothy evaluate`](#evaluate) | Scores a checkpoint on its test stars |
+| [`dorothy predict`](#predict) | Predicts labels for the spectra in a FITS file |
+| [`dorothy info`](#info) | Prints what a checkpoint holds |
+
+`dorothy --version` prints the version. `dorothy` without a command prints
+the help.
 
 ## train
 
 ```bash
 dorothy train config.yaml
-dorothy train config.yaml --device cuda --output-dir runs/
-dorothy train config.yaml --resume outputs/old_run/old_run_final
 ```
 
-Trains the model a configuration describes ([Configuration](../reference/configuration.md)),
-fits its [calibration factors](../methods/uncertainties.md#calibration-factors)
-and writes the checkpoint directory `<output_dir>/<name>/<name>_final/`
-([Checkpoints](../methods/training.md#checkpoints)).
+| Argument | Default | Effect |
+|----------|---------|--------|
+| `config` | required | The YAML configuration file ([Configuration](configuration.md)) |
+| `--device` | `auto` | `auto`, `cuda`, `mps` or `cpu`. `auto` keeps the configuration's `device` |
+| `--output-dir` | the configuration's `output_dir` | Directory for the experiment |
+| `--resume` | none | A checkpoint directory. Its `best_model.pth` gives the starting weights; the optimizer, the schedule and the warm-up start new |
 
-| Option | Effect |
-|--------|--------|
-| `--device` | `auto` (default), `cuda`, `mps` or `cpu` |
-| `--output-dir` | Overrides `output_dir` |
-| `--resume` | Starts from the weights of an earlier checkpoint, with a new optimizer, schedule and warm-up |
+The command writes the checkpoint directory
+`<output_dir>/<name>/<name>_final/` ([File formats](file-formats.md#checkpoint-directory)).
+
+`--resume` fails when the checkpoint has no `best_model.pth`, was trained
+without the precision encoding, has another
+`multi_head_model.residual_stream` value, or has weights of another shape.
 
 ## evaluate
 
 ```bash
-dorothy evaluate <checkpoint>
-dorothy evaluate <checkpoint> --format json --output results.json
-dorothy evaluate <checkpoint> --model final_model.pth --no-plots
+dorothy evaluate outputs/run/run_final
 ```
 
-Reloads the catalogue with the checkpoint's configuration, takes the test
-stars from `data_split.pkl` (or recreates the split from the configured seed
-if the file is missing) and scores every output head in normalized and
-physical units ([Evaluation](../methods/evaluation.md)). It writes four plots
-per label source to `<checkpoint>/plots/evaluation/`: predictions against
-labels, residuals, histograms of predictions and labels, and z-score
-histograms. The JSON output holds the first head's metrics at the top level
-and every head's metrics under `label_sources`.
+| Argument | Default | Effect |
+|----------|---------|--------|
+| `checkpoint` | required | The checkpoint directory |
+| `--model` | `best_model.pth` | Weights file in the checkpoint. Only `best_model.pth` has calibration factors |
+| `--format` | `text` | `text`, `markdown` or `json` |
+| `--output` | none | File for the results, in the `--format` format |
+| `--plots-dir` | `<checkpoint>/plots/evaluation` | Directory for the plots |
+| `--no-plots` | off | Skips the plots |
+| `--no-calibration` | off | Uses the raw predicted scatter, without the calibration factors |
+| `--device` | `auto` | `auto`, `cuda`, `mps` or `cpu` |
+| `--batch-size` | `1024` | Spectra per forward pass |
 
-With the checkpoint's calibration factors, the metrics and plots use the
-calibrated uncertainties, and a table per head lists the factors with the raw
-and calibrated `z_robust_scatter`
-([Calibration factors](../methods/uncertainties.md#calibration-factors)). The
-JSON output then adds `calibration_factors` and the raw metrics
-`uncalibrated_normalized_space` to each head.
+The command evaluates the test stars of `data_split.pkl`. Without that file,
+it recreates the split from the configured `seed`. It scores every output
+head, in normalized and physical units ([Evaluation](../methods/evaluation.md)).
 
-| Option | Effect |
-|--------|--------|
-| `--model` | Weights file to load (default `best_model.pth`) |
-| `--format` | `text` (default), `markdown` or `json` |
-| `--output` | Writes the results to a file |
-| `--plots-dir` | Directory for the plots |
-| `--no-plots` | Skips the plots |
-| `--no-calibration` | Evaluates the raw predicted scatter, without the calibration factors |
-| `--device`, `--batch-size` | Inference device and batch size |
+| Output | Content |
+|--------|---------|
+| Screen | The metrics of each head; with calibration factors, a table of the factors and the raw and calibrated `z_robust_scatter` |
+| `--format json` | The first head's metrics at the top level and every head's under `label_sources`. Each head has `normalized_space`, `physical_space` (with a normalizer) and, with calibration factors, `calibration_factors` and `uncalibrated_normalized_space`. Without `--output`, the JSON is the only screen output |
+| Plots | Four per label source: `<label_source>_pred_vs_truth.png`, `_residuals.png`, `_histograms.png` and `_zscore_histograms.png` |
 
 ## predict
 
 ```bash
-dorothy predict --checkpoint <checkpoint> --input spectra.fits \
-    --output predictions.csv --survey boss --label-source galah
+dorothy predict --checkpoint outputs/run/run_final --input spectra.fits \
+    --survey boss --label-source apogee
 ```
 
-Predicts labels for the spectra in a FITS file and writes one CSV row per
-spectrum, with each parameter and its uncertainty (`teff`, `teff_err`, ...)
-in physical units. The uncertainty is the predicted scatter, times the
-checkpoint's calibration factor for that head and parameter when it has one;
-the `calibrated` column says which. The spectra are preprocessed as in
-training, including the per-spectrum normalization when the model used it.
+| Argument | Default | Effect |
+|----------|---------|--------|
+| `--checkpoint` | required | The checkpoint directory |
+| `--input` | required | The FITS file of spectra ([FITS input](file-formats.md#fits-input)) |
+| `--output` | `predictions.csv` | The CSV file to write ([Predictions CSV](file-formats.md#predictions-csv)) |
+| `--survey` | none | Survey of the spectra. Required for a model with several surveys |
+| `--label-source` | the first label source | Output head to predict from |
+| `--normalized` | off | Writes normalized units instead of physical units |
+| `--no-calibration` | off | Writes the raw predicted scatter, without the calibration factors |
+| `--device` | `auto` | `auto`, `cuda`, `mps` or `cpu` |
+| `--batch-size` | `1024` | Spectra per forward pass |
 
-The FITS file needs `SPECTRA` (column `FLUX`) and `SPEC_IVAR` (column `IVAR`)
-table extensions with one row per spectrum, on the model's wavelength grid.
-An optional `WAVELENGTH` extension (column `WAVELENGTH`) holds the grid, and
-an `APOGEE` or `GAIA_ID` extension the star IDs. Files with the two LAMOST MRS
-arms are not supported yet.
-
-| Option | Effect |
-|--------|--------|
-| `--checkpoint`, `--input`, `--output` | Checkpoint directory, input FITS file and output CSV (default `predictions.csv`) |
-| `--survey` | Survey of the spectra; required for a multi-survey model |
-| `--label-source` | Output head to use (default: the first label source) |
-| `--normalized` | Writes normalized units instead of physical units |
-| `--no-calibration` | Writes the raw predicted scatter, without the calibration factors |
-| `--device`, `--batch-size` | Inference device and batch size |
+The spectra get the preprocessing of the checkpoint's configuration
+([Preprocessing](../methods/preprocessing.md)). The command fails when the
+spectra have another number of wavelength bins than the model's survey.
 
 ## info
 
 ```bash
-dorothy info <checkpoint>
+dorothy info outputs/run/run_final
 ```
 
-Prints the model architecture, the uncertainty model (label-aware, or the
-additive model of checkpoints saved before it), the configuration, the
-parameter names, the label normalization, a summary of the training history
-and a table of the calibration factors per parameter and head, or that the
-checkpoint has none.
+| Argument | Default | Effect |
+|----------|---------|--------|
+| `checkpoint` | required | The checkpoint directory |
+
+The command prints these parts of the checkpoint. A file that it cannot read
+prints an error line, and the command goes on.
+
+| Part | Content |
+|------|---------|
+| Model files | Each `.pth` file and its size; the parameter count of `best_model.pth` |
+| Configuration | Architecture, uncertainty model (`label-aware` or `additive`), parameter names, `normalize_spectra`, `precision_encoding` |
+| Training history | Epochs, final training loss, best validation loss and epoch, per label source |
+| Normalizer | The normalized parameters |
+| Calibration | The factor per parameter and head, or `none` |
+| Learning rates | Number of optimizer steps and the range |
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success, `--help` or `--version` |
+| 1 | An error, printed as `Error: …` |
+| 2 | Invalid arguments |

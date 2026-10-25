@@ -115,6 +115,8 @@ methods/evaluation
 
 reference/commands
 reference/configuration
+reference/file-formats
+reference/old-checkpoints
 reference/surveys
 reference/glossary
 reference/api
