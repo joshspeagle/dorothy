@@ -52,8 +52,9 @@ The scatter floor $s_0$, in normalized units, stops s from collapsing to
 zero. [Configuration](../reference/configuration.md) gives its default.
 :::
 
-The loss of a batch is the mean over its valid labels; masked labels add
-nothing. {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` is the
+For one label source, the loss of a batch is the mean over its valid labels;
+masked labels add nothing. [Training](training.md#several-label-sources)
+combines the losses of several label sources. {py:func}`~dorothy.losses.heteroscedastic.predicted_scatter` is the
 one definition of s, shared by the loss, validation, evaluation and
 prediction.
 
@@ -102,9 +103,10 @@ from the label errors or the missing vector.
 
 No layer that feeds μ reads u. The label errors and the missing labels
 correlate with the label values, and prediction has no label errors. In the
-multi-head model, x is the trunk output and u enters as a linear map added to
-x ([Residual stream](model.md#residual-stream)). In the MLP, x is the input of
-the last hidden layer.
+multi-head model, x is the trunk output. With a
+[residual stream](model.md#residual-stream), u enters as a linear map added to
+x; without one, u is concatenated to x. In the MLP, x is the input of the last
+hidden layer.
 
 The error decoder always has a hidden layer, so that ln s can be a nonlinear
 function of u. For example, take a true label noise $\sqrt{a}\,\sigma_y$

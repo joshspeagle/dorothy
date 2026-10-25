@@ -90,20 +90,20 @@
     P.tag.textContent = masked ? "masked: ρ = 0" : "";
     P.tag.setAttribute("x", (x + (l > 1.5 ? -110 : 10)).toFixed(1));
     P.tag.setAttribute("y", (P.Y(0) - 12).toFixed(1));
-    num.textContent = "σ = " + fmt(sigma);
+    num.textContent = masked ? "σ: none" : "σ = " + fmt(sigma);
     sigmaEl.textContent = masked ? "none" : fmt(sigma);
     rhoEl.textContent = value.toFixed(2);
     rawEl.textContent = masked ? "0" : fmt(sigma);
     noteEl.textContent = masked ? "0 would read as a perfect measurement" : "";
     slider.disabled = masked;
     mask.setAttribute("aria-pressed", String(masked));
-    slider.setAttribute("aria-valuetext", "sigma = " + fmt(sigma));
+    slider.setAttribute("aria-valuetext", masked ? "pixel masked" : "sigma = " + fmt(sigma));
     status.set(masked ? "Pixel masked: rho = 0." : "rho = " + value.toFixed(2) + ".");
   }
 
   slider.addEventListener("input", update);
   slider.addEventListener("change", status.announce);
   mask.addEventListener("click", function () { masked = !masked; update(); status.announce(); });
-  mq.addEventListener("change", draw);
   draw();
+  mq.addEventListener("change", draw);
 })();

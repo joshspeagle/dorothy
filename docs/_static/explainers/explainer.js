@@ -34,7 +34,8 @@ window.dExplainer = (function () {
     var node = html("p", { class: "d-sr", "aria-live": "polite" }, root), text = "";
     return {
       set: function (t) { text = t; },
-      announce: function () { node.textContent = text; }
+      /* clear first: a repeated text would change nothing, and nothing would be read */
+      announce: function () { node.textContent = ""; node.textContent = text; }
     };
   }
   return { el: el, html: html, cell: cell, mulberry32: mulberry32, status: status };

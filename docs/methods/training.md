@@ -200,7 +200,8 @@ label sources and labels; the batch is illustrative.
   probability drawn from [`p_label_min`, `p_label_max`].
 
 The probabilities, the block size and the offset are drawn again for every
-batch, and the block size and offset for every survey. Each star keeps at
+batch. The block size, the offset and the block probability are drawn for
+every survey. Each star keeps at
 least one survey, one block, one label source and one label. The masks come
 from generators seeded by `seed`, so runs with the same seed on the same
 device mask the same entries.

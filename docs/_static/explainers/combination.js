@@ -75,7 +75,7 @@
       for (var j = 0; j < 4; j++) {
         el("rect", { class: cls, x: x + j * cw + 0.5, y: y + 0.5, width: cw - 1, height: ch - 1 }, svg);
         if (cls !== "missing") {
-          el("text", { class: cls === "zero" ? "tick" : "onfill", x: x + j * cw + cw / 2, y: y + 15, "text-anchor": "middle", "font-size": narrow ? 10 : 12 }, svg, cls === "zero" ? "0" : v[j].toFixed(narrow ? 1 : 2));
+          el("text", { class: cls === "zero" ? "tick" : "onfill", x: x + j * cw + cw / 2, y: y + 15, "text-anchor": "middle" }, svg, cls === "zero" ? "0" : v[j].toFixed(narrow ? 1 : 2));
         }
       }
     }
@@ -127,6 +127,6 @@
     svg.setAttribute("aria-label", label);
     status.set(msg || label);
   }
-  mq.addEventListener("change", update);
   update();
+  mq.addEventListener("change", update);
 })();

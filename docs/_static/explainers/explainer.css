@@ -1,6 +1,5 @@
 /* Interactive explainers of the How it works pages: a surface panel with a
-   teal top edge, a plot, a readout and the controls (DESIGN.md, Interactive
-   style). Colours come from the theme tokens only. */
+   teal top edge, a plot, a readout and the controls (docs/contribute/build-docs.md). Colours come from the theme tokens only. */
 
 .d-lab { border-top: 3px solid var(--d-teal-fill); background: var(--d-surface); margin: 24px 0; }
 .d-lab-h { margin: 0 !important; padding: 16px 20px 0; color: var(--d-muted); font-size: 16px; }

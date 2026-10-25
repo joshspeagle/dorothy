@@ -134,6 +134,6 @@
   slider.addEventListener("input", update);
   slider.addEventListener("change", status.announce);
   fit.addEventListener("click", function () { slider.value = cFit.toFixed(2); update(); status.announce(); });
-  mq.addEventListener("change", draw);
   draw();
+  mq.addEventListener("change", draw);
 })();
