@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" class="dfig" viewBox="-12 -12 360 432" width="360" height="432" role="img" aria-labelledby="catn-title">
-<title id="catn-title">The super-catalogue, illustrated with 12 stars: each row is one star, identified by its Gaia DR3 source ID. The columns are the spectra of DESI, BOSS, LAMOST LRS and LAMOST MRS and the labels of APOGEE and GALAH. A filled cell means the survey observed the star or the label source measured it; most cells are empty. One row is outlined: one star.</title>
+<title id="catn-title">The super-catalogue, illustrated with 12 stars: each row is one star, identified by its Gaia DR3 source ID. The columns are the spectra of DESI, BOSS, LAMOST LRS and LAMOST MRS and the labels of APOGEE and GALAH. A filled spectrum cell means the survey observed the star; a filled label cell means the label source has a row of labels for the star. Every star has a spectrum and a label row, and most cells are empty. One row is outlined: one star.</title>
 <style>
 .dfig text { font-family: var(--d-sans, "Hanken Grotesk", "Helvetica Neue", Helvetica, sans-serif); fill: currentColor; stroke: none; }
 .dfig .h { font-weight: 700; font-size: 13px; }
@@ -68,7 +68,7 @@
 <rect class="empty" x="109" y="218.5" width="40.5" height="15"/>
 <rect class="empty" x="153.5" y="218.5" width="40.5" height="15"/>
 <rect class="empty" x="198" y="218.5" width="40.5" height="15"/>
-<rect class="empty" x="250.5" y="218.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="218" width="41.5" height="16"/>
 <rect class="empty" x="295" y="218.5" width="40.5" height="15"/>
 <text class="id" x="0" y="250">…3197</text>
 <rect class="empty" x="64.5" y="238.5" width="40.5" height="15"/>
@@ -76,13 +76,13 @@
 <rect class="spec" x="153" y="238" width="41.5" height="16"/>
 <rect class="spec" x="197.5" y="238" width="41.5" height="16"/>
 <rect class="empty" x="250.5" y="238.5" width="40.5" height="15"/>
-<rect class="empty" x="295" y="238.5" width="40.5" height="15"/>
+<rect class="lab" x="294.5" y="238" width="41.5" height="16"/>
 <text class="id" x="0" y="270">…6402</text>
 <rect class="empty" x="64.5" y="258.5" width="40.5" height="15"/>
 <rect class="spec" x="108.5" y="258" width="41.5" height="16"/>
 <rect class="empty" x="153.5" y="258.5" width="40.5" height="15"/>
 <rect class="empty" x="198" y="258.5" width="40.5" height="15"/>
-<rect class="empty" x="250.5" y="258.5" width="40.5" height="15"/>
+<rect class="lab" x="250" y="258" width="41.5" height="16"/>
 <rect class="empty" x="295" y="258.5" width="40.5" height="15"/>
 <text class="id" x="0" y="290">…9953</text>
 <rect class="empty" x="64.5" y="278.5" width="40.5" height="15"/>
@@ -97,7 +97,7 @@
 <rect class="spec" x="153" y="298" width="41.5" height="16"/>
 <rect class="empty" x="198" y="298.5" width="40.5" height="15"/>
 <rect class="empty" x="250.5" y="298.5" width="40.5" height="15"/>
-<rect class="empty" x="295" y="298.5" width="40.5" height="15"/>
+<rect class="lab" x="294.5" y="298" width="41.5" height="16"/>
 <text class="id" x="0" y="330">…2270</text>
 <rect class="spec" x="64" y="318" width="41.5" height="16"/>
 <rect class="empty" x="109" y="318.5" width="40.5" height="15"/>

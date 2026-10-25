@@ -1,8 +1,9 @@
 # What is in the super-catalogue
 
 The {term}`super-catalogue` is one HDF5 file. Each row is one star, matched
-across surveys by its Gaia DR3 source ID {cite:p}`gaia2023dr3`. A row holds
-the star's spectra and its labels, wherever they exist.
+across {term}`surveys <survey>` by its Gaia DR3 source ID
+{cite:p}`gaia2023dr3`. A row holds the star's spectra and its
+{term}`labels <label>`, wherever they exist.
 
 ## One row per star
 
@@ -18,8 +19,8 @@ the star's spectra and its labels, wherever they exist.
 ```
 
 :::{container} caption
-A row is a star, its spectra and labels sit in column groups, and most cells
-are empty; the stars are illustrative.
+A row is a star, a filled label cell means the label source has a row of
+labels for it, and most cells are empty; the stars are illustrative.
 :::
 ::::
 
@@ -27,10 +28,11 @@ The rows are sorted by Gaia DR3 source ID, and row *i* is the same star in
 every group of the file. Most stars appear in only one or two surveys.
 
 Where a survey did not observe a star, the star's spectrum for that survey is
-empty: flux 0, inverse variance 0 and S/N 0. All its pixels count as missing.
-Where a label source did not measure a star, the star's labels from that
-source are empty: value 0, error 0 and flag 0. All these labels count as
-missing.
+empty: flux 0, inverse variance ({term}`ivar`) 0 and S/N 0. All its pixels
+count as missing. Where a {term}`label source` did not measure a star, the star's labels from that
+source are empty: value 0, error 0 and {term}`flag` 0. All these labels count
+as missing. Every star with a spectrum also has a label row from the label
+source of that spectrum's input file, though its labels may all be invalid.
 
 ## The groups
 
@@ -92,7 +94,7 @@ spectrum of `n_b + n_r` pixels.
 | `n_stars` | N, the number of rows |
 | `parameter_names` | the P parameter names, in column order |
 | `abundance_scale` | `x_fe` for [X/Fe] abundances, `x_h` for [X/H] |
-| `survey_names` | `boss`, `desi`, `lamost_lrs`, `lamost_mrs` |
+| `survey_names` | `boss`, `desi`, `lamost_lrs`, `lamost_mrs`, always all four, even when a survey has no group because it had no input files |
 | `label_sources` | `apogee`, `galah` |
 | `creation_date` | the build time, in ISO 8601 format |
 | `version` | the version of the file layout, `2.0.0` |
