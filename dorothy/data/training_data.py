@@ -411,6 +411,8 @@ def load_training_data(
         TrainingData with the valid rows identified.
 
     Raises:
+        FileNotFoundError: If no loader is given and the catalogue does not
+            exist.
         ValueError: If the catalogue's parameters don't match the config, or a
             label source to duplicate from is not loaded.
     """

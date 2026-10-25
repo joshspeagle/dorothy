@@ -129,6 +129,8 @@ methods/evaluation
 
 reference/commands
 reference/configuration
+reference/file-formats
+reference/old-checkpoints
 reference/surveys
 reference/glossary
 reference/api
@@ -142,6 +144,7 @@ reference/bibliography
 
 contribute/code-map
 contribute/shared-definitions
+contribute/add-a-survey
 contribute/writing
 contribute/build-docs
 ```
