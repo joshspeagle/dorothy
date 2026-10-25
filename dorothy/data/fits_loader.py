@@ -20,14 +20,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
-
-if TYPE_CHECKING:
-    from dorothy.config.schema import DataConfig
-
 
 # Column name mappings for APOGEE data
 # Maps internal parameter names to FITS column names
@@ -484,19 +479,6 @@ class FITSLoader:
         if parameters is None:
             parameters = list(APOGEE_COLUMN_MAP.keys())
         self.parameters = parameters
-
-    @classmethod
-    def from_config(cls, config: DataConfig) -> FITSLoader:
-        """
-        Create a loader from a DataConfig.
-
-        Args:
-            config: Data configuration object.
-
-        Returns:
-            Configured FITSLoader instance.
-        """
-        return cls(fits_path=config.fits_path)
 
     def load(
         self,
