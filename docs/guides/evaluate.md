@@ -30,16 +30,30 @@ the current directory.
 
 ## Step 2: Read the metrics
 
-The output has three blocks for each label source:
+For each label source, the output usually has three blocks:
 
-| Block | Units |
-|-------|-------|
-| `NORMALIZED SPACE METRICS` | {term}`normalized units`, comparable with the validation metrics of training and across parameters |
-| `PHYSICAL SPACE METRICS` | K for Teff, dex for the others |
+| Block | Contents |
+|-------|----------|
+| `NORMALIZED SPACE METRICS` | metrics in {term}`normalized units`, comparable across parameters |
+| `PHYSICAL SPACE METRICS` | metrics in K for Teff and dex for the others |
 | `CALIBRATION` | the calibration factor of each parameter, with `z_scatter` before and after calibration |
 
-Each metrics block has three tables with one row per parameter. Each metric
-answers one question:
+With calibration factors (the default), the z-score metrics and `s_p16` to
+`s_p84` use the calibrated uncertainty. So only the prediction metrics of the
+normalized block equal the validation metrics of training. With
+`--no-calibration`, all of them do.
+
+Some runs print fewer blocks or tables:
+
+- Without calibration factors, there is no `CALIBRATION` block. This happens
+  with `--no-calibration`, with `--model final_model.pth`, and after training
+  with `calibrate_uncertainties: false` or `loss: mse`.
+- Without a label normalizer, one `METRICS` block replaces the two metrics
+  blocks.
+- With `loss: mse`, the metrics blocks have no z-score table.
+
+Each metrics block otherwise has three tables, with one row per parameter.
+Each metric answers one question:
 
 | Question | Metrics |
 |----------|---------|
@@ -64,8 +78,8 @@ The command writes four plots per label source to the checkpoint's
 | `<source>_histograms.png` | the distributions of the labels and the predictions |
 | `<source>_zscore_histograms.png` | the z-scores against a standard normal distribution |
 
-Look for a trend in the residuals: a model that predicts too low at one end
-of a parameter's range and too high at the other. The z-score histograms
+Look for a trend in the residuals: predictions too low at one end of a
+parameter's range and too high at the other. The z-score histograms
 should follow the normal curve; wider histograms mean that the uncertainties
 are too small.
 

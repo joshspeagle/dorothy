@@ -13,7 +13,7 @@ table of labels with uncertainties.
 ## Step 1: Check the model
 
 ```bash
-dorothy info outputs/variant2_multi_survey/variant2_multi_survey_final
+dorothy info outputs/boss_apogee/boss_apogee_final
 ```
 
 This prints the model's configuration, its parameters and its
@@ -47,21 +47,26 @@ returns it.
 
 :::{caution}
 **A LAMOST MRS spectrum has two arms.** Write the blue arm followed by the
-red arm in one `FLUX` row, each trimmed to its own wavelength grid, as the
+red arm in one `FLUX` row. Trim each arm to its own wavelength grid, as the
 catalogue loader does.
 :::
 
 ## Step 3: Predict
 
 ```bash
-dorothy predict \
-    --checkpoint outputs/variant2_multi_survey/variant2_multi_survey_final \
-    --input boss_spectra.fits --survey boss --output predictions.csv
+dorothy predict --checkpoint outputs/boss_apogee/boss_apogee_final \
+    --input boss_spectra.fits --output predictions.csv
 ```
 
-`--survey` names the survey of the spectra. A model trained on one survey
-does not need it. For a model with two label sources, `--label-source galah`
-picks the GALAH head; the default is the first label source.
+This model has one survey and one label source, so the command takes neither
+`--survey` nor `--label-source`; the default MLP rejects both. A multi-head
+model takes them:
+
+- `--survey boss` names the survey of the spectra. A model with several
+  surveys needs it.
+- `--label-source galah` picks the GALAH head. The default is the first label
+  source.
+
 [Commands](../reference/commands.md) lists the other options.
 
 ## Step 4: Read the output

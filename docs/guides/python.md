@@ -21,41 +21,56 @@ with open("examples/variant2_multi_survey.yaml") as f:
 ```
 
 {py:func}`~dorothy.data.training_data.complete_config_from_catalogue` fills in
-the number of pixels of each survey, the output heads and the parameter names
-from the catalogue, as `dorothy train` does.
+the settings that come from the catalogue, as `dorothy train` does. These are
+the number of pixels of each survey, the output heads and the parameter
+names.
 {py:class}`~dorothy.config.schema.ExperimentConfig` validates the result.
 
-## Step 2: Load the data and split it
+## Step 2: Load the data
 
 ```python
 from dorothy.data.training_data import load_training_data
 
 data = load_training_data(config)
 data.configure_model(config)
-split = data.split(config.data.train_ratio, config.data.val_ratio, config.seed)
 ```
 
 {py:func}`~dorothy.data.training_data.load_training_data` loads the stars that
 the configuration selects. `configure_model` sets the input size of a
-single-survey MLP. `split` returns the rows of the training, validation and
-test sets as a {py:class}`~dorothy.data.training_data.DataSplit`.
+single-survey MLP.
 
-## Step 3: Train and save the checkpoint
+## Step 3: Split the stars
+
+```python
+split = data.split(config.data.train_ratio, config.data.val_ratio, config.seed)
+```
+
+`split` returns the rows of the training, validation and test sets as a
+{py:class}`~dorothy.data.training_data.DataSplit`. The seed makes the split
+the same in every run.
+
+## Step 4: Train
 
 ```python
 from dorothy.training import Trainer
 
 trainer = Trainer(config)
 history = data.fit(trainer, split)
+```
+
+`history` holds the losses and metrics of each epoch.
+
+## Step 5: Save the checkpoint
+
+```python
 checkpoint_dir = trainer.save_checkpoint()
 split.save(checkpoint_dir, data)
 ```
 
-`history` holds the losses and metrics of each epoch.
-`save_checkpoint` writes the checkpoint directory, as `dorothy train` does,
-and `split.save` adds the split, which evaluation reads.
+`save_checkpoint` writes the checkpoint directory, as `dorothy train` does.
+`split.save` adds the split, which evaluation reads.
 
-## Step 4: Evaluate
+## Step 6: Evaluate
 
 ```python
 from dorothy.inference import evaluate_model, load_checkpoint
@@ -75,28 +90,37 @@ the label normalizer and the configuration.
 source, with the metrics in normalized and physical units. It applies the
 calibration factors only when it is given them.
 
-## Step 5: Prepare your own spectra
+## Step 7: Prepare your own spectra
 
 ```python
 import numpy as np
 
-from dorothy.data import encode_precision, ivar_to_error_and_mask, normalize_spectra
+from dorothy.data import (
+    encode_precision,
+    ivar_to_error_and_mask,
+    normalize_spectra,
+    zero_invalid_pixels,
+)
 
-flux, ivar = normalize_spectra(flux, ivar)  # each of shape (n, n_wavelengths)
+data_config = ckpt.config.data
+if data_config.normalize_spectra:
+    flux, ivar = normalize_spectra(flux, ivar)  # each of shape (n, n_wavelengths)
+else:
+    flux, ivar = zero_invalid_pixels(flux, ivar)
 sigma, mask = ivar_to_error_and_mask(ivar)
-X = encode_precision(np.stack([flux, sigma, mask], axis=1))
+X = np.stack([flux, sigma, mask], axis=1)
+if data_config.precision_encoding:
+    X = encode_precision(X)
 ```
 
 The model takes spectra of shape `(n, 3, n_wavelengths)`, preprocessed as in
-training ([Preprocessing](../methods/preprocessing.md)). This code does what
-`dorothy predict` does with a FITS file. If the checkpoint's
-`data.normalize_spectra` is false, call
-{py:func}`~dorothy.data.fits_loader.zero_invalid_pixels` in place of
-`normalize_spectra`. For a catalogue star,
+training ([Preprocessing](../methods/preprocessing.md)). The checkpoint's
+configuration says which steps apply. This code does what `dorothy predict`
+does with a FITS file. For a catalogue star,
 {py:meth}`~dorothy.data.catalogue_loader.CatalogueLoader.load_spectrum` does
 all of this.
 
-## Step 6: Predict
+## Step 8: Predict
 
 ```python
 from dorothy.inference import Predictor
@@ -114,9 +138,9 @@ uncertainties include the calibration factors when the checkpoint has them;
 `Predictor.load(..., calibrate=False)` gives the raw predicted scatter, and
 `result.calibrated` says which. `predict` applies no preprocessing.
 
-To predict from several surveys at once, pass a dict of arrays, one per
-survey, with `has_data`, a dict of `(n,)` booleans that marks which stars
-have each survey.
+To predict from several surveys at once, pass a dict with one array per
+survey. Also pass `has_data`: a dict of `(n,)` booleans that marks which
+stars have each survey.
 
 ## Next
 

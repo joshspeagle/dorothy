@@ -48,7 +48,8 @@ The files in `examples/` are complete configurations to start from:
 | `variant6_galah_xh_extended.yaml` | all four | APOGEE, GALAH | yes |
 
 `boss_training.yaml` is a short run of 10 epochs. `variant6` needs a catalogue
-built with 20 parameters as [X/H] (`data/super_catalogue_xh_extended.h5`).
+with 20 parameters, `data/super_catalogue_xh_extended.h5`: `teff`, `logg`,
+`fe_h` and 17 abundances as [X/H].
 [Combine surveys and label sources](combine.md) explains the settings of the
 examples with several surveys or label sources.
 

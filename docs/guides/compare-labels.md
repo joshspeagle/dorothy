@@ -18,8 +18,9 @@ comparison = compare_label_sources("data/super_catalogue.h5", max_flag_bits=0)
 print(comparison.summary())
 ```
 
-{py:func}`~dorothy.analysis.label_comparison.compare_label_sources` prints one
-row per parameter. A star counts for a parameter when both sources have a
+{py:func}`~dorothy.analysis.label_comparison.compare_label_sources` returns a
+{py:class}`~dorothy.analysis.label_comparison.LabelComparison`. Its `summary`
+method formats a table with one row per parameter, and `print` prints it. A star counts for a parameter when both sources have a
 valid label of it ([Labels and quality flags](../catalogue/labels.md)).
 `max_flag_bits` works as `data.max_flag_bits` does in training. The function
 matches the stars by Gaia ID, so the sources may store their rows in different
@@ -71,7 +72,7 @@ constant offset between the sources.
 the errors have heavier tails than a normal distribution, correct
 uncertainties also give `ratio` < 1; lighter tails give `ratio` > 1. For
 errors of unit standard deviation, (P84 − P16) / 2 is −ln(0.32) / √2 = 0.81
-for a Laplace distribution and 0.68 √3 = 1.18 for a uniform distribution.
+for a Laplace distribution. It is 0.68 √3 = 1.18 for a uniform distribution.
 
 `ratio` divides each star's difference by its own σ_d. When the
 uncertainties vary from star to star, `robust_spread / predicted_spread` can

@@ -8,7 +8,7 @@ from both APOGEE and GALAH.
 - A configuration that trains, as in [Train a model](train.md).
 - The super-catalogue, with the surveys and label sources you choose.
 
-## Step 1: Choose the surveys and label sources
+## Step 1: Choose the data
 
 List them in the `data` section:
 
@@ -20,30 +20,33 @@ data:
   max_flag_bits: -1
 ```
 
-Training keeps every star that has a spectrum from at least one of the
-surveys and at least one valid label from one of the label sources. Most stars
-have only some of them; the model treats the rest as missing.
+Training keeps a star when it has a spectrum from at least one of the
+surveys. It must also have at least one valid label. Most stars have only some
+surveys and labels; the model treats the rest as missing.
+
 `max_flag_bits: -1` keeps each star's valid labels and masks only its flagged
-ones, so that stars with a few flagged labels are not dropped
+ones. Stars with a few flagged labels are therefore not dropped
 ([Labels and quality flags](../catalogue/labels.md)).
 
-## Step 2: Use the multi-head model
+## Step 2: Size the multi-head model
 
-Several surveys or label sources need the `multi_head_model` section in
-place of `model`:
+Several surveys or label sources need the multi-head model: one
+{term}`encoder` per survey, a shared {term}`trunk`, and one output
+{term}`head` per label source ([The model](../methods/model.md)).
+`dorothy train` adds the `multi_head_model` section itself. It fills in the
+number of pixels of each survey from the catalogue, and the heads from
+`data.label_sources`.
+
+Write the section only to change a value, such as the layer sizes:
 
 ```yaml
 multi_head_model:
-  latent_dim: 256
-  encoder_hidden: [1024, 512]
-  trunk_hidden: [512, 256]
-  output_hidden: [64]
+  latent_dim: 128
+  encoder_hidden: [512, 256]
 ```
 
-The model has one {term}`encoder` per survey, a shared {term}`trunk`, and one
-output {term}`head` per label source ([The model](../methods/model.md)).
-`dorothy train` fills in the number of pixels of each survey and the heads
-from the catalogue and from `data.label_sources`.
+Every field that you leave out keeps its default
+([Configuration](../reference/configuration.md)).
 
 ## Step 3: Turn on masking
 
@@ -76,14 +79,17 @@ With either setting, `label_source_weights` multiplies the weight of each
 source; a source that it leaves out keeps weight 1. [Uncertainties](../methods/uncertainties.md)
 gives the loss.
 
-## Step 5: Train and check each head
+## Step 5: Train
 
 ```bash
 dorothy train combined.yaml
 ```
 
-The output also prints the best epoch of each label source. The checkpoint
-works as in the other guides, with two differences:
+The output also prints the best epoch of each label source.
+
+## Step 6: Use each head
+
+The checkpoint works as in the other guides, with two differences:
 
 - `dorothy evaluate` reports the metrics and plots of each head
   ([Evaluate a model](evaluate.md)).

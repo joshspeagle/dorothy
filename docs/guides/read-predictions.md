@@ -43,9 +43,8 @@ dorothy evaluate outputs/boss_apogee/boss_apogee_final
 ```
 
 For each parameter, `z_scatter` should be close to 1 and `z_median` close
-to 0. A parameter that misses these on the test stars has uncertainties that
-are too small or too large, or predictions with a bias
-([Evaluate a model](evaluate.md)). The calibration factors hold for new stars
+to 0. If a parameter misses these on the test stars, its uncertainties have the
+wrong size or its predictions have a bias ([Evaluate a model](evaluate.md)). The calibration factors hold for new stars
 only when those stars resemble the validation stars.
 
 ## Step 4: Flag unusual spectra
