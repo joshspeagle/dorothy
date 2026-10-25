@@ -5,7 +5,7 @@
 .d-lab { border-top: 3px solid var(--d-teal-fill); background: var(--d-surface); margin: 24px 0; }
 .d-lab-h { margin: 0 !important; padding: 16px 20px 0; color: var(--d-muted); font-size: 16px; }
 .d-lab-plot { padding: 8px 20px 0; }
-.d-lab .d-lab-plot svg[role="img"] { display: block; width: 100%; height: auto; margin: 0; overflow: visible; }
+.d-lab .d-lab-plot svg[role="img"] { margin: 0; overflow: visible; }
 .d-readout { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: baseline; margin: 12px 20px 0; padding: 14px 20px; background: var(--d-bg); border: 1px solid var(--d-rule); }
 .d-readout .k { display: block; font-size: 14px; color: var(--d-muted); }
 .d-readout .big { font-family: var(--d-mono); font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -41,15 +41,13 @@
 .d-lab svg .sym { font-family: KaTeX_Math, "Times New Roman", serif; font-style: italic; font-size: 16px; fill: var(--d-ink); }
 .d-lab svg .ink { fill: var(--d-ink); }
 .d-lab svg .head { font-weight: 700; fill: var(--d-ink); }
-.d-lab svg .mono { font-family: var(--d-mono); font-size: 12px; fill: var(--d-ink); }
 .d-lab svg .ax { fill: none; stroke: var(--d-axis); stroke-width: 1; }
 .d-lab svg .curve { fill: none; stroke: var(--d-ink); stroke-width: 2; }
 .d-lab svg .guide { fill: none; stroke: var(--d-ink); stroke-width: 1.2; stroke-dasharray: 2 3; }
 .d-lab svg .mline { fill: none; stroke: var(--d-teal); stroke-width: 2; }
-.d-lab svg .model { fill: var(--d-teal-tint, #DCEFEC); stroke: var(--d-teal); stroke-width: 1.5; }
+.d-lab svg .model { fill: var(--d-teal-tint); stroke: var(--d-teal); stroke-width: 1.5; }
 .d-lab svg .bar, .d-lab svg .vec { fill: var(--d-teal-fill); stroke: none; }
 .d-lab svg .dot { fill: var(--d-teal); stroke: none; }
-.d-lab svg .in { fill: var(--d-bg); stroke: var(--d-axis); stroke-width: 1; }
 .d-lab svg .missing { fill: none; stroke: var(--d-axis); stroke-width: 1.2; stroke-dasharray: 4 3; }
 .d-lab svg .zero { fill: var(--d-bg); stroke: var(--d-axis); stroke-width: 1; stroke-dasharray: 4 3; }
 .d-lab svg .arrow { fill: none; stroke: var(--d-ink); stroke-width: 1.2; }
