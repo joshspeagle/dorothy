@@ -78,8 +78,6 @@
 
 ### Fixed
 
-- `FITSLoader` raises `ValueError` for a parameter name it cannot read. With
-  `load(require_labels=False)`, a misspelled name gave all-NaN labels.
 - The `plot_*` functions in `visualization.training_plots` accept a `str`
   output directory. They raised `TypeError`.
 - `AnomalyDetector.fit` raises `ValueError` for a `k` that is not an integer
@@ -225,6 +223,8 @@
 
 ### Behaviour changes
 
+- `FITSLoader` raises `ValueError` on construction for a parameter name it cannot read. With
+  `load(require_labels=False)`, a misspelled name gave all-NaN labels.
 - `CatalogueLoader.load_multi` raises `ValueError` for a `mode` other than
   `union` or `intersection`, which it treated as `intersection`, and for an
   empty `surveys` list.

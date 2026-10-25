@@ -487,7 +487,7 @@ class FITSLoader:
                 f"parameters has unknown names {unknown}; expected names from "
                 f"{list(APOGEE_COLUMN_MAP)}"
             )
-        self.parameters = parameters
+        self.parameters = list(parameters)
 
     def load(
         self,
@@ -519,8 +519,8 @@ class FITSLoader:
         Raises:
             FileNotFoundError: If FITS file doesn't exist.
             ValueError: If a required extension is missing, or, with
-                require_labels, a parameter is not in ``APOGEE_COLUMN_MAP`` or
-                its columns are not in the APOGEE table.
+                require_labels, the APOGEE extension or a parameter's columns
+                are missing.
         """
         if not self.fits_path.exists():
             raise FileNotFoundError(f"FITS file not found: {self.fits_path}")
