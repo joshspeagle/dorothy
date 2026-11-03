@@ -1239,14 +1239,21 @@ def plot_parameter_saliency(
         # Determine color normalization
         if is_fisher:
             # Fisher importance - non-negative
-            norm = Normalize(vmin=0, vmax=np.percentile(fisher_importance[mask], 99))
+            vmax = np.percentile(fisher_importance[mask], 99)
+            norm = (
+                Normalize(vmin=0, vmax=vmax) if vmax > 0 else Normalize(vmin=0, vmax=1)
+            )
         else:
             # Gradient panels - symmetric around zero
             max_val = max(
                 np.percentile(np.abs(flux_grad[mask]), 99),
                 np.percentile(np.abs(error_grad[mask]), 99),
             )
-            norm = Normalize(vmin=-max_val, vmax=max_val)
+            norm = (
+                Normalize(vmin=-max_val, vmax=max_val)
+                if max_val > 0
+                else Normalize(vmin=-1, vmax=1)
+            )
 
         # --- Flux subplot ---
         # Create colored line collection
@@ -1446,8 +1453,6 @@ def plot_saliency_heatmap(
             max_val = np.abs(valid_data).max()
             if max_val > 0:
                 normalized[2 * i : 2 * i + 2, :] = rows / max_val
-            else:
-                normalized[2 * i : 2 * i + 2, :] = rows
         return normalized
 
     mean_normalized = normalize_per_component(mean_combined, result.mask)
@@ -1723,8 +1728,9 @@ def plot_ablation_parameter_saliency(
         valid_vals = flux_imp[mask]
         if is_fisher:
             # Fisher importance is non-negative
-            if valid_vals.max() > 0:
-                norm = Normalize(vmin=0, vmax=np.percentile(valid_vals, 99))
+            vmax = np.percentile(valid_vals, 99)
+            if vmax > 0:
+                norm = Normalize(vmin=0, vmax=vmax)
             else:
                 norm = Normalize(vmin=0, vmax=1)
         else:
@@ -1928,8 +1934,6 @@ def plot_ablation_saliency_heatmap(
             max_abs = np.abs(valid_data).max()
             if max_abs > 0:
                 normalized[2 * i : 2 * i + 2, :] = rows / max_abs
-            else:
-                normalized[2 * i : 2 * i + 2, :] = rows
         return normalized
 
     # Normalize non-negative arrays per-component to [0, 1]
@@ -1946,8 +1950,6 @@ def plot_ablation_saliency_heatmap(
             max_val = valid_data.max()
             if max_val > 0:
                 normalized[2 * i : 2 * i + 2, :] = rows / max_val
-            else:
-                normalized[2 * i : 2 * i + 2, :] = rows
         return normalized
 
     delta_mu_normalized = normalize_signed_per_component(delta_mu_combined, result.mask)

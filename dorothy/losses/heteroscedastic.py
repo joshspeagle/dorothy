@@ -402,20 +402,22 @@ class MaskedMSELoss(nn.Module):
         Returns:
             Dictionary with the keys 'loss' (reduced), 'mean_component' and
             'scatter_component' (both shape (n_parameters,)), 'residuals'
-            (mu - y, shape (batch, n_parameters), taken from the stored labels
-            also at masked entries) and 'y_pred' (predicted means). Unlike
-            HeteroscedasticLoss it has no 'pred_scatter'.
+            (mu - y, shape (batch, n_parameters), 0 where masked) and 'y_pred'
+            (predicted means). Unlike HeteroscedasticLoss it has no
+            'pred_scatter'.
 
         Raises:
             ValueError: If output or target shapes don't match expectations.
         """
         loss = self.element_losses(output, target)
-        valid_counts = (target[:, 2, :] > 0).sum(dim=0).clamp(min=1)
+        mu = output[:, 0, :]
+        y, mask = _safe_targets(mu, target)
+        valid_counts = (mask > 0).sum(dim=0).clamp(min=1)
         mean_component = loss.sum(dim=0) / valid_counts
         return {
             "loss": self.forward(output, target),
             "mean_component": mean_component,
             "scatter_component": torch.zeros_like(mean_component),
-            "residuals": output[:, 0, :] - target[:, 0, :],
-            "y_pred": output[:, 0, :],
+            "residuals": mu - y,
+            "y_pred": mu,
         }

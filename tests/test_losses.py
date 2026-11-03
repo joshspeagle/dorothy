@@ -566,4 +566,6 @@ class TestNonFiniteMaskedTargets:
             loss.backward()
             assert torch.isfinite(loss)
             assert torch.isfinite(output.grad).all()
-            assert torch.isfinite(loss_fn.forward_detailed(output, target)["loss"])
+            detailed = loss_fn.forward_detailed(output, target)
+            assert torch.isfinite(detailed["loss"])
+            assert torch.isfinite(detailed["residuals"]).all()

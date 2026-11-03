@@ -490,6 +490,37 @@ class TestVisualization:
         assert fig is not None
         plt.close(fig)
 
+    def test_plot_with_zero_gradients_and_fisher(self, sample_result):
+        """Zero-valued gradients and Fisher importance produce valid finite norms."""
+        matplotlib = pytest.importorskip("matplotlib")
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        sample_result.jacobian_mean_flux.fill(0.0)
+        sample_result.jacobian_mean_error.fill(0.0)
+        sample_result.jacobian_sigma_flux.fill(0.0)
+        sample_result.jacobian_sigma_error.fill(0.0)
+        sample_result.fisher_importance_per_param.fill(0.0)
+        sample_result.fisher_importance.fill(0.0)
+
+        from matplotlib.collections import LineCollection
+
+        fig = plot_parameter_saliency(sample_result, "teff")
+        line_collections = [
+            coll
+            for ax in fig.axes
+            for coll in ax.collections
+            if isinstance(coll, LineCollection) and coll.get_array() is not None
+        ]
+        assert len(line_collections) > 0
+        for coll in line_collections:
+            assert coll.norm.vmin < coll.norm.vmax
+        plt.close(fig)
+
+        fig = plot_saliency_heatmap(sample_result)
+        assert fig is not None
+        plt.close(fig)
+
 
 class TestWithMultiHeadMLP:
     """Tests with the actual MultiHeadMLP model."""
