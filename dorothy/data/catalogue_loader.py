@@ -615,19 +615,45 @@ class SparseMergedData:
     parameter_names: list[str] | None = None  # Label parameter names (n_params,)
 
     def has_data(self, survey: str) -> np.ndarray:
-        """Return the boolean mask, shape (n_total,), of stars with data for survey."""
+        """Return the boolean mask of stars with data for a survey.
+
+        Args:
+            survey: Survey name.
+
+        Returns:
+            Boolean mask of shape (n_total,) indicating which stars have data
+            for ``survey``.
+        """
         return self.global_to_local[survey] >= 0
 
     def coverage(self, survey: str) -> float:
-        """Return fraction of stars with data for this survey."""
+        """Return the fraction of stars with data for a survey.
+
+        Args:
+            survey: Survey name.
+
+        Returns:
+            Fraction of total stars in [0, 1] observed by ``survey``.
+        """
         return np.sum(self.global_to_local[survey] >= 0) / self.n_total
 
     def n_with_data(self, survey: str) -> int:
-        """Return number of stars with data for this survey."""
+        """Return the number of stars with data for a survey.
+
+        Args:
+            survey: Survey name.
+
+        Returns:
+            Count of stars observed by ``survey``.
+        """
         return len(self.local_to_global[survey])
 
     def get_coverage_stats(self) -> dict[str, int]:
-        """Get the number of stars with data from each survey."""
+        """Get the number of stars with data from each survey.
+
+        Returns:
+            Mapping from survey name to star count.
+        """
         return {survey: self.n_with_data(survey) for survey in self.surveys}
 
     def memory_usage_mb(self) -> dict[str, float]:
@@ -689,7 +715,11 @@ class SparseMergedData:
         return np.any(self.labels[:, 2, :] > 0, axis=1)
 
     def is_multi_label(self) -> bool:
-        """Return whether more than one label source is loaded."""
+        """Return whether more than one label source is loaded.
+
+        Returns:
+            True when ``label_sources`` contains two or more sources.
+        """
         return self.label_sources is not None and len(self.label_sources) > 1
 
 
@@ -1073,14 +1103,22 @@ class CatalogueLoader:
         return result
 
     def list_surveys(self) -> list[str]:
-        """List the survey names in the catalogue."""
+        """List the survey names in the catalogue.
+
+        Returns:
+            Survey group names present under ``surveys/`` in the HDF5 file.
+        """
         with h5py.File(self.path, "r") as f:
             if "surveys" in f:
                 return list(f["surveys"].keys())
             return []
 
     def list_label_sources(self) -> list[str]:
-        """List the label group names in the catalogue."""
+        """List the label group names in the catalogue.
+
+        Returns:
+            Label source group names present under ``labels/`` in the HDF5 file.
+        """
         with h5py.File(self.path, "r") as f:
             if "labels" in f:
                 return list(f["labels"].keys())
@@ -1088,6 +1126,9 @@ class CatalogueLoader:
 
     def get_label_source_for_survey(self, survey: str) -> str | None:
         """Get the label group that ``SURVEY_LABEL_MAP`` assigns to a survey.
+
+        Args:
+            survey: Survey name.
 
         Returns:
             The group name, or None if the survey is not in the map.
