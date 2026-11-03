@@ -119,22 +119,10 @@ def load_model_from_checkpoint(
     Returns:
         Tuple of (model, normalizer, config).
     """
-    config = ExperimentConfig.load_checkpoint_config(checkpoint_path / "config.yaml")
-    model = MultiHeadMLP.from_config(config.multi_head_model)
+    from dorothy.inference import load_checkpoint
 
-    # Load weights
-    model_path = checkpoint_path / "best_model.pth"
-    state_dict = torch.load(model_path, map_location=device, weights_only=True)
-    model.load_state_dict(state_dict)
-    model.eval()
-
-    # Load normalizer if available
-    normalizer = None
-    normalizer_path = checkpoint_path / "normalizer.pkl"
-    if normalizer_path.exists():
-        normalizer = LabelNormalizer.load(normalizer_path)
-
-    return model, normalizer, config
+    ckpt = load_checkpoint(checkpoint_path, device=device)
+    return ckpt.model, ckpt.normalizer, ckpt.config
 
 
 def load_spectrum_from_catalogue(
