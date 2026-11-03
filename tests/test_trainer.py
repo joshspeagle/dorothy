@@ -1904,8 +1904,10 @@ class TestTrainerMultiLabelsetMixedOverlap:
         y_apogee[20:30, 2, 0] = 1.0
         y_apogee[20:30, 2, 1:] = 0.0
 
-        # All samples have some APOGEE labels
+        # Sample 0 has no APOGEE labels at all (even if its raw mask is NaN)
         has_apogee = np.ones(n_samples, dtype=bool)
+        has_apogee[0] = False
+        y_apogee[0, :, :] = np.nan
 
         # GALAH: just give all samples full labels for simplicity
         y_galah = np.zeros((n_samples, 3, n_params), dtype=np.float32)
@@ -2136,7 +2138,7 @@ class TestWeightAverage:
         for file, trained in expected:
             saved = torch.load(file, weights_only=True)
             for name, value in _moving_average(trained, decay, every).items():
-                torch.testing.assert_close(saved[name], value)
+                torch.testing.assert_close(saved[name], value, check_device=False)
 
     def test_weight_average_changes_validation_but_not_training(
         self, batchnorm_config, training_data

@@ -273,6 +273,33 @@ class TestPredictorChunked:
         assert result.predictions.shape == (50, 3)
         assert result.uncertainties.shape == (50, 3)
 
+    def test_predict_all_chunked_empty_iterator_returns_empty_result(
+        self, simple_model
+    ):
+        """An empty chunk iterator returns an empty (0, n_params) PredictionResult."""
+        predictor = Predictor(
+            simple_model,
+            device="cpu",
+            parameter_names=["teff", "logg", "fe_h"],
+        )
+
+        result = predictor.predict_all_chunked(iter([]))
+
+        assert result.n_samples == 0
+        assert result.predictions.shape == (0, 3)
+        assert result.uncertainties.shape == (0, 3)
+        assert result.raw_output.shape == (0, 2, 3)
+
+    def test_predictor_default_parameter_names_exceeding_stellar_parameters(self):
+        """Models with >11 parameters pad fallback parameter_names with param_i."""
+        from dorothy.models import MLP
+
+        model = MLP(input_features=20, hidden_layers=[16], output_features=26)
+        predictor = Predictor(model, device="cpu")
+
+        assert len(predictor.parameter_names) == 13
+        assert predictor.parameter_names[-2:] == ["param_11", "param_12"]
+
 
 class TestPredictorEmbeddings:
     """Tests for embedding extraction."""

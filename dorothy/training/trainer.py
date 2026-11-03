@@ -951,7 +951,8 @@ class Trainer:
                 arr = _as_numpy(y_dict[k]).astype(np.float32, copy=True)
                 _check_label_array(k, arr)
                 if has_labels is not None:
-                    arr[:, 2, :] *= _as_numpy(has_labels[k]).astype(bool)[:, None]
+                    has_k = _as_numpy(has_labels[k]).astype(bool)
+                    arr[~has_k, 2, :] = 0.0
                 out[k] = arr
             return out
 

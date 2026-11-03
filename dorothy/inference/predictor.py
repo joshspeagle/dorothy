@@ -189,7 +189,10 @@ class Predictor:
                 from dorothy.config.schema import STELLAR_PARAMETERS
 
                 n_params = model.n_parameters
-                parameter_names = list(STELLAR_PARAMETERS[:n_params])
+                parameter_names = [
+                    *STELLAR_PARAMETERS[:n_params],
+                    *[f"param_{i}" for i in range(len(STELLAR_PARAMETERS), n_params)],
+                ]
         self.parameter_names = parameter_names
 
     @classmethod
@@ -430,6 +433,16 @@ class Predictor:
                 X_iterator, denormalize=denormalize, batch_size=batch_size
             )
         )
+        if not results:
+            n_params = len(self.parameter_names)
+            return PredictionResult(
+                predictions=np.empty((0, n_params), dtype=np.float32),
+                uncertainties=np.empty((0, n_params), dtype=np.float32),
+                raw_output=np.empty((0, 2, n_params), dtype=np.float32),
+                parameter_names=self.parameter_names,
+                is_normalized=not (denormalize and self.normalizer is not None),
+                calibrated=self.calibration is not None,
+            )
         return PredictionResult(
             predictions=np.vstack([r.predictions for r in results]),
             uncertainties=np.vstack([r.uncertainties for r in results]),
