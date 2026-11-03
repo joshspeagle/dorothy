@@ -12,7 +12,7 @@ Baseline: `main` = 652 pass / 1 fail. `dorothy_update` = 51 fail / 30 error.
 
 ---
 
-## Phase 0 — Tooling & baseline
+## Phase 0: Tooling & baseline
 
 - [Q] Add `black` to `[dev]` extras; add `[tool.black] line-length = 100` to match ruff.
 - [Q] CI lint job: make it check-only (`black --check`, `ruff check`) instead of
@@ -22,7 +22,7 @@ Baseline: `main` = 652 pass / 1 fail. `dorothy_update` = 51 fail / 30 error.
   (or replace with a portable popcount).
 - [B] Fix failing test: `load_merged_sparse` never calls `_check_for_duplicates`.
 
-## Phase 1 — Port Diego's work (done properly)
+## Phase 1: Port Diego's work (done properly)
 
 - **Data-driven parameter list** (replaces hard-coded 11→20):
   - Loader reads `parameter_names` from catalogue attrs (fallback: label width);
@@ -42,7 +42,7 @@ Baseline: `main` = 652 pass / 1 fail. `dorothy_update` = 51 fail / 30 error.
   thread through every model constructor (trainer, CLI evaluate, Predictor).
 - `LabelNormalizer.fit`: all-masked parameter → identity stats + warning (needed
   when a parameter exists for GALAH but not APOGEE, e.g. Ba/Sr).
-- Input masking that drops a survey must also clear `has_data` — implemented in
+- Input masking that drops a survey must also clear `has_data`, implemented in
   `DynamicInputMasking` itself so all paths get it (Diego fixed sparse only).
 - Catalogue builder: merge `build_catalogue_ALL_GALAH.py` into
   `build_catalogue_v2.py` as options (`--x-h`, extended element set) instead of a
@@ -55,7 +55,7 @@ Baseline: `main` = 652 pass / 1 fail. `dorothy_update` = 51 fail / 30 error.
   prints, dead `overall_loss`, half-finished evaluate block.
 - Update examples (variant5 etc.) for new options.
 
-## Phase 2 — Trainer consolidation (the revamp; public API unchanged)
+## Phase 2: Trainer consolidation (the revamp; public API unchanged)
 
 Write characterization tests first (sparse path currently has **zero** tests),
 then collapse the four near-duplicate fit loops into: data module per input kind
@@ -82,14 +82,14 @@ signatures/keys. Bugs fixed structurally:
   paths; LR history per-step vs per-epoch; 0- vs 1-based epoch logs.
 - Save `best_epoch`/`best_val_loss` in history pickle.
 
-## Phase 3 — Inference, evaluation, CLI
+## Phase 3: Inference, evaluation, CLI
 
 - [B] `evaluate_on_dense_data` passes `has_data` positionally → treated as
   `survey`; every star "has" every survey → wrong metrics.
 - [B] `dorothy predict` feeds 2-channel `[flux, ivar]`; models are trained on
   3-channel `[flux, sigma, mask]` → shape error on every trained model.
 - [B] `Predictor` MLP-only; infers architecture with lexicographic key sort
-  (wrong for >3 hidden layers — i.e. the default); ignores `config.yaml`
+  (wrong for >3 hidden layers, i.e. the default); ignores `config.yaml`
   (activation/norm/scatter_floor) → silent wrong predictions. Rebuild from
   `config.yaml`; support MultiHeadMLP (survey + label source selection).
 - [B] Single-survey split filter: train uses `mask.any`, evaluate /
@@ -105,7 +105,7 @@ signatures/keys. Bugs fixed structurally:
   evaluation scores primary head only → all heads.
 - kNN anomaly: restore public `get_embeddings` path, make it multi-head aware.
 
-## Phase 4 — Data loading, analysis, scripts
+## Phase 4: Data loading, analysis, scripts
 
 - [B] Real v2 catalogues with LAMOST MRS: `get_info()`/`load()`/
   `get_survey_wavelengths()` read missing `wavelength` key → `info()` and
@@ -125,7 +125,7 @@ signatures/keys. Bugs fixed structurally:
 - [Q] Consolidate duplicated label-source resolution / remap / ivar→sigma code;
   plots use last epoch instead of best epoch; `--verbose` can't be disabled.
 
-## Phase 5 — Docs & assistant rules
+## Phase 5: Docs & assistant rules
 
 - Rewrite `CLAUDE.md`: accurate config examples (current examples use
   non-existent `survey`/`label_source`/`architecture` keys that are silently

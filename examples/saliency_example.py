@@ -82,8 +82,9 @@ def create_synthetic_spectrum(
         flux -= depth * np.exp(-((wavelength - center) ** 2) / (2 * width**2))
 
     # Add noise
+    rng = np.random.default_rng(42)
     noise_level = 0.02
-    flux += np.random.randn(n_wavelengths) * noise_level
+    flux += rng.standard_normal(n_wavelengths) * noise_level
 
     # Error spectrum
     error = np.ones(n_wavelengths) * noise_level

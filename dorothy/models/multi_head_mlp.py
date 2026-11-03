@@ -890,7 +890,12 @@ class MultiHeadMLP(nn.Module):
         return self.encoders[survey](x)
 
     def count_parameters(self) -> int:
-        """Count the trainable parameters."""
+        """Count the trainable parameters.
+
+        Returns:
+            Total number of trainable scalar parameters across all encoders,
+            shared trunk, and output heads.
+        """
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def count_parameters_by_component(self) -> dict[str, int]:
