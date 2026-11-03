@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 
-from dorothy.config.schema import ExperimentConfig
+from dorothy.config.schema import ExperimentConfig, default_parameter_names
 from dorothy.data.normalizer import LabelNormalizer
 from dorothy.inference.calibration import load_calibration
 from dorothy.models import MLP, MultiHeadMLP
@@ -56,11 +56,7 @@ class LoadedCheckpoint:
             return list(self.normalizer.parameters)
         if self.config is not None:
             return self.config.parameter_names
-        from dorothy.config.schema import STELLAR_PARAMETERS
-
-        n_params = self.model.n_parameters
-        names = list(STELLAR_PARAMETERS[:n_params])
-        return names + [f"param_{i}" for i in range(len(names), n_params)]
+        return default_parameter_names(self.model.n_parameters)
 
     @property
     def scatter_floor(self) -> float:

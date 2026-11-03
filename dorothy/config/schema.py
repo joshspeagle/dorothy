@@ -87,6 +87,21 @@ _SPECIAL_DISPLAY_NAMES = {
 }
 
 
+def default_parameter_names(n_parameters: int) -> list[str]:
+    """Return the first ``n_parameters`` standard names, then ``param_<i>``.
+
+    Args:
+        n_parameters: Number of model output parameters.
+
+    Returns:
+        List of ``n_parameters`` parameter names.
+    """
+    return [
+        *STELLAR_PARAMETERS[:n_parameters],
+        *[f"param_{i}" for i in range(len(STELLAR_PARAMETERS), n_parameters)],
+    ]
+
+
 def parameter_display_name(name: str) -> str:
     """Return a plot label for a parameter name.
 
@@ -881,10 +896,7 @@ class ExperimentConfig(_ConfigModel):
             n_params = self.multi_head_model.n_parameters
         else:
             n_params = self.model.n_parameters
-        names = list(STELLAR_PARAMETERS[:n_params])
-        # Generic names for any outputs beyond the standard list
-        names += [f"param_{i}" for i in range(len(names), n_params)]
-        return names
+        return default_parameter_names(n_params)
 
     @model_validator(mode="after")
     def validate_model_config(self) -> ExperimentConfig:

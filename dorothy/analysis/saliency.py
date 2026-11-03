@@ -29,7 +29,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from dorothy.config.schema import STELLAR_PARAMETERS
+from dorothy.config.schema import STELLAR_PARAMETERS, default_parameter_names
 from dorothy.losses import predicted_scatter
 from dorothy.utils import resolve_device
 
@@ -48,9 +48,9 @@ DEFAULT_PARAMETER_NAMES = list(STELLAR_PARAMETERS)
 
 def _default_parameter_names(model: nn.Module) -> list[str]:
     """Standard parameter names sized to the model's number of outputs."""
-    n_params = getattr(model, "n_parameters", len(DEFAULT_PARAMETER_NAMES))
-    names = DEFAULT_PARAMETER_NAMES[:n_params]
-    return names + [f"param_{i}" for i in range(len(names), n_params)]
+    return default_parameter_names(
+        getattr(model, "n_parameters", len(DEFAULT_PARAMETER_NAMES))
+    )
 
 
 @dataclass
@@ -1116,6 +1116,276 @@ def _require_valid_pixels(result: SaliencyResult | AblationSaliencyResult) -> No
         )
 
 
+def _format_parameter_subtitle(
+    result: SaliencyResult | AblationSaliencyResult,
+    param_name: str,
+    param_idx: int,
+    normalizer: LabelNormalizer | None,
+    label_values: NDArray[np.float32] | None,
+    label_errors: NDArray[np.float32] | None,
+) -> str:
+    """Format the second title line showing truth and predicted parameter values."""
+    if normalizer is not None:
+        pred_denorm, unc_denorm = normalizer.inverse_transform(
+            result.predictions.reshape(1, -1),
+            result.uncertainties.reshape(1, -1),
+        )
+        pred_val = pred_denorm[0, param_idx]
+        pred_unc = unc_denorm[0, param_idx]
+    else:
+        pred_val = result.predictions[param_idx]
+        pred_unc = result.uncertainties[param_idx]
+
+    if param_name == "teff":
+        pred_str = f"{pred_val:.0f} ± {pred_unc:.0f} K"
+    else:
+        pred_str = f"{pred_val:.3f} ± {pred_unc:.3f}"
+
+    if label_values is not None:
+        truth_val = label_values[param_idx]
+        truth_err = label_errors[param_idx] if label_errors is not None else 0.0
+        if param_name == "teff":
+            truth_str = f"{truth_val:.0f} ± {truth_err:.0f} K"
+        else:
+            truth_str = f"{truth_val:.3f} ± {truth_err:.3f}"
+        return f"{param_name.upper()} = {truth_str}  (Pred: {pred_str})"
+
+    param_str = f"{param_name.upper()} = {pred_str}"
+    if normalizer is None:
+        param_str += " (normalized)"
+    return param_str
+
+
+def _plot_parameter_saliency_panels(
+    result: SaliencyResult | AblationSaliencyResult,
+    param_name: str,
+    param_idx: int,
+    panel_data: list[tuple[str, np.ndarray, np.ndarray, bool, str]],
+    title_line1: str,
+    output_path: Path | str | None,
+    figsize: tuple[float, float],
+    cmap: str,
+    cmap_fisher: str,
+    normalizer: LabelNormalizer | None,
+    label_values: NDArray[np.float32] | None,
+    label_errors: NDArray[np.float32] | None,
+) -> Figure:
+    """Render the shared 3-panel flux+error saliency layout for one parameter."""
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    from matplotlib.colors import Normalize
+    from matplotlib.gridspec import GridSpec
+
+    wavelength = result.wavelength
+    flux = result.spectrum
+    error = result.spectrum_error
+    mask = result.mask
+
+    fig = plt.figure(figsize=figsize)
+    outer_gs = GridSpec(
+        3,
+        1,
+        height_ratios=[1, 1, 1],
+        hspace=0.25,
+        figure=fig,
+        left=0.08,
+        right=0.88,
+        top=0.90,
+        bottom=0.06,
+    )
+
+    all_axes = []
+    masked_regions = _find_masked_regions(mask)
+    points = np.array([wavelength, flux]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    points_err = np.array([wavelength, error]).T.reshape(-1, 1, 2)
+    segments_err = np.concatenate([points_err[:-1], points_err[1:]], axis=1)
+    flux_valid = flux[mask]
+    error_valid = error[mask]
+
+    for panel_idx, (title, flux_imp, error_imp, is_fisher, cbar_label) in enumerate(
+        panel_data
+    ):
+        inner_gs = outer_gs[panel_idx].subgridspec(
+            2, 1, height_ratios=[3, 1], hspace=0.05
+        )
+        ax_flux = fig.add_subplot(inner_gs[0])
+        ax_error = fig.add_subplot(inner_gs[1], sharex=ax_flux)
+        all_axes.extend([ax_flux, ax_error])
+
+        panel_cmap = cmap_fisher if is_fisher else cmap
+        if is_fisher:
+            vmax = np.percentile(flux_imp[mask], 99)
+            norm = (
+                Normalize(vmin=0, vmax=vmax) if vmax > 0 else Normalize(vmin=0, vmax=1)
+            )
+        else:
+            max_val = max(
+                np.percentile(np.abs(flux_imp[mask]), 99),
+                np.percentile(np.abs(error_imp[mask]), 99),
+            )
+            norm = (
+                Normalize(vmin=-max_val, vmax=max_val)
+                if max_val > 0
+                else Normalize(vmin=-1, vmax=1)
+            )
+
+        lc_flux = LineCollection(
+            segments, cmap=panel_cmap, norm=norm, linewidth=1.5, alpha=0.9
+        )
+        lc_flux.set_array(flux_imp[:-1])
+        ax_flux.add_collection(lc_flux)
+        ax_flux.plot(wavelength, flux, "k-", linewidth=0.3, alpha=0.5)
+        ax_flux.set_ylim(flux_valid.min() - 0.1, flux_valid.max() + 0.1)
+        ax_flux.set_xlim(wavelength.min(), wavelength.max())
+        ax_flux.set_ylabel("Flux", fontsize=9)
+        ax_flux.set_title(title, fontsize=11, fontweight="bold", loc="left", pad=6)
+        plt.setp(ax_flux.get_xticklabels(), visible=False)
+        ax_flux.tick_params(axis="x", length=0)
+
+        lc_error = LineCollection(
+            segments_err, cmap=panel_cmap, norm=norm, linewidth=1.2, alpha=0.9
+        )
+        lc_error.set_array(error_imp[:-1])
+        ax_error.add_collection(lc_error)
+        ax_error.plot(wavelength, error, "k-", linewidth=0.3, alpha=0.5)
+        if error_valid.max() > 0:
+            ax_error.set_ylim(0, error_valid.max() * 1.2)
+        else:
+            ax_error.set_ylim(0, 1)
+        ax_error.set_ylabel("Err", fontsize=8)
+        ax_error.tick_params(axis="y", labelsize=7)
+
+        for start, end in masked_regions:
+            wl_start = wavelength[start]
+            wl_end = wavelength[min(end, len(wavelength) - 1)]
+            ax_flux.axvspan(wl_start, wl_end, alpha=0.4, color="gray", zorder=10)
+            ax_error.axvspan(wl_start, wl_end, alpha=0.4, color="gray", zorder=10)
+
+        cbar_ax = fig.add_axes(
+            [
+                0.90,
+                ax_error.get_position().y0,
+                0.02,
+                ax_flux.get_position().y1 - ax_error.get_position().y0,
+            ]
+        )
+        cbar = fig.colorbar(lc_flux, cax=cbar_ax)
+        cbar.ax.tick_params(labelsize=7)
+        cbar.set_label(cbar_label, fontsize=8)
+
+    all_axes[-1].set_xlabel("Wavelength (Å)", fontsize=11)
+    param_str = _format_parameter_subtitle(
+        result, param_name, param_idx, normalizer, label_values, label_errors
+    )
+    if result.gaia_id is not None:
+        title_line1 += f"    Gaia DR3 {result.gaia_id}"
+
+    fig.suptitle(
+        f"{title_line1}\n{param_str}",
+        fontsize=12,
+        fontweight="bold",
+        y=0.98,
+    )
+    if output_path is not None:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    return fig
+
+
+def _normalize_per_component(data: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Normalize each parameter's pair of (flux, error) rows by max |value| over mask."""
+    n_params = data.shape[0] // 2
+    normalized = np.zeros_like(data)
+    for i in range(n_params):
+        rows = data[2 * i : 2 * i + 2, :]
+        max_val = np.abs(rows[:, mask]).max()
+        if max_val > 0:
+            normalized[2 * i : 2 * i + 2, :] = rows / max_val
+    return normalized
+
+
+def _plot_saliency_heatmap_panels(
+    result: SaliencyResult | AblationSaliencyResult,
+    panel_data: list[tuple[str, np.ndarray, str, float, float]],
+    title_line: str,
+    output_path: Path | str | None,
+    figsize: tuple[float, float],
+) -> Figure:
+    """Render the shared 3-panel parameter heatmap layout."""
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import Normalize
+
+    n_params = len(result.parameter_names)
+    wavelength = result.wavelength
+    n_wavelengths = len(wavelength)
+    row_labels = [
+        f"{name} ({channel})"
+        for name in result.parameter_names
+        for channel in ("flux", "err")
+    ]
+
+    fig, axes = plt.subplots(3, 1, figsize=figsize)
+
+    pixel_indices = np.arange(n_wavelengths)
+    wl_min, wl_max = wavelength.min(), wavelength.max()
+    tick_spacing = 500
+    first_tick = int(np.ceil(wl_min / tick_spacing) * tick_spacing)
+    last_tick = int(np.floor(wl_max / tick_spacing) * tick_spacing)
+    tick_wavelengths = np.arange(first_tick, last_tick + 1, tick_spacing)
+    tick_positions = np.interp(tick_wavelengths, wavelength, pixel_indices)
+    tick_labels = [f"{int(wl)}" for wl in tick_wavelengths]
+    masked_regions = _find_masked_regions(result.mask)
+
+    for ax, (title, data, panel_cmap, vmin, vmax) in zip(
+        axes, panel_data, strict=False
+    ):
+        data_masked = data.copy()
+        data_masked[:, ~result.mask] = np.nan
+
+        im = ax.imshow(
+            data_masked,
+            aspect="auto",
+            cmap=panel_cmap,
+            norm=Normalize(vmin=vmin, vmax=vmax),
+            interpolation="nearest",
+        )
+        ax.set_ylim(n_params * 2 - 0.5, -0.5)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels)
+        ax.set_xlim(0, n_wavelengths - 1)
+
+        for i in range(1, n_params):
+            ax.axhline(y=2 * i - 0.5, color="black", linewidth=0.8, zorder=5)
+
+        for start, end in masked_regions:
+            ax.axvspan(
+                start,
+                min(end, n_wavelengths - 1),
+                alpha=0.5,
+                color="gray",
+                zorder=10,
+            )
+
+        ax.set_yticks(np.arange(n_params * 2))
+        ax.set_yticklabels(row_labels, fontsize=7)
+        ax.set_title(title, fontsize=11, fontweight="bold", loc="left")
+
+        cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+        cbar.ax.tick_params(labelsize=8)
+        cbar.set_label("Relative importance", fontsize=8)
+
+    axes[-1].set_xlabel("Wavelength (Å)", fontsize=11)
+    if result.gaia_id is not None:
+        title_line += f"    Gaia DR3 {result.gaia_id}"
+
+    fig.suptitle(title_line, fontsize=12, fontweight="bold")
+    plt.tight_layout()
+
+    if output_path is not None:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    return fig
+
+
 def plot_parameter_saliency(
     result: SaliencyResult,
     param_name: str,
@@ -1157,55 +1427,20 @@ def plot_parameter_saliency(
         ValueError: If param_name is unknown or result.mask has no valid pixel.
     """
     _require_valid_pixels(result)
-    import matplotlib.pyplot as plt
-    from matplotlib.collections import LineCollection
-    from matplotlib.colors import Normalize
-    from matplotlib.gridspec import GridSpec
-
     param_idx = result.get_param_index(param_name)
-
-    # Get data
-    wavelength = result.wavelength
-    flux = result.spectrum
-    error = result.spectrum_error
-    mask = result.mask
-
-    # Get gradients for this parameter
-    grad_mean_flux = result.jacobian_mean_flux[param_idx]
-    grad_mean_error = result.jacobian_mean_error[param_idx]
-    grad_sigma_flux = result.jacobian_sigma_flux[param_idx]
-    grad_sigma_error = result.jacobian_sigma_error[param_idx]
     fisher_importance = result.fisher_importance_per_param[param_idx]
-
-    # Create figure with nested GridSpec for proper spacing
-    # Outer grid: 3 panels with space between them
-    # Inner grids: flux (3/4) and error (1/4) tightly coupled
-    fig = plt.figure(figsize=figsize)
-    outer_gs = GridSpec(
-        3,
-        1,
-        height_ratios=[1, 1, 1],
-        hspace=0.25,
-        figure=fig,
-        left=0.08,
-        right=0.88,
-        top=0.90,
-        bottom=0.06,
-    )
-
-    # Panel data: (title, flux_gradient, error_gradient, is_fisher, cbar_label)
     panel_data = [
         (
             "Mean Sensitivity ∂μ/∂x",
-            grad_mean_flux,
-            grad_mean_error,
+            result.jacobian_mean_flux[param_idx],
+            result.jacobian_mean_error[param_idx],
             False,
             "Sensitivity (normalized)",
         ),
         (
             "Scatter Sensitivity ∂σ/∂x",
-            grad_sigma_flux,
-            grad_sigma_error,
+            result.jacobian_sigma_flux[param_idx],
+            result.jacobian_sigma_error[param_idx],
             False,
             "Sensitivity (normalized)",
         ),
@@ -1217,171 +1452,20 @@ def plot_parameter_saliency(
             "Information (normalized)",
         ),
     ]
-
-    # Store axes for shared x-axis
-    all_axes = []
-    colorbars = []
-
-    for panel_idx, (title, flux_grad, error_grad, is_fisher, cbar_label) in enumerate(
-        panel_data
-    ):
-        # Create inner GridSpec for this panel (flux 3/4, error 1/4, tightly coupled)
-        inner_gs = outer_gs[panel_idx].subgridspec(
-            2, 1, height_ratios=[3, 1], hspace=0.05
-        )
-        ax_flux = fig.add_subplot(inner_gs[0])
-        ax_error = fig.add_subplot(inner_gs[1], sharex=ax_flux)
-        all_axes.extend([ax_flux, ax_error])
-
-        # Choose colormap
-        panel_cmap = cmap_fisher if is_fisher else cmap
-
-        # Determine color normalization
-        if is_fisher:
-            # Fisher importance - non-negative
-            vmax = np.percentile(fisher_importance[mask], 99)
-            norm = (
-                Normalize(vmin=0, vmax=vmax) if vmax > 0 else Normalize(vmin=0, vmax=1)
-            )
-        else:
-            # Gradient panels - symmetric around zero
-            max_val = max(
-                np.percentile(np.abs(flux_grad[mask]), 99),
-                np.percentile(np.abs(error_grad[mask]), 99),
-            )
-            norm = (
-                Normalize(vmin=-max_val, vmax=max_val)
-                if max_val > 0
-                else Normalize(vmin=-1, vmax=1)
-            )
-
-        # --- Flux subplot ---
-        # Create colored line collection
-        points = np.array([wavelength, flux]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-        colors = flux_grad[:-1]
-
-        lc_flux = LineCollection(
-            segments, cmap=panel_cmap, norm=norm, linewidth=1.5, alpha=0.9
-        )
-        lc_flux.set_array(colors)
-        ax_flux.add_collection(lc_flux)
-
-        # Overplot thin black trace for visibility
-        ax_flux.plot(wavelength, flux, "k-", linewidth=0.3, alpha=0.5)
-
-        # Set axis limits
-        flux_valid = flux[mask]
-        ax_flux.set_ylim(flux_valid.min() - 0.1, flux_valid.max() + 0.1)
-        ax_flux.set_xlim(wavelength.min(), wavelength.max())
-        ax_flux.set_ylabel("Flux", fontsize=9)
-        ax_flux.set_title(title, fontsize=11, fontweight="bold", loc="left", pad=6)
-
-        # Hide x-axis labels for flux (shared with error below)
-        plt.setp(ax_flux.get_xticklabels(), visible=False)
-        ax_flux.tick_params(axis="x", length=0)
-
-        # --- Error subplot ---
-        points_err = np.array([wavelength, error]).T.reshape(-1, 1, 2)
-        segments_err = np.concatenate([points_err[:-1], points_err[1:]], axis=1)
-        colors_err = error_grad[:-1]
-
-        lc_error = LineCollection(
-            segments_err, cmap=panel_cmap, norm=norm, linewidth=1.2, alpha=0.9
-        )
-        lc_error.set_array(colors_err)
-        ax_error.add_collection(lc_error)
-
-        # Overplot thin black trace
-        ax_error.plot(wavelength, error, "k-", linewidth=0.3, alpha=0.5)
-
-        # Set error axis limits
-        error_valid = error[mask]
-        if error_valid.max() > 0:
-            ax_error.set_ylim(0, error_valid.max() * 1.2)
-        else:
-            ax_error.set_ylim(0, 1)
-        ax_error.set_ylabel("Err", fontsize=8)
-        ax_error.tick_params(axis="y", labelsize=7)
-
-        # Gray out masked regions on both subplots
-        masked_regions = _find_masked_regions(mask)
-        for start, end in masked_regions:
-            wl_start = wavelength[start]
-            wl_end = wavelength[min(end, len(wavelength) - 1)]
-            ax_flux.axvspan(wl_start, wl_end, alpha=0.4, color="gray", zorder=10)
-            ax_error.axvspan(wl_start, wl_end, alpha=0.4, color="gray", zorder=10)
-
-        # Add colorbar in dedicated space on right
-        cbar_ax = fig.add_axes(
-            [
-                0.90,
-                ax_error.get_position().y0,
-                0.02,
-                ax_flux.get_position().y1 - ax_error.get_position().y0,
-            ]
-        )
-        cbar = fig.colorbar(lc_flux, cax=cbar_ax)
-        cbar.ax.tick_params(labelsize=7)
-        cbar.set_label(cbar_label, fontsize=8)
-        colorbars.append(cbar)
-
-    # X-axis label on bottom
-    all_axes[-1].set_xlabel("Wavelength (Å)", fontsize=11)
-
-    # Build title: line 1 = survey + Gaia ID, line 2 = truth (Pred: prediction)
-    # Format: PARAM = truth ± err (Pred: pred ± pred_err)
-
-    # Get prediction values (denormalized if normalizer provided)
-    if normalizer is not None:
-        pred_denorm, unc_denorm = normalizer.inverse_transform(
-            result.predictions.reshape(1, -1),
-            result.uncertainties.reshape(1, -1),
-        )
-        pred_val = pred_denorm[0, param_idx]
-        pred_unc = unc_denorm[0, param_idx]
-    else:
-        pred_val = result.predictions[param_idx]
-        pred_unc = result.uncertainties[param_idx]
-
-    # Format prediction string
-    if param_name == "teff":
-        pred_str = f"{pred_val:.0f} ± {pred_unc:.0f} K"
-    else:
-        pred_str = f"{pred_val:.3f} ± {pred_unc:.3f}"
-
-    # Build parameter string with truth and prediction
-    if label_values is not None:
-        # Format truth string
-        truth_val = label_values[param_idx]
-        truth_err = label_errors[param_idx] if label_errors is not None else 0.0
-        if param_name == "teff":
-            truth_str = f"{truth_val:.0f} ± {truth_err:.0f} K"
-        else:
-            truth_str = f"{truth_val:.3f} ± {truth_err:.3f}"
-        param_str = f"{param_name.upper()} = {truth_str}  (Pred: {pred_str})"
-    else:
-        # No truth available, just show prediction
-        param_str = f"{param_name.upper()} = {pred_str}"
-        if normalizer is None:
-            param_str += " (normalized)"
-
-    # Build two-line title
-    title_line1 = f"Saliency Map ({result.survey})"
-    if result.gaia_id is not None:
-        title_line1 += f"    Gaia DR3 {result.gaia_id}"
-
-    fig.suptitle(
-        f"{title_line1}\n{param_str}",
-        fontsize=12,
-        fontweight="bold",
-        y=0.98,
+    return _plot_parameter_saliency_panels(
+        result,
+        param_name,
+        param_idx,
+        panel_data,
+        f"Saliency Map ({result.survey})",
+        output_path,
+        figsize,
+        cmap,
+        cmap_fisher,
+        normalizer,
+        label_values,
+        label_errors,
     )
-
-    if output_path is not None:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-
-    return fig
 
 
 def plot_saliency_heatmap(
@@ -1415,14 +1499,9 @@ def plot_saliency_heatmap(
         ValueError: If result.mask has no valid pixel.
     """
     _require_valid_pixels(result)
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import Normalize
-
     n_params = len(result.parameter_names)
     n_wavelengths = len(result.wavelength)
 
-    # Build combined arrays with interleaved flux/error rows
-    # Shape: (n_params * 2, n_wavelengths)
     mean_combined = np.zeros((n_params * 2, n_wavelengths), dtype=np.float32)
     scatter_combined = np.zeros((n_params * 2, n_wavelengths), dtype=np.float32)
     fisher_combined = np.zeros((n_params * 2, n_wavelengths), dtype=np.float32)
@@ -1432,7 +1511,6 @@ def plot_saliency_heatmap(
         mean_combined[2 * i + 1] = result.jacobian_mean_error[i]
         scatter_combined[2 * i] = result.jacobian_sigma_flux[i]
         scatter_combined[2 * i + 1] = result.jacobian_sigma_error[i]
-        # For Fisher, compute separate flux/error contributions
         sigma_sq = result.uncertainties[i] ** 2
         fisher_combined[2 * i] = (
             result.jacobian_mean_flux[i] ** 2 + 2 * result.jacobian_sigma_flux[i] ** 2
@@ -1441,140 +1519,36 @@ def plot_saliency_heatmap(
             result.jacobian_mean_error[i] ** 2 + 2 * result.jacobian_sigma_error[i] ** 2
         ) / sigma_sq
 
-    # Normalize gradient arrays per-component (2 rows at a time) to [-1, 1]
-    def normalize_per_component(data: np.ndarray, mask: np.ndarray) -> np.ndarray:
-        """Normalize each pair of rows (flux, error) to [-1, 1]."""
-        normalized = np.zeros_like(data)
-        for i in range(n_params):
-            # Get both rows for this parameter
-            rows = data[2 * i : 2 * i + 2, :]
-            # Compute max abs value over valid (masked) wavelengths
-            valid_data = rows[:, mask]
-            max_val = np.abs(valid_data).max()
-            if max_val > 0:
-                normalized[2 * i : 2 * i + 2, :] = rows / max_val
-        return normalized
-
-    mean_normalized = normalize_per_component(mean_combined, result.mask)
-    scatter_normalized = normalize_per_component(scatter_combined, result.mask)
-
-    # For Fisher, normalize per-component to [0, 1]
-    fisher_normalized = np.zeros_like(fisher_combined)
-    for i in range(n_params):
-        rows = fisher_combined[2 * i : 2 * i + 2, :]
-        valid_data = rows[:, result.mask]
-        max_val = valid_data.max()
-        if max_val > 0:
-            fisher_normalized[2 * i : 2 * i + 2, :] = rows / max_val
-
-    # Create row labels
-    row_labels = []
-    for name in result.parameter_names:
-        row_labels.append(f"{name} (flux)")
-        row_labels.append(f"{name} (err)")
-
-    # Create figure
-    fig, axes = plt.subplots(3, 1, figsize=figsize)
-
-    # Panel data: (title, data, cmap, vmin, vmax)
     panel_data = [
-        ("Mean Sensitivity ∂μ/∂x (relative)", mean_normalized, cmap_gradient, -1, 1),
         (
-            "Scatter Sensitivity ∂σ/∂x (relative)",
-            scatter_normalized,
+            "Mean Sensitivity ∂μ/∂x (relative)",
+            _normalize_per_component(mean_combined, result.mask),
             cmap_gradient,
             -1,
             1,
         ),
-        ("Fisher Importance (relative)", fisher_normalized, cmap_fisher, 0, 1),
+        (
+            "Scatter Sensitivity ∂σ/∂x (relative)",
+            _normalize_per_component(scatter_combined, result.mask),
+            cmap_gradient,
+            -1,
+            1,
+        ),
+        (
+            "Fisher Importance (relative)",
+            _normalize_per_component(fisher_combined, result.mask),
+            cmap_fisher,
+            0,
+            1,
+        ),
     ]
-
-    # Compute wavelength tick positions and labels
-    # Use np.interp to map between pixel indices and wavelengths
-    wavelength = result.wavelength
-    pixel_indices = np.arange(len(wavelength))
-    wl_min, wl_max = wavelength.min(), wavelength.max()
-
-    # Choose nice round tick values (multiples of 500 Å)
-    tick_spacing = 500
-    first_tick = int(np.ceil(wl_min / tick_spacing) * tick_spacing)
-    last_tick = int(np.floor(wl_max / tick_spacing) * tick_spacing)
-    tick_wavelengths = np.arange(first_tick, last_tick + 1, tick_spacing)
-
-    # Use np.interp to find pixel positions for these wavelengths
-    tick_positions = np.interp(tick_wavelengths, wavelength, pixel_indices)
-    tick_labels = [f"{int(wl)}" for wl in tick_wavelengths]
-
-    for ax, (title, data, cmap, vmin, vmax) in zip(axes, panel_data, strict=False):
-        # Apply mask - set masked columns to NaN for visualization
-        data_masked = data.copy()
-        data_masked[:, ~result.mask] = np.nan
-
-        norm = Normalize(vmin=vmin, vmax=vmax)
-
-        # Plot heatmap using pixel indices (no extent - use pixel coordinates)
-        im = ax.imshow(
-            data_masked,
-            aspect="auto",
-            cmap=cmap,
-            norm=norm,
-            interpolation="nearest",
-        )
-
-        # Set y-axis limits to match previous behavior
-        ax.set_ylim(n_params * 2 - 0.5, -0.5)
-
-        # Set x-axis ticks using actual wavelength values
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(tick_labels)
-        ax.set_xlim(0, n_wavelengths - 1)
-
-        # Add horizontal black lines between each parameter group (every 2 rows)
-        for i in range(1, n_params):
-            ax.axhline(y=2 * i - 0.5, color="black", linewidth=0.8, zorder=5)
-
-        # Add masked region overlays (using pixel coordinates)
-        for start, end in _find_masked_regions(result.mask):
-            ax.axvspan(
-                start,
-                min(end, n_wavelengths - 1),
-                alpha=0.5,
-                color="gray",
-                zorder=10,
-            )
-
-        # Y-axis labels
-        ax.set_yticks(np.arange(n_params * 2))
-        ax.set_yticklabels(row_labels, fontsize=7)
-
-        # Title
-        ax.set_title(title, fontsize=11, fontweight="bold", loc="left")
-
-        # Colorbar
-        cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-        cbar.ax.tick_params(labelsize=8)
-        cbar.set_label("Relative importance", fontsize=8)
-
-    # X-axis label on bottom plot
-    axes[-1].set_xlabel("Wavelength (Å)", fontsize=11)
-
-    # Overall title with metadata if available
-    title_line = f"Saliency Heatmaps ({result.survey})"
-    if result.gaia_id is not None:
-        title_line += f"    Gaia DR3 {result.gaia_id}"
-
-    fig.suptitle(
-        title_line,
-        fontsize=12,
-        fontweight="bold",
+    return _plot_saliency_heatmap_panels(
+        result,
+        panel_data,
+        f"Saliency Heatmaps ({result.survey})",
+        output_path,
+        figsize,
     )
-
-    plt.tight_layout()
-
-    if output_path is not None:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-
-    return fig
 
 
 def _find_masked_regions(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
@@ -1647,41 +1621,10 @@ def plot_ablation_parameter_saliency(
         ValueError: If param_name is unknown or result.mask has no valid pixel.
     """
     _require_valid_pixels(result)
-    import matplotlib.pyplot as plt
-    from matplotlib.collections import LineCollection
-    from matplotlib.colors import Normalize
-    from matplotlib.gridspec import GridSpec
-
     param_idx = result.get_param_index(param_name)
-
-    # Get data
-    wavelength = result.wavelength
-    flux = result.spectrum
-    error = result.spectrum_error
-    mask = result.mask
-
-    # Get importance metrics for this parameter
     delta_mu_param = result.delta_mu[param_idx]
     delta_sigma_param = result.delta_sigma[param_idx]
     fisher_param = result.fisher_weighted[param_idx]
-
-    # Create figure with nested GridSpec for proper spacing
-    fig = plt.figure(figsize=figsize)
-    outer_gs = GridSpec(
-        3,
-        1,
-        height_ratios=[1, 1, 1],
-        hspace=0.25,
-        figure=fig,
-        left=0.08,
-        right=0.88,
-        top=0.90,
-        bottom=0.06,
-    )
-
-    # Panel data matching gradient saliency structure:
-    # (title, flux_importance, error_importance, is_fisher, cbar_label)
-    # For ablation, flux and error importance are identical (masked together)
     panel_data = [
         (
             "Mean Sensitivity Δμ",
@@ -1705,168 +1648,25 @@ def plot_ablation_parameter_saliency(
             "Information (normalized)",
         ),
     ]
-
-    # Store axes for shared x-axis
-    all_axes = []
-    colorbars = []
-
-    for panel_idx, (title, flux_imp, error_imp, is_fisher, cbar_label) in enumerate(
-        panel_data
-    ):
-        # Create inner GridSpec for this panel (flux 3/4, error 1/4, tightly coupled)
-        inner_gs = outer_gs[panel_idx].subgridspec(
-            2, 1, height_ratios=[3, 1], hspace=0.05
-        )
-        ax_flux = fig.add_subplot(inner_gs[0])
-        ax_error = fig.add_subplot(inner_gs[1], sharex=ax_flux)
-        all_axes.extend([ax_flux, ax_error])
-
-        # Choose colormap based on panel type
-        panel_cmap = cmap_fisher if is_fisher else cmap
-
-        # Determine normalization based on panel type
-        valid_vals = flux_imp[mask]
-        if is_fisher:
-            # Fisher importance is non-negative
-            vmax = np.percentile(valid_vals, 99)
-            if vmax > 0:
-                norm = Normalize(vmin=0, vmax=vmax)
-            else:
-                norm = Normalize(vmin=0, vmax=1)
-        else:
-            # Signed values - symmetric around zero
-            max_abs = np.percentile(np.abs(valid_vals), 99)
-            if max_abs > 0:
-                norm = Normalize(vmin=-max_abs, vmax=max_abs)
-            else:
-                norm = Normalize(vmin=-1, vmax=1)
-
-        # --- Flux subplot ---
-        points = np.array([wavelength, flux]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-        colors = flux_imp[:-1]
-
-        lc_flux = LineCollection(
-            segments, cmap=panel_cmap, norm=norm, linewidth=1.5, alpha=0.9
-        )
-        lc_flux.set_array(colors)
-        ax_flux.add_collection(lc_flux)
-
-        # Overplot thin black trace for visibility
-        ax_flux.plot(wavelength, flux, "k-", linewidth=0.3, alpha=0.5)
-
-        # Set axis limits
-        flux_valid = flux[mask]
-        ax_flux.set_ylim(flux_valid.min() - 0.1, flux_valid.max() + 0.1)
-        ax_flux.set_xlim(wavelength.min(), wavelength.max())
-        ax_flux.set_ylabel("Flux", fontsize=9)
-        ax_flux.set_title(title, fontsize=11, fontweight="bold", loc="left", pad=6)
-
-        # Hide x-axis labels for flux (shared with error below)
-        plt.setp(ax_flux.get_xticklabels(), visible=False)
-        ax_flux.tick_params(axis="x", length=0)
-
-        # --- Error subplot ---
-        points_err = np.array([wavelength, error]).T.reshape(-1, 1, 2)
-        segments_err = np.concatenate([points_err[:-1], points_err[1:]], axis=1)
-        colors_err = error_imp[:-1]
-
-        lc_error = LineCollection(
-            segments_err, cmap=panel_cmap, norm=norm, linewidth=1.2, alpha=0.9
-        )
-        lc_error.set_array(colors_err)
-        ax_error.add_collection(lc_error)
-
-        # Overplot thin black trace
-        ax_error.plot(wavelength, error, "k-", linewidth=0.3, alpha=0.5)
-
-        # Set error axis limits
-        error_valid = error[mask]
-        if error_valid.max() > 0:
-            ax_error.set_ylim(0, error_valid.max() * 1.2)
-        else:
-            ax_error.set_ylim(0, 1)
-        ax_error.set_ylabel("Err", fontsize=8)
-        ax_error.tick_params(axis="y", labelsize=7)
-
-        # Gray out masked regions on both subplots
-        masked_regions = _find_masked_regions(mask)
-        for start, end in masked_regions:
-            wl_start = wavelength[start]
-            wl_end = wavelength[min(end, len(wavelength) - 1)]
-            ax_flux.axvspan(wl_start, wl_end, alpha=0.4, color="gray", zorder=10)
-            ax_error.axvspan(wl_start, wl_end, alpha=0.4, color="gray", zorder=10)
-
-        # Add colorbar in dedicated space on right
-        cbar_ax = fig.add_axes(
-            [
-                0.90,
-                ax_error.get_position().y0,
-                0.02,
-                ax_flux.get_position().y1 - ax_error.get_position().y0,
-            ]
-        )
-        cbar = fig.colorbar(lc_flux, cax=cbar_ax)
-        cbar.ax.tick_params(labelsize=7)
-        cbar.set_label(cbar_label, fontsize=8)
-        colorbars.append(cbar)
-
-    # X-axis label on bottom
-    all_axes[-1].set_xlabel("Wavelength (Å)", fontsize=11)
-
-    # Get prediction values (denormalized if normalizer provided)
-    if normalizer is not None:
-        pred_denorm, unc_denorm = normalizer.inverse_transform(
-            result.predictions.reshape(1, -1),
-            result.uncertainties.reshape(1, -1),
-        )
-        pred_val = pred_denorm[0, param_idx]
-        pred_unc = unc_denorm[0, param_idx]
-    else:
-        pred_val = result.predictions[param_idx]
-        pred_unc = result.uncertainties[param_idx]
-
-    # Format prediction string
-    if param_name == "teff":
-        pred_str = f"{pred_val:.0f} ± {pred_unc:.0f} K"
-    else:
-        pred_str = f"{pred_val:.3f} ± {pred_unc:.3f}"
-
-    # Build parameter string with truth and prediction
-    if label_values is not None:
-        truth_val = label_values[param_idx]
-        truth_err = label_errors[param_idx] if label_errors is not None else 0.0
-        if param_name == "teff":
-            truth_str = f"{truth_val:.0f} ± {truth_err:.0f} K"
-        else:
-            truth_str = f"{truth_val:.3f} ± {truth_err:.3f}"
-        param_str = f"{param_name.upper()} = {truth_str}  (Pred: {pred_str})"
-    else:
-        param_str = f"{param_name.upper()} = {pred_str}"
-        if normalizer is None:
-            param_str += " (normalized)"
-
-    # Build two-line title with block size info
     block_info = (
         f"block={result.block_size}"
         if isinstance(result.block_size, int)
         else f"blocks={len(result.block_size)}"
     )
-    title_line1 = f"Ablation Saliency Map ({result.survey}, {block_info})"
-    if result.gaia_id is not None:
-        title_line1 += f"    Gaia DR3 {result.gaia_id}"
-
-    fig.suptitle(
-        f"{title_line1}\n{param_str}",
-        fontsize=12,
-        fontweight="bold",
-        y=0.98,
+    return _plot_parameter_saliency_panels(
+        result,
+        param_name,
+        param_idx,
+        panel_data,
+        f"Ablation Saliency Map ({result.survey}, {block_info})",
+        output_path,
+        figsize,
+        cmap,
+        cmap_fisher,
+        normalizer,
+        label_values,
+        label_errors,
     )
-
-    if output_path is not None:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-
-    return fig
 
 
 def plot_ablation_saliency_heatmap(
@@ -1898,21 +1698,14 @@ def plot_ablation_saliency_heatmap(
         ValueError: If result.mask has no valid pixel.
     """
     _require_valid_pixels(result)
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import Normalize
-
     n_params = len(result.parameter_names)
     n_wavelengths = len(result.wavelength)
 
-    # Build combined arrays with interleaved flux/error rows
-    # Shape: (n_params * 2, n_wavelengths)
-    # For ablation, flux and error rows are identical
     delta_mu_combined = np.zeros((n_params * 2, n_wavelengths), dtype=np.float32)
     delta_sigma_combined = np.zeros((n_params * 2, n_wavelengths), dtype=np.float32)
     fisher_combined = np.zeros((n_params * 2, n_wavelengths), dtype=np.float32)
 
     for i in range(n_params):
-        # Both flux and error rows get the same importance (ablation affects both)
         delta_mu_combined[2 * i] = result.delta_mu[i]
         delta_mu_combined[2 * i + 1] = result.delta_mu[i]
         delta_sigma_combined[2 * i] = result.delta_sigma[i]
@@ -1920,155 +1713,38 @@ def plot_ablation_saliency_heatmap(
         fisher_combined[2 * i] = result.fisher_weighted[i]
         fisher_combined[2 * i + 1] = result.fisher_weighted[i]
 
-    # Normalize signed arrays per-component to [-1, 1] (symmetric around zero)
-    def normalize_signed_per_component(
-        data: np.ndarray, mask: np.ndarray
-    ) -> np.ndarray:
-        """Normalize each pair of rows (flux, error) to [-1, 1]."""
-        normalized = np.zeros_like(data)
-        for i in range(n_params):
-            # Get both rows for this parameter
-            rows = data[2 * i : 2 * i + 2, :]
-            # Compute max abs value over valid (masked) wavelengths
-            valid_data = rows[:, mask]
-            max_abs = np.abs(valid_data).max()
-            if max_abs > 0:
-                normalized[2 * i : 2 * i + 2, :] = rows / max_abs
-        return normalized
-
-    # Normalize non-negative arrays per-component to [0, 1]
-    def normalize_unsigned_per_component(
-        data: np.ndarray, mask: np.ndarray
-    ) -> np.ndarray:
-        """Normalize each pair of rows (flux, error) to [0, 1]."""
-        normalized = np.zeros_like(data)
-        for i in range(n_params):
-            # Get both rows for this parameter
-            rows = data[2 * i : 2 * i + 2, :]
-            # Compute max value over valid (masked) wavelengths
-            valid_data = rows[:, mask]
-            max_val = valid_data.max()
-            if max_val > 0:
-                normalized[2 * i : 2 * i + 2, :] = rows / max_val
-        return normalized
-
-    delta_mu_normalized = normalize_signed_per_component(delta_mu_combined, result.mask)
-    delta_sigma_normalized = normalize_signed_per_component(
-        delta_sigma_combined, result.mask
-    )
-    fisher_normalized = normalize_unsigned_per_component(fisher_combined, result.mask)
-
-    # Create row labels
-    row_labels = []
-    for name in result.parameter_names:
-        row_labels.append(f"{name} (flux)")
-        row_labels.append(f"{name} (err)")
-
-    # Create figure
-    fig, axes = plt.subplots(3, 1, figsize=figsize)
-
-    # Panel data: (title, data, cmap, vmin, vmax)
     panel_data = [
-        ("Mean Sensitivity Δμ (relative)", delta_mu_normalized, cmap_signed, -1, 1),
         (
-            "Scatter Sensitivity Δσ (relative)",
-            delta_sigma_normalized,
+            "Mean Sensitivity Δμ (relative)",
+            _normalize_per_component(delta_mu_combined, result.mask),
             cmap_signed,
             -1,
             1,
         ),
-        ("Fisher Importance (relative)", fisher_normalized, cmap_fisher, 0, 1),
+        (
+            "Scatter Sensitivity Δσ (relative)",
+            _normalize_per_component(delta_sigma_combined, result.mask),
+            cmap_signed,
+            -1,
+            1,
+        ),
+        (
+            "Fisher Importance (relative)",
+            _normalize_per_component(fisher_combined, result.mask),
+            cmap_fisher,
+            0,
+            1,
+        ),
     ]
-
-    # Compute wavelength tick positions and labels
-    wavelength = result.wavelength
-    pixel_indices = np.arange(len(wavelength))
-    wl_min, wl_max = wavelength.min(), wavelength.max()
-
-    # Choose nice round tick values (multiples of 500 Å)
-    tick_spacing = 500
-    first_tick = int(np.ceil(wl_min / tick_spacing) * tick_spacing)
-    last_tick = int(np.floor(wl_max / tick_spacing) * tick_spacing)
-    tick_wavelengths = np.arange(first_tick, last_tick + 1, tick_spacing)
-
-    # Use np.interp to find pixel positions for these wavelengths
-    tick_positions = np.interp(tick_wavelengths, wavelength, pixel_indices)
-    tick_labels = [f"{int(wl)}" for wl in tick_wavelengths]
-
-    for ax, (title, data, panel_cmap, vmin, vmax) in zip(
-        axes, panel_data, strict=False
-    ):
-        # Apply mask - set masked columns to NaN for visualization
-        data_masked = data.copy()
-        data_masked[:, ~result.mask] = np.nan
-
-        norm = Normalize(vmin=vmin, vmax=vmax)
-
-        # Plot heatmap using pixel indices
-        im = ax.imshow(
-            data_masked,
-            aspect="auto",
-            cmap=panel_cmap,
-            norm=norm,
-            interpolation="nearest",
-        )
-
-        # Set y-axis limits
-        ax.set_ylim(n_params * 2 - 0.5, -0.5)
-
-        # Set x-axis ticks using actual wavelength values
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(tick_labels)
-        ax.set_xlim(0, n_wavelengths - 1)
-
-        # Add horizontal black lines between each parameter group (every 2 rows)
-        for i in range(1, n_params):
-            ax.axhline(y=2 * i - 0.5, color="black", linewidth=0.8, zorder=5)
-
-        # Add masked region overlays (using pixel coordinates)
-        for start, end in _find_masked_regions(result.mask):
-            ax.axvspan(
-                start,
-                min(end, n_wavelengths - 1),
-                alpha=0.5,
-                color="gray",
-                zorder=10,
-            )
-
-        # Y-axis labels
-        ax.set_yticks(np.arange(n_params * 2))
-        ax.set_yticklabels(row_labels, fontsize=7)
-
-        # Title
-        ax.set_title(title, fontsize=11, fontweight="bold", loc="left")
-
-        # Colorbar
-        cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-        cbar.ax.tick_params(labelsize=8)
-        cbar.set_label("Relative importance", fontsize=8)
-
-    # X-axis label on bottom plot
-    axes[-1].set_xlabel("Wavelength (Å)", fontsize=11)
-
-    # Overall title with metadata
     block_info = (
         f"block={result.block_size}"
         if isinstance(result.block_size, int)
         else f"blocks={len(result.block_size)}"
     )
-    title_line = f"Ablation Saliency Heatmaps ({result.survey}, {block_info})"
-    if result.gaia_id is not None:
-        title_line += f"    Gaia DR3 {result.gaia_id}"
-
-    fig.suptitle(
-        title_line,
-        fontsize=12,
-        fontweight="bold",
+    return _plot_saliency_heatmap_panels(
+        result,
+        panel_data,
+        f"Ablation Saliency Heatmaps ({result.survey}, {block_info})",
+        output_path,
+        figsize,
     )
-
-    plt.tight_layout()
-
-    if output_path is not None:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-
-    return fig

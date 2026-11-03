@@ -10,7 +10,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from dorothy.config.schema import STELLAR_PARAMETERS, parameter_display_name
+from dorothy.config.schema import (
+    STELLAR_PARAMETERS,
+    default_parameter_names,
+    parameter_display_name,
+)
 
 if TYPE_CHECKING:
     from dorothy.training.trainer import TrainingHistory
@@ -24,9 +28,7 @@ def _param_display_names(history: "TrainingHistory", n_params: int) -> list[str]
     """Plot labels for the first n_params parameters of a training run."""
     names = list(getattr(history, "parameter_names", None) or [])
     if len(names) < n_params:
-        names = (list(STELLAR_PARAMETERS) + [f"param_{i}" for i in range(n_params)])[
-            :n_params
-        ]
+        names = default_parameter_names(n_params)
     return [parameter_display_name(n) for n in names[:n_params]]
 
 
@@ -772,6 +774,224 @@ def plot_metrics_evolution(
     return _save_figure(plt, fig, output_path, "metrics_evolution.png")
 
 
+def _plot_group_loss_curves(
+    history: "TrainingHistory",
+    group_names: list[str],
+    group_losses: dict[str, list[float]],
+    output_path: str | Path,
+    filename: str,
+    left_title: str,
+    right_ylabel: str,
+    right_title: str,
+    suptitle: str,
+) -> Path | None:
+    """Plot absolute and relative validation loss curves for a set of groups."""
+    plt = _try_import_matplotlib()
+    if plt is None or not group_names or not group_losses:
+        return None
+    if not any(len(losses) > 0 for losses in group_losses.values()):
+        return None
+
+    n_epochs = len(history.val_losses)
+    epochs = np.arange(1, n_epochs + 1)
+    colors = ["steelblue", "coral", "green", "purple"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    ax = axes[0]
+    ax.plot(
+        epochs,
+        history.val_losses,
+        label="Overall",
+        color="black",
+        linewidth=2,
+        alpha=0.9,
+    )
+    for i, name in enumerate(group_names):
+        losses = group_losses.get(name, [])
+        if losses and len(losses) == n_epochs:
+            ax.plot(
+                epochs,
+                losses,
+                label=name.upper(),
+                color=colors[i % len(colors)],
+                alpha=0.8,
+            )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Validation Loss")
+    ax.set_title(left_title)
+    _safe_legend(ax)
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[1]
+    overall_loss = np.array(history.val_losses)
+    ax.axhline(1.0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+    for i, name in enumerate(group_names):
+        losses = group_losses.get(name, [])
+        if losses and len(losses) == n_epochs:
+            relative_loss = np.array(losses) / np.maximum(overall_loss, 1e-8)
+            ax.plot(
+                epochs,
+                relative_loss,
+                label=name.upper(),
+                color=colors[i % len(colors)],
+                alpha=0.8,
+            )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(right_ylabel)
+    ax.set_title(right_title)
+    _safe_legend(ax)
+    ax.grid(True, alpha=0.3)
+
+    plt.suptitle(suptitle, fontsize=12)
+    plt.tight_layout()
+    return _save_figure(plt, fig, output_path, filename)
+
+
+def _plot_group_metrics(
+    history: "TrainingHistory",
+    group_names: list[str],
+    group_metrics: dict[str, dict[str, list[np.ndarray]]],
+    output_path: str | Path,
+    filename: str,
+    group_label: str,
+    suptitle_prefix: str,
+) -> Path | None:
+    """Plot a 2x2 grouped-bar validation metrics grid at the best epoch."""
+    plt = _try_import_matplotlib()
+    if plt is None or not group_names or not group_metrics:
+        return None
+
+    first_group = group_names[0]
+    if first_group not in group_metrics:
+        return None
+    first_metrics = group_metrics[first_group]
+    if not first_metrics.get("rmse"):
+        return None
+
+    n_groups = len(group_names)
+    best = history.best_epoch
+    n_params = len(first_metrics["rmse"][best])
+    if n_params == 0:
+        return None
+
+    n_show = min(n_params, 6)
+    param_names = _param_display_names(history, n_show)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    x = np.arange(n_show)
+    width = 0.35 if n_groups == 2 else 0.25
+    colors = ["steelblue", "coral", "green", "purple"][:n_groups]
+
+    panels = [
+        (axes[0, 0], "rmse", "RMSE (normalized)", f"RMSE by {group_label}", False),
+        (
+            axes[0, 1],
+            "robust_scatter",
+            "Robust Scatter (normalized)",
+            f"Scatter/Precision by {group_label}",
+            False,
+        ),
+        (
+            axes[1, 0],
+            "bias",
+            "Bias (normalized)",
+            f"Bias by {group_label} (pred - true)",
+            True,
+        ),
+        (axes[1, 1], "mae", "MAE (normalized)", f"MAE by {group_label}", False),
+    ]
+    for ax, metric_key, ylabel, title, show_zero_band in panels:
+        for i, name in enumerate(group_names):
+            metric_list = group_metrics[name].get(metric_key, [])
+            if metric_list:
+                values = metric_list[best][:n_show]
+                offset = (i - n_groups / 2 + 0.5) * width
+                ax.bar(
+                    x + offset,
+                    values,
+                    width,
+                    label=name.upper(),
+                    color=colors[i],
+                    alpha=0.8,
+                )
+        if show_zero_band:
+            ax.axhline(0, color="black", linewidth=1)
+            ax.axhline(0.1, color="gray", linestyle="--", alpha=0.5)
+            ax.axhline(-0.1, color="gray", linestyle="--", alpha=0.5)
+        ax.set_xticks(x)
+        ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        _safe_legend(ax)
+        ax.grid(True, alpha=0.3, axis="y")
+
+    plt.suptitle(
+        f"{suptitle_prefix} (normalized space, best epoch {best + 1})",
+        fontsize=12,
+    )
+    plt.tight_layout()
+    return _save_figure(plt, fig, output_path, filename)
+
+
+def _plot_group_metrics_evolution(
+    history: "TrainingHistory",
+    group_names: list[str],
+    group_metrics: dict[str, dict[str, list[np.ndarray]]],
+    output_path: str | Path,
+    filename: str,
+    suptitle: str,
+) -> Path | None:
+    """Plot per-epoch validation RMSE evolution for up to 3 parameters across groups."""
+    plt = _try_import_matplotlib()
+    if plt is None or not group_names or not group_metrics:
+        return None
+
+    first_group = group_names[0]
+    if first_group not in group_metrics:
+        return None
+    rmse_list = group_metrics[first_group].get("rmse", [])
+    if not rmse_list or len(rmse_list) < 2:
+        return None
+
+    n_epochs = len(rmse_list)
+    epochs = np.arange(1, n_epochs + 1)
+    n_params = len(rmse_list[0])
+    n_show = min(3, n_params)
+    param_names = _param_display_names(history, n_show)
+
+    fig, axes = plt.subplots(1, n_show, figsize=(5 * n_show, 4))
+    if n_show == 1:
+        axes = [axes]
+
+    styles = ["-", "--", "-.", ":"]
+    colors = ["steelblue", "coral", "green", "purple"]
+
+    for param_idx in range(n_show):
+        ax = axes[param_idx]
+        for i, name in enumerate(group_names):
+            group_rmse = group_metrics[name].get("rmse", [])
+            if group_rmse and len(group_rmse) == n_epochs:
+                rmse_over_time = np.array([r[param_idx] for r in group_rmse])
+                ax.plot(
+                    epochs,
+                    rmse_over_time,
+                    label=name.upper(),
+                    color=colors[i % len(colors)],
+                    linestyle=styles[i % len(styles)],
+                    alpha=0.8,
+                )
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("RMSE (normalized)")
+        ax.set_title(f"{param_names[param_idx]} RMSE Evolution")
+        _safe_legend(ax)
+        ax.grid(True, alpha=0.3)
+
+    plt.suptitle(suptitle, fontsize=12)
+    plt.tight_layout()
+    return _save_figure(plt, fig, output_path, filename)
+
+
 def plot_per_survey_loss_curves(
     history: "TrainingHistory",
     output_path: str | Path,
@@ -790,78 +1010,17 @@ def plot_per_survey_loss_curves(
         Path of the plot, or None if matplotlib is missing or the history has
         no per-survey losses.
     """
-    plt = _try_import_matplotlib()
-    if plt is None:
-        return None
-
-    # Check for per-survey data
-    if not history.survey_names or not history.per_survey_val_losses:
-        return None
-
-    # Check we have data for at least one survey
-    has_data = any(len(losses) > 0 for losses in history.per_survey_val_losses.values())
-    if not has_data:
-        return None
-
-    n_epochs = len(history.val_losses)
-    epochs = np.arange(1, n_epochs + 1)
-
-    # Survey colors
-    colors = ["steelblue", "coral", "green", "purple"]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-    # Left: Per-survey validation loss with overall
-    ax = axes[0]
-    ax.plot(
-        epochs,
-        history.val_losses,
-        label="Overall",
-        color="black",
-        linewidth=2,
-        alpha=0.9,
+    return _plot_group_loss_curves(
+        history,
+        history.survey_names,
+        history.per_survey_val_losses,
+        output_path,
+        "per_survey_loss_curves.png",
+        left_title="Per-Survey Validation Loss",
+        right_ylabel="Relative Loss (Survey / Overall)",
+        right_title="Survey Difficulty (>1 = harder)",
+        suptitle="Per-Survey Training Progress",
     )
-    for i, survey_name in enumerate(history.survey_names):
-        losses = history.per_survey_val_losses.get(survey_name, [])
-        if losses and len(losses) == n_epochs:
-            ax.plot(
-                epochs,
-                losses,
-                label=survey_name.upper(),
-                color=colors[i % len(colors)],
-                alpha=0.8,
-            )
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Validation Loss")
-    ax.set_title("Per-Survey Validation Loss")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3)
-
-    # Right: Relative loss (survey / overall) - shows which surveys are harder
-    ax = axes[1]
-    overall_loss = np.array(history.val_losses)
-    ax.axhline(1.0, color="black", linewidth=1, linestyle="--", alpha=0.5)
-    for i, survey_name in enumerate(history.survey_names):
-        losses = history.per_survey_val_losses.get(survey_name, [])
-        if losses and len(losses) == n_epochs:
-            relative_loss = np.array(losses) / np.maximum(overall_loss, 1e-8)
-            ax.plot(
-                epochs,
-                relative_loss,
-                label=survey_name.upper(),
-                color=colors[i % len(colors)],
-                alpha=0.8,
-            )
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Relative Loss (Survey / Overall)")
-    ax.set_title("Survey Difficulty (>1 = harder)")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3)
-
-    plt.suptitle("Per-Survey Training Progress", fontsize=12)
-    plt.tight_layout()
-
-    return _save_figure(plt, fig, output_path, "per_survey_loss_curves.png")
 
 
 def plot_per_survey_metrics(
@@ -882,140 +1041,15 @@ def plot_per_survey_metrics(
         Path of the plot, or None if matplotlib is missing or the first
         survey has no ``rmse``.
     """
-    plt = _try_import_matplotlib()
-    if plt is None:
-        return None
-
-    # Check for per-survey data
-    if not history.survey_names or not history.per_survey_val_metrics:
-        return None
-
-    # Verify we have metrics data
-    first_survey = history.survey_names[0]
-    if first_survey not in history.per_survey_val_metrics:
-        return None
-    survey_metrics = history.per_survey_val_metrics[first_survey]
-    if not survey_metrics.get("rmse"):
-        return None
-
-    n_surveys = len(history.survey_names)
-    best = history.best_epoch
-    n_params = len(survey_metrics["rmse"][best])
-
-    if n_params == 0:
-        return None
-
-    # Show up to 6 parameters for readability
-    n_show = min(n_params, 6)
-    param_names = _param_display_names(history, n_show)
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    x = np.arange(n_show)
-    width = 0.35 if n_surveys == 2 else 0.25
-
-    # Color palette for surveys
-    colors = ["steelblue", "coral", "green", "purple"][:n_surveys]
-
-    # RMSE by survey (top-left)
-    ax = axes[0, 0]
-    for i, survey_name in enumerate(history.survey_names):
-        rmse_list = history.per_survey_val_metrics[survey_name].get("rmse", [])
-        if rmse_list:
-            rmse = rmse_list[best][:n_show]
-            offset = (i - n_surveys / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                rmse,
-                width,
-                label=survey_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("RMSE (normalized)")
-    ax.set_title("RMSE by Survey")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Robust scatter by survey (top-right)
-    ax = axes[0, 1]
-    for i, survey_name in enumerate(history.survey_names):
-        scatter_list = history.per_survey_val_metrics[survey_name].get(
-            "robust_scatter", []
-        )
-        if scatter_list:
-            scatter = scatter_list[best][:n_show]
-            offset = (i - n_surveys / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                scatter,
-                width,
-                label=survey_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("Robust Scatter (normalized)")
-    ax.set_title("Scatter/Precision by Survey")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Bias by survey (bottom-left)
-    ax = axes[1, 0]
-    for i, survey_name in enumerate(history.survey_names):
-        bias_list = history.per_survey_val_metrics[survey_name].get("bias", [])
-        if bias_list:
-            bias = bias_list[best][:n_show]
-            offset = (i - n_surveys / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                bias,
-                width,
-                label=survey_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.axhline(0, color="black", linewidth=1)
-    ax.axhline(0.1, color="gray", linestyle="--", alpha=0.5)
-    ax.axhline(-0.1, color="gray", linestyle="--", alpha=0.5)
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("Bias (normalized)")
-    ax.set_title("Bias by Survey (pred - true)")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # MAE by survey (bottom-right)
-    ax = axes[1, 1]
-    for i, survey_name in enumerate(history.survey_names):
-        mae_list = history.per_survey_val_metrics[survey_name].get("mae", [])
-        if mae_list:
-            mae = mae_list[best][:n_show]
-            offset = (i - n_surveys / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                mae,
-                width,
-                label=survey_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("MAE (normalized)")
-    ax.set_title("MAE by Survey")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    plt.suptitle(
-        f"Per-Survey Validation Metrics (normalized space, best epoch {best + 1})",
-        fontsize=12,
+    return _plot_group_metrics(
+        history,
+        history.survey_names,
+        history.per_survey_val_metrics,
+        output_path,
+        "per_survey_metrics.png",
+        group_label="Survey",
+        suptitle_prefix="Per-Survey Validation Metrics",
     )
-    plt.tight_layout()
-
-    return _save_figure(plt, fig, output_path, "per_survey_metrics.png")
 
 
 def plot_per_survey_metrics_evolution(
@@ -1035,66 +1069,14 @@ def plot_per_survey_metrics_evolution(
         Path of the plot, or None if matplotlib is missing or the first
         survey has fewer than 2 epochs of ``rmse``.
     """
-    plt = _try_import_matplotlib()
-    if plt is None:
-        return None
-
-    # Check for per-survey data
-    if not history.survey_names or not history.per_survey_val_metrics:
-        return None
-
-    # Verify we have metrics data
-    first_survey = history.survey_names[0]
-    if first_survey not in history.per_survey_val_metrics:
-        return None
-    survey_metrics = history.per_survey_val_metrics[first_survey]
-    rmse_list = survey_metrics.get("rmse", [])
-    if not rmse_list or len(rmse_list) < 2:
-        return None
-
-    n_epochs = len(rmse_list)
-    epochs = np.arange(1, n_epochs + 1)
-    n_params = len(rmse_list[0])
-
-    # Show up to 3 key parameters
-    n_show = min(3, n_params)
-    param_names = _param_display_names(history, n_show)
-
-    fig, axes = plt.subplots(1, n_show, figsize=(5 * n_show, 4))
-    if n_show == 1:
-        axes = [axes]
-
-    # Line styles for surveys
-    styles = ["-", "--", "-.", ":"]
-    colors = ["steelblue", "coral", "green", "purple"]
-
-    for param_idx in range(n_show):
-        ax = axes[param_idx]
-
-        for i, survey_name in enumerate(history.survey_names):
-            rmse_list = history.per_survey_val_metrics[survey_name].get("rmse", [])
-            if rmse_list and len(rmse_list) == n_epochs:
-                # Extract this parameter's RMSE over epochs
-                rmse_over_time = np.array([r[param_idx] for r in rmse_list])
-                ax.plot(
-                    epochs,
-                    rmse_over_time,
-                    label=survey_name.upper(),
-                    color=colors[i % len(colors)],
-                    linestyle=styles[i % len(styles)],
-                    alpha=0.8,
-                )
-
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("RMSE (normalized)")
-        ax.set_title(f"{param_names[param_idx]} RMSE Evolution")
-        _safe_legend(ax)
-        ax.grid(True, alpha=0.3)
-
-    plt.suptitle("Per-Survey RMSE Evolution by Parameter", fontsize=12)
-    plt.tight_layout()
-
-    return _save_figure(plt, fig, output_path, "per_survey_metrics_evolution.png")
+    return _plot_group_metrics_evolution(
+        history,
+        history.survey_names,
+        history.per_survey_val_metrics,
+        output_path,
+        "per_survey_metrics_evolution.png",
+        suptitle="Per-Survey RMSE Evolution by Parameter",
+    )
 
 
 def plot_per_labelset_loss_curves(
@@ -1115,80 +1097,17 @@ def plot_per_labelset_loss_curves(
         Path of the plot, or None if matplotlib is missing or the history has
         no per-label-source losses.
     """
-    plt = _try_import_matplotlib()
-    if plt is None:
-        return None
-
-    # Check for per-labelset data
-    if not history.label_source_names or not history.per_labelset_val_losses:
-        return None
-
-    # Check we have data for at least one labelset
-    has_data = any(
-        len(losses) > 0 for losses in history.per_labelset_val_losses.values()
+    return _plot_group_loss_curves(
+        history,
+        history.label_source_names,
+        history.per_labelset_val_losses,
+        output_path,
+        "per_labelset_loss_curves.png",
+        left_title="Per-Labelset Validation Loss",
+        right_ylabel="Relative Loss (Labelset / Overall)",
+        right_title="Labelset Difficulty (>1 = harder)",
+        suptitle="Per-Labelset (Output Head) Training Progress",
     )
-    if not has_data:
-        return None
-
-    n_epochs = len(history.val_losses)
-    epochs = np.arange(1, n_epochs + 1)
-
-    # Labelset colors
-    colors = ["steelblue", "coral", "green", "purple"]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-    # Left: Per-labelset validation loss with overall
-    ax = axes[0]
-    ax.plot(
-        epochs,
-        history.val_losses,
-        label="Overall",
-        color="black",
-        linewidth=2,
-        alpha=0.9,
-    )
-    for i, source_name in enumerate(history.label_source_names):
-        losses = history.per_labelset_val_losses.get(source_name, [])
-        if losses and len(losses) == n_epochs:
-            ax.plot(
-                epochs,
-                losses,
-                label=source_name.upper(),
-                color=colors[i % len(colors)],
-                alpha=0.8,
-            )
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Validation Loss")
-    ax.set_title("Per-Labelset Validation Loss")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3)
-
-    # Right: Relative loss (labelset / overall)
-    ax = axes[1]
-    overall_loss = np.array(history.val_losses)
-    ax.axhline(1.0, color="black", linewidth=1, linestyle="--", alpha=0.5)
-    for i, source_name in enumerate(history.label_source_names):
-        losses = history.per_labelset_val_losses.get(source_name, [])
-        if losses and len(losses) == n_epochs:
-            relative_loss = np.array(losses) / np.maximum(overall_loss, 1e-8)
-            ax.plot(
-                epochs,
-                relative_loss,
-                label=source_name.upper(),
-                color=colors[i % len(colors)],
-                alpha=0.8,
-            )
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Relative Loss (Labelset / Overall)")
-    ax.set_title("Labelset Difficulty (>1 = harder)")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3)
-
-    plt.suptitle("Per-Labelset (Output Head) Training Progress", fontsize=12)
-    plt.tight_layout()
-
-    return _save_figure(plt, fig, output_path, "per_labelset_loss_curves.png")
 
 
 def plot_per_labelset_metrics(
@@ -1209,140 +1128,15 @@ def plot_per_labelset_metrics(
         Path of the plot, or None if matplotlib is missing or the first label
         source has no ``rmse``.
     """
-    plt = _try_import_matplotlib()
-    if plt is None:
-        return None
-
-    # Check for per-labelset data
-    if not history.label_source_names or not history.per_labelset_val_metrics:
-        return None
-
-    # Verify we have metrics data
-    first_source = history.label_source_names[0]
-    if first_source not in history.per_labelset_val_metrics:
-        return None
-    source_metrics = history.per_labelset_val_metrics[first_source]
-    if not source_metrics.get("rmse"):
-        return None
-
-    n_labelsets = len(history.label_source_names)
-    best = history.best_epoch
-    n_params = len(source_metrics["rmse"][best])
-
-    if n_params == 0:
-        return None
-
-    # Show up to 6 parameters for readability
-    n_show = min(n_params, 6)
-    param_names = _param_display_names(history, n_show)
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    x = np.arange(n_show)
-    width = 0.35 if n_labelsets == 2 else 0.25
-
-    # Color palette for labelsets
-    colors = ["steelblue", "coral", "green", "purple"][:n_labelsets]
-
-    # RMSE by labelset (top-left)
-    ax = axes[0, 0]
-    for i, source_name in enumerate(history.label_source_names):
-        rmse_list = history.per_labelset_val_metrics[source_name].get("rmse", [])
-        if rmse_list:
-            rmse = rmse_list[best][:n_show]
-            offset = (i - n_labelsets / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                rmse,
-                width,
-                label=source_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("RMSE (normalized)")
-    ax.set_title("RMSE by Labelset")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Robust scatter by labelset (top-right)
-    ax = axes[0, 1]
-    for i, source_name in enumerate(history.label_source_names):
-        scatter_list = history.per_labelset_val_metrics[source_name].get(
-            "robust_scatter", []
-        )
-        if scatter_list:
-            scatter = scatter_list[best][:n_show]
-            offset = (i - n_labelsets / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                scatter,
-                width,
-                label=source_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("Robust Scatter (normalized)")
-    ax.set_title("Scatter/Precision by Labelset")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Bias by labelset (bottom-left)
-    ax = axes[1, 0]
-    for i, source_name in enumerate(history.label_source_names):
-        bias_list = history.per_labelset_val_metrics[source_name].get("bias", [])
-        if bias_list:
-            bias = bias_list[best][:n_show]
-            offset = (i - n_labelsets / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                bias,
-                width,
-                label=source_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.axhline(0, color="black", linewidth=1)
-    ax.axhline(0.1, color="gray", linestyle="--", alpha=0.5)
-    ax.axhline(-0.1, color="gray", linestyle="--", alpha=0.5)
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("Bias (normalized)")
-    ax.set_title("Bias by Labelset (pred - true)")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # MAE by labelset (bottom-right)
-    ax = axes[1, 1]
-    for i, source_name in enumerate(history.label_source_names):
-        mae_list = history.per_labelset_val_metrics[source_name].get("mae", [])
-        if mae_list:
-            mae = mae_list[best][:n_show]
-            offset = (i - n_labelsets / 2 + 0.5) * width
-            ax.bar(
-                x + offset,
-                mae,
-                width,
-                label=source_name.upper(),
-                color=colors[i],
-                alpha=0.8,
-            )
-    ax.set_xticks(x)
-    ax.set_xticklabels(param_names, rotation=45, ha="right", fontsize=9)
-    ax.set_ylabel("MAE (normalized)")
-    ax.set_title("MAE by Labelset")
-    _safe_legend(ax)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    plt.suptitle(
-        f"Per-Labelset Validation Metrics (normalized space, best epoch {best + 1})",
-        fontsize=12,
+    return _plot_group_metrics(
+        history,
+        history.label_source_names,
+        history.per_labelset_val_metrics,
+        output_path,
+        "per_labelset_metrics.png",
+        group_label="Labelset",
+        suptitle_prefix="Per-Labelset Validation Metrics",
     )
-    plt.tight_layout()
-
-    return _save_figure(plt, fig, output_path, "per_labelset_metrics.png")
 
 
 def plot_per_labelset_metrics_evolution(
@@ -1362,66 +1156,14 @@ def plot_per_labelset_metrics_evolution(
         Path of the plot, or None if matplotlib is missing or the first label
         source has fewer than 2 epochs of ``rmse``.
     """
-    plt = _try_import_matplotlib()
-    if plt is None:
-        return None
-
-    # Check for per-labelset data
-    if not history.label_source_names or not history.per_labelset_val_metrics:
-        return None
-
-    # Verify we have metrics data
-    first_source = history.label_source_names[0]
-    if first_source not in history.per_labelset_val_metrics:
-        return None
-    source_metrics = history.per_labelset_val_metrics[first_source]
-    rmse_list = source_metrics.get("rmse", [])
-    if not rmse_list or len(rmse_list) < 2:
-        return None
-
-    n_epochs = len(rmse_list)
-    epochs = np.arange(1, n_epochs + 1)
-    n_params = len(rmse_list[0])
-
-    # Show up to 3 key parameters
-    n_show = min(3, n_params)
-    param_names = _param_display_names(history, n_show)
-
-    fig, axes = plt.subplots(1, n_show, figsize=(5 * n_show, 4))
-    if n_show == 1:
-        axes = [axes]
-
-    # Line styles for labelsets
-    styles = ["-", "--", "-.", ":"]
-    colors = ["steelblue", "coral", "green", "purple"]
-
-    for param_idx in range(n_show):
-        ax = axes[param_idx]
-
-        for i, source_name in enumerate(history.label_source_names):
-            rmse_list = history.per_labelset_val_metrics[source_name].get("rmse", [])
-            if rmse_list and len(rmse_list) == n_epochs:
-                # Extract this parameter's RMSE over epochs
-                rmse_over_time = np.array([r[param_idx] for r in rmse_list])
-                ax.plot(
-                    epochs,
-                    rmse_over_time,
-                    label=source_name.upper(),
-                    color=colors[i % len(colors)],
-                    linestyle=styles[i % len(styles)],
-                    alpha=0.8,
-                )
-
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("RMSE (normalized)")
-        ax.set_title(f"{param_names[param_idx]} RMSE Evolution")
-        _safe_legend(ax)
-        ax.grid(True, alpha=0.3)
-
-    plt.suptitle("Per-Labelset (Output Head) RMSE Evolution by Parameter", fontsize=12)
-    plt.tight_layout()
-
-    return _save_figure(plt, fig, output_path, "per_labelset_metrics_evolution.png")
+    return _plot_group_metrics_evolution(
+        history,
+        history.label_source_names,
+        history.per_labelset_val_metrics,
+        output_path,
+        "per_labelset_metrics_evolution.png",
+        suptitle="Per-Labelset (Output Head) RMSE Evolution by Parameter",
+    )
 
 
 def generate_training_report(

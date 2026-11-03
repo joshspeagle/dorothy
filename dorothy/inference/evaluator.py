@@ -773,66 +773,19 @@ class Evaluator:
                 stacklevel=3,
             )
 
-        # Compute overall metrics
-        overall = self.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
-
-        # Compute per-survey metrics
-        by_survey: dict[str, EvaluationResult] = {}
-        survey_sample_counts: dict[str, int] = {}
-
-        for survey_idx, survey_name in enumerate(survey_names):
-            # Create boolean mask for this survey
-            survey_mask = survey_indices == survey_idx
-            n_survey_samples = survey_mask.sum()
-            survey_sample_counts[survey_name] = int(n_survey_samples)
-
-            if n_survey_samples == 0:
-                # No samples for this survey - create empty result
-                empty_result = EvaluationResult(
-                    parameter_names=list(self.parameter_names),
-                    survey_name=survey_name,
-                )
-                for param_name in self.parameter_names:
-                    empty_result.metrics[param_name] = ParameterMetrics(
-                        name=param_name,
-                        n_samples=0,
-                        rmse=float("nan"),
-                        bias=float("nan"),
-                        sd=float("nan"),
-                        mae=float("nan"),
-                        median_offset=float("nan"),
-                        robust_scatter=float("nan"),
-                    )
-                by_survey[survey_name] = empty_result
-                continue
-
-            # Filter arrays for this survey
-            survey_y_pred = y_pred[survey_mask]
-            survey_y_true = y_true[survey_mask]
-            survey_pred_scatter = (
-                pred_scatter[survey_mask] if pred_scatter is not None else None
-            )
-            survey_label_errors = (
-                label_errors[survey_mask] if label_errors is not None else None
-            )
-            survey_param_mask = mask[survey_mask] if mask is not None else None
-
-            # Evaluate this survey
-            survey_result = self.evaluate(
-                survey_y_pred,
-                survey_y_true,
-                survey_pred_scatter,
-                survey_label_errors,
-                mask=survey_param_mask,
-            )
-            survey_result.survey_name = survey_name
-            by_survey[survey_name] = survey_result
-
-        return SurveyEvaluationResult(
-            overall=overall,
-            by_survey=by_survey,
-            survey_names=survey_names,
-            survey_sample_counts=survey_sample_counts,
+        # Compute overall and per-survey metrics
+        survey_masks = {
+            survey_name: survey_indices == survey_idx
+            for survey_idx, survey_name in enumerate(survey_names)
+        }
+        return self._evaluate_survey_masks(
+            y_pred,
+            y_true,
+            survey_names,
+            survey_masks,
+            pred_scatter,
+            label_errors,
+            mask,
         )
 
     def _evaluate_by_survey_non_exclusive(
@@ -845,58 +798,54 @@ class Evaluator:
         mask: NDArray[np.float32] | None,
     ) -> SurveyEvaluationResult:
         """Evaluate with non-exclusive survey assignment (samples can be in multiple surveys)."""
-        survey_names = list(has_data.keys())
+        return self._evaluate_survey_masks(
+            y_pred,
+            y_true,
+            list(has_data.keys()),
+            has_data,
+            pred_scatter,
+            label_errors,
+            mask,
+        )
 
-        # Compute overall metrics
+    def _evaluate_survey_masks(
+        self,
+        y_pred: NDArray[np.float32],
+        y_true: NDArray[np.float32],
+        survey_names: list[str],
+        survey_masks: dict[str, NDArray[np.bool_]],
+        pred_scatter: NDArray[np.float32] | None,
+        label_errors: NDArray[np.float32] | None,
+        mask: NDArray[np.float32] | None,
+    ) -> SurveyEvaluationResult:
+        """Evaluate overall metrics and per-survey metrics for boolean masks."""
         overall = self.evaluate(y_pred, y_true, pred_scatter, label_errors, mask=mask)
-
-        # Compute per-survey metrics
         by_survey: dict[str, EvaluationResult] = {}
         survey_sample_counts: dict[str, int] = {}
 
         for survey_name in survey_names:
-            survey_mask = has_data[survey_name]
-            n_survey_samples = survey_mask.sum()
-            survey_sample_counts[survey_name] = int(n_survey_samples)
+            survey_mask = survey_masks[survey_name]
+            n_survey_samples = int(survey_mask.sum())
+            survey_sample_counts[survey_name] = n_survey_samples
 
             if n_survey_samples == 0:
-                # No samples for this survey - create empty result
                 empty_result = EvaluationResult(
                     parameter_names=list(self.parameter_names),
                     survey_name=survey_name,
                 )
                 for param_name in self.parameter_names:
-                    empty_result.metrics[param_name] = ParameterMetrics(
-                        name=param_name,
-                        n_samples=0,
-                        rmse=float("nan"),
-                        bias=float("nan"),
-                        sd=float("nan"),
-                        mae=float("nan"),
-                        median_offset=float("nan"),
-                        robust_scatter=float("nan"),
+                    empty_result.metrics[param_name] = self._empty_parameter_metrics(
+                        param_name
                     )
                 by_survey[survey_name] = empty_result
                 continue
 
-            # Filter arrays for this survey
-            survey_y_pred = y_pred[survey_mask]
-            survey_y_true = y_true[survey_mask]
-            survey_pred_scatter = (
-                pred_scatter[survey_mask] if pred_scatter is not None else None
-            )
-            survey_label_errors = (
-                label_errors[survey_mask] if label_errors is not None else None
-            )
-            survey_param_mask = mask[survey_mask] if mask is not None else None
-
-            # Evaluate this survey
             survey_result = self.evaluate(
-                survey_y_pred,
-                survey_y_true,
-                survey_pred_scatter,
-                survey_label_errors,
-                mask=survey_param_mask,
+                y_pred[survey_mask],
+                y_true[survey_mask],
+                pred_scatter[survey_mask] if pred_scatter is not None else None,
+                label_errors[survey_mask] if label_errors is not None else None,
+                mask=mask[survey_mask] if mask is not None else None,
             )
             survey_result.survey_name = survey_name
             by_survey[survey_name] = survey_result
@@ -906,6 +855,28 @@ class Evaluator:
             by_survey=by_survey,
             survey_names=survey_names,
             survey_sample_counts=survey_sample_counts,
+        )
+
+    @staticmethod
+    def _empty_parameter_metrics(
+        name: str, with_uncertainties: bool = False
+    ) -> ParameterMetrics:
+        """Build an all-NaN ParameterMetrics entry when no valid samples exist."""
+        unc_val = float("nan") if with_uncertainties else None
+        return ParameterMetrics(
+            name=name,
+            n_samples=0,
+            rmse=float("nan"),
+            bias=float("nan"),
+            sd=float("nan"),
+            mae=float("nan"),
+            median_offset=float("nan"),
+            robust_scatter=float("nan"),
+            z_median=unc_val,
+            z_robust_scatter=unc_val,
+            pred_unc_p16=unc_val,
+            pred_unc_p50=unc_val,
+            pred_unc_p84=unc_val,
         )
 
     def _compute_metrics(
@@ -932,20 +903,8 @@ class Evaluator:
 
         # Handle empty arrays (all samples masked)
         if n_samples == 0:
-            return ParameterMetrics(
-                name=name,
-                n_samples=0,
-                rmse=float("nan"),
-                bias=float("nan"),
-                sd=float("nan"),
-                mae=float("nan"),
-                median_offset=float("nan"),
-                robust_scatter=float("nan"),
-                z_median=float("nan") if pred_scatter is not None else None,
-                z_robust_scatter=float("nan") if pred_scatter is not None else None,
-                pred_unc_p16=float("nan") if pred_scatter is not None else None,
-                pred_unc_p50=float("nan") if pred_scatter is not None else None,
-                pred_unc_p84=float("nan") if pred_scatter is not None else None,
+            return self._empty_parameter_metrics(
+                name, with_uncertainties=pred_scatter is not None
             )
 
         residuals = pred - true
