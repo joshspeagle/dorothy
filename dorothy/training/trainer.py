@@ -505,7 +505,6 @@ class Trainer:
 
     def _set_seeds(self, seed: int) -> None:
         """Set random seeds for reproducibility."""
-        np.random.seed(seed)
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
