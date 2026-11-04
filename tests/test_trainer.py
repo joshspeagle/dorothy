@@ -2318,3 +2318,13 @@ class TestNllWarmup:
         X, y = training_data
         history = trainer.fit(X[:80], y[:80], X[80:], y[80:])
         assert len(history.val_losses) == 4
+
+
+def test_trainer_init_does_not_mutate_global_numpy_rng_state(simple_config):
+    """Instantiating Trainer must not reseed the global np.random legacy state."""
+    np.random.seed(12345)
+    state_before = np.random.get_state()[1].copy()
+    simple_config.seed = 99999
+    Trainer(simple_config)
+    state_after = np.random.get_state()[1]
+    np.testing.assert_array_equal(state_before, state_after)
